@@ -15,6 +15,4 @@
 
 ### Automatically detect freezing with convolution with a step function
 
-<img width="1921" alt="Screenshot 2023-09-08 at 2 02 41 PM" src="https://github.com/bochens/Icescopy/assets/105825473/df65ceb9-9e57-4ce6-8ac5-e49e54359b0e">
-
-
+<img width="1921" alt="266704903-df65ceb9-9e57-4ce6-8ac5-e49e54359b0e" src="https://github.com/bochens/Icescopy/assets/105825473/57ac046d-16c1-4df1-a513-3f8bf13867f8">
