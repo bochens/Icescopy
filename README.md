@@ -5,7 +5,9 @@
 ## Installation
 
 macOS-arm64: https://drive.google.com/file/d/1WKvhM1P3mUZE5xX3l8CecpHHTV-bzvja/view?usp=share_link
+
 macOS-x86: https://drive.google.com/file/d/1pnjP_aeIHzrKyU9t9UfeXXTFvn1wC5oP/view?usp=share_link
+
 windows: https://drive.google.com/file/d/1fEW6RLxhFZ7FExj1O4qO5xntIoICvwza/view?usp=share_link
 
 ## How to use
