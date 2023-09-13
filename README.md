@@ -2,7 +2,7 @@
 
 **Icescopy is a powerful image analysis tool for ice-freezing array experiments.**
 
-Please cite this repo if this software is used in science publications: 
+**Please cite this repo if this software is used in science publications:**
 
 **Chen, B., Brooks, S. D., & . (2023). Icescopy (Version 1.0) [Computer software]. https://github.com/bochens/Icescopy**
 
