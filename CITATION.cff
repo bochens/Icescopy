@@ -18,7 +18,6 @@ authors:
     email: sbrooks@tamu.edu
     affiliation: Texas A&M University
     orcid: 'https://orcid.org/0000-0001-8185-9332'
-  - {}
 identifiers:
   - type: url
     value: 'https://github.com/bochens/Icescopy'
