@@ -4,7 +4,7 @@
 
 **If you use this software in your research, please cite this work**
 
-**Chen, B., Brooks, S. D., & . (2023). Icescopy (Version 1.0) [Computer software]. https://github.com/bochens/Icescopy**
+**Chen, B., & Brooks, S. D. (2023). Icescopy (Version 1.0) [Computer software]. https://github.com/bochens/Icescopy**
 
 ## Installation
 
