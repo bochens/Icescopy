@@ -1,0 +1,37 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Icescopy
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Bo
+    family-names: Chen
+    email: bchen112@tamu.edu
+    affiliation: Texas A&M University
+    orcid: 'https://orcid.org/0000-0003-0587-0446'
+  - given-names: Sarah D.
+    family-names: Brooks
+    email: sbrooks@tamu.edu
+    affiliation: Texas A&M University
+    orcid: 'https://orcid.org/0000-0001-8185-9332'
+  - {}
+identifiers:
+  - type: url
+    value: 'https://github.com/bochens/Icescopy'
+    description: Github Repo for Icescopy
+repository-code: 'https://github.com/bochens/Icescopy'
+abstract: >-
+  A powerful image analysis tool for ice freezing array
+  experiment.
+keywords:
+  - Ice nucleation
+  - Aerosol
+  - Image
+  - Cold Stage
+license: MIT
+version: '1.0'
+date-released: '2023-09-12'
