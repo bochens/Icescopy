@@ -1,3 +1,5 @@
+<img src="https://github.com/bochens/Icescopy/assets/105825473/682845ad-1530-4002-83e4-80230b138246" align="right" height = "90" />
+
 # Icescopy
 
 **Icescopy is an open-source, powerful, and easy-to-use image analysis tool for ice-freezing array experiments.**
