@@ -1,6 +1,6 @@
 # Icescopy
 
-**Icescopy is a powerful image analysis tool for ice-freezing array experiments.**
+**Icescopy is an open-source, powerful, and easy-to-use image analysis tool for ice-freezing array experiments.**
 
 **If you use this software in your research, please cite this work**
 
