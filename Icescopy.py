@@ -589,15 +589,19 @@ class IceScopy(QMainWindow):
         input_dirpath = QFileDialog.getExistingDirectory(self, 'Select Folder')
         if input_dirpath:
             # Define a list of common image extensions
-            image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.tiff", "*.webp","*.JPG", "*.JPEG", "*.PNG", "*.GIF", "*.BMP", "*.TIFF", "*.WEBP"]
+            image_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"]
             # Initialize an empty list to store image files
             input_imagePath = []
             # Loop through each image extension and find matching files
-            for ext in image_extensions:
-                input_imagePath.extend(glob.glob(os.path.join(input_dirpath, ext)))
+            for root, dirs, files in os.walk(input_dirpath):
+                for file in files:
+                    # If the file extension (case-insensitive) is in the list of image extensions, add it to the list
+                    if file.split('.')[-1].lower() in image_extensions:
+                        input_imagePath.append(os.path.join(root, file))
             # Sort the image files by their creation time
             #input_imagePath.sort(key=lambda x: os.path.getctime(x))
             input_imagePath.sort()
+
             self.load_aux(input_imagePath)
         else:
             self.load_aux([])
@@ -956,7 +960,6 @@ class IceScopy(QMainWindow):
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.update()
                 self.updateImage(self.image_index)
-
 
             elif this_action in [ADD_SELECTION, DELETE_SELECTION, EDIT_SELECTION]:
                 self.displayMarkedRegions()
