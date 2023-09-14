@@ -12,7 +12,7 @@
 
 version-1.0.0 (2023/09/12):
 
-macOS-arm64: https://drive.google.com/file/d/1WKvhM1P3mUZE5xX3l8CecpHHTV-bzvja/view?usp=share_link
+macOS-arm64: https://drive.google.com/file/d/180uYlf8WeKIRm7UZUaeJfBna_ph2-5MT/view?usp=share_link
 
 macOS-x86: https://drive.google.com/file/d/1pnjP_aeIHzrKyU9t9UfeXXTFvn1wC5oP/view?usp=share_link
 
