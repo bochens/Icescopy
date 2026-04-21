@@ -23,6 +23,7 @@ build/
 dist/
 output/
 tmp/
+documentation/
 
 # Generated documentation/build artifacts
 documentation/__pycache__/
@@ -34,3 +35,7 @@ design/
 # Editor state
 .vscode/
 .idea/
+
+# Local working notes
+CODEX_WORKING_NOTES.txt
+temperature_sync_results.csv
