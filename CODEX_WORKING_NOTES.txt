@@ -1,0 +1,16 @@
+Icescopy working notes
+
+1. Verify the real widget/control before styling.
+Do not guess from appearance alone. Inspect the actual Qt/QtAds widget tree, object names, and built-in stylesheet/rules first.
+
+2. For QtAds panel resize lines, use the documented Qt control first.
+QtAds uses standard QSplitters as resize separators. The visible separator thickness is controlled by QSplitter.setHandleWidth(), not just stylesheet rules.
+
+3. Check docs and a minimal reproduction before patching the app.
+Confirm the behavior in a tiny isolated QtAds example, then port the fix into the real app.
+
+4. Avoid making the user test speculative UI changes.
+If the cause is uncertain, pause and verify with docs, introspection, and reproduction before editing.
+
+5. Prefer reverting wrong assumptions quickly.
+If a style or selector does not affect the target widget, remove it instead of stacking more guesses on top.

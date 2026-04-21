@@ -1,0 +1,25 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="ice-core-clip">
+      <circle cx="512" cy="512" r="246"/>
+    </clipPath>
+  </defs>
+  <g id="02-ice-core">
+    <circle cx="512" cy="512" r="260" fill="#B6D3EA"/>
+    <circle cx="512" cy="512" r="260" stroke="#567D9F" stroke-width="14"/>
+    <circle cx="512" cy="512" r="236" fill="#D2E6F5"/>
+    <g clip-path="url(#ice-core-clip)" transform="translate(0 12)">
+      <path d="M512 254L690 332V499L512 614L334 499V332L512 254Z" fill="#D7ECF8"/>
+      <path d="M512 254L690 332L771 446L733 622L690 499V332L512 254Z" fill="#729CC1"/>
+      <path d="M690 332L771 446L690 499V332Z" fill="#5C86AB"/>
+      <path d="M690 499L733 622L572 742L512 614L690 499Z" fill="#A7CAE2"/>
+      <path d="M512 614L572 742L344 724L334 499L512 614Z" fill="#8FB8D8"/>
+      <path d="M334 332L512 254L334 499L239 422L334 332Z" fill="#AFD2E8"/>
+      <path d="M334 499L344 724L253 610L239 422L334 499Z" fill="#588AB4"/>
+      <path d="M356 304H548L408 520L280 496L356 304Z" fill="#F1F8FE" fill-opacity="0.68"/>
+      <path d="M606 304L720 428L650 438L548 304H606Z" fill="#F1F8FE" fill-opacity="0.64"/>
+      <path d="M528 254L650 304L548 304L528 254Z" fill="#F9FDFF" fill-opacity="0.78"/>
+    </g>
+    <circle cx="512" cy="512" r="246" stroke="#FDFEFF" stroke-width="10"/>
+  </g>
+</svg>

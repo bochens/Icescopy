@@ -1,0 +1,129 @@
+\documentclass[
+  9pt,
+  letterpaper,
+  oneside,
+  open=any,
+  DIV=15,
+  parskip=half-,
+  headings=big,
+  numbers=noenddot
+]{scrbook}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[final]{microtype}
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+\usepackage{graphicx}
+\usepackage{bookmark}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\usepackage{fvextra}
+\usepackage{scrlayer-scrpage}
+\usepackage{setspace}
+
+\definecolor{ManualInk}{HTML}{1C1E21}
+\definecolor{ManualMuted}{HTML}{596273}
+\definecolor{ManualBlue}{HTML}{2457D6}
+\definecolor{ManualBlueSoft}{HTML}{EEF3FF}
+\definecolor{ManualBorder}{HTML}{C9D5F2}
+\definecolor{ManualCodeBg}{HTML}{F6F8FB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=ManualBlue,
+  urlcolor=ManualBlue,
+  pdftitle={@@MANUAL_TITLE@@},
+  pdfauthor={OpenAI Codex},
+  pdfsubject={Icescopy software manual}
+}
+
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+\setstretch{0.97}
+\setlength{\parskip}{0.18em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+\setlist[enumerate]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+
+\addtokomafont{disposition}{\sffamily\bfseries\color{ManualInk}}
+\addtokomafont{chapter}{\fontsize{18}{20}\selectfont}
+\addtokomafont{section}{\fontsize{12.2}{14}\selectfont}
+\addtokomafont{subsection}{\fontsize{10.8}{12.2}\selectfont}
+\addtokomafont{pagehead}{\sffamily\small\color{ManualMuted}}
+\addtokomafont{pagenumber}{\sffamily\small\color{ManualMuted}}
+
+\renewcommand*{\chapterheadstartvskip}{\vspace*{-1.8\baselineskip}}
+\renewcommand*{\chapterheadendvskip}{\vspace{0.8\baselineskip}}
+
+\clearpairofpagestyles
+\automark[section]{chapter}
+\ihead{\headmark}
+\ohead{\pagemark}
+\KOMAoptions{headsepline=true}
+
+\newcommand{\manuallead}[1]{%
+  \vspace{0.15em}%
+  {\sffamily\bfseries\color{ManualBlue}#1}\par\nobreak\vspace{0.05em}%
+}
+
+\newenvironment{manualcode}
+  {\VerbatimEnvironment
+   \begin{tcolorbox}[
+     breakable,
+     enhanced,
+     sharp corners,
+     colback=ManualCodeBg,
+     colframe=ManualBorder,
+     boxrule=0.4pt,
+     left=0.9mm,
+     right=0.9mm,
+     top=0.5mm,
+     bottom=0.5mm,
+     arc=0.8mm
+   ]
+   \begin{Verbatim}[fontsize=\footnotesize,breaklines=true,breakanywhere=true]}
+  {\end{Verbatim}\end{tcolorbox}}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+  \vspace*{1.1cm}
+  \includegraphics[width=1.8cm]{@@MANUAL_ICON_PATH@@}\par
+  \vspace{0.75cm}
+  {\sffamily\bfseries\fontsize{24}{27}\selectfont @@MANUAL_TITLE@@\par}
+  \vspace{0.25cm}
+  {\sffamily\normalsize\color{ManualMuted}@@MANUAL_SUBTITLE@@\par}
+  \vspace{0.8cm}
+  \begin{tcolorbox}[
+    width=0.84\textwidth,
+    enhanced,
+    colback=ManualBlueSoft,
+    colframe=ManualBorder,
+    boxrule=0.5pt,
+    arc=1.4mm,
+    left=2.5mm,
+    right=2.5mm,
+    top=2mm,
+    bottom=2mm
+  ]
+    {\sffamily\bfseries\color{ManualInk}Product manual}\par
+    \vspace{0.1em}
+    {\color{ManualMuted}Current user documentation for the Icescopy desktop application.}
+  \end{tcolorbox}
+  \vfill
+  {\sffamily\small\color{ManualMuted}Generated @@MANUAL_DATE@@}
+\end{titlepage}
+
+\frontmatter
+@@MANUAL_INCLUDE_TOC@@
+
+@@MANUAL_FRONTMATTER@@
+
+\mainmatter
+@@MANUAL_BODY@@
+
+\end{document}
