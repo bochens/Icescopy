@@ -1,0 +1,38 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Icescopy
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Bo Chen
+    affiliation: Colorado State University
+    email: bo.chen@colostate.edu
+    name-particle: Bo
+    family-names: Chen
+    orcid: 'https://orcid.org/0000-0003-0587-0446'
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.19673845
+repository-code: 'https://github.com/bochens/Icescopy'
+abstract: >-
+  Icescopy is a desktop application for ice-freezing array
+  analysis. It supports interactive cell annotation,
+  grayscale-based freeze detection, in-app grayscale
+  plotting, session saving with .icescopy files, and CSV
+  export of analysis results.
+
+
+  This release adds the newer direct-manipulation workflow,
+  image editing tools, improved review and results tables,
+  and temperature-data synchronization for both CSU .dat and
+  TAMU Linkam .xlsx workflows. It also includes corrected
+  temperature-sync exports, packaged macOS app support, and
+  native .icescopy session-file handling.
+keywords:
+  - INP
+  - Atmospheric Science
+license: MIT
