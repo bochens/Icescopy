@@ -497,6 +497,7 @@ class CSUTemperatureImportDialog(QDialog):
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
 
         file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
         file_row.setSpacing(8)
         self.file_path_edit = QLineEdit(self)
         self.file_path_edit.setText(str(initial_path or ""))
@@ -620,6 +621,7 @@ class TAMUTemperatureImportDialog(QDialog):
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
 
         file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
         file_row.setSpacing(8)
         self.file_path_edit = QLineEdit(self)
         self.file_path_edit.setText(str(initial_path or ""))
@@ -636,6 +638,7 @@ class TAMUTemperatureImportDialog(QDialog):
         form.addRow("TAMU .xlsx file", file_row_widget)
 
         calibration_row = QHBoxLayout()
+        calibration_row.setContentsMargins(0, 0, 0, 0)
         calibration_row.setSpacing(8)
         self.calibration_path_edit = QLineEdit(self)
         self.calibration_path_edit.setText(str(initial_calibration_path or ""))
@@ -982,6 +985,7 @@ class IceScopy(QMainWindow):
         self.freeze_finder_tail_extend_points = 5
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
+        self.freeze_finder_detect_brightening = False
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
         self.timeseries_trace_line_width = 2.0
@@ -1094,6 +1098,9 @@ class IceScopy(QMainWindow):
         )
         self.convolution_ramp_points = int(
             preferences.get('ConvolutionRampPoints', self.convolution_ramp_points)
+        )
+        self.freeze_finder_detect_brightening = bool(
+            preferences.get('FreezeFinderDetectBrightening', self.freeze_finder_detect_brightening)
         )
         self.temperature_cycle_warmup_hysteresis_c = float(
             preferences.get(
@@ -9273,6 +9280,7 @@ class IceScopy(QMainWindow):
             freeze_finder_tail_extend_points=self.freeze_finder_tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
+            freeze_finder_detect_brightening=self.freeze_finder_detect_brightening,
         )
         self.worker.analysis_done.connect(self.onAnalysisDone)
         self.updateButtonStates()
@@ -9669,6 +9677,15 @@ class IceScopy(QMainWindow):
         convolution_ramp_points_element = root.find('ConvolutionRampPoints')
         if convolution_ramp_points_element is not None and convolution_ramp_points_element.text is not None:
             preferences['ConvolutionRampPoints'] = int(float(convolution_ramp_points_element.text))
+
+        freeze_finder_detect_brightening_element = root.find('FreezeFinderDetectBrightening')
+        if (
+            freeze_finder_detect_brightening_element is not None
+            and freeze_finder_detect_brightening_element.text is not None
+        ):
+            preferences['FreezeFinderDetectBrightening'] = (
+                str(freeze_finder_detect_brightening_element.text).strip().lower() in {"1", "true", "yes", "on"}
+            )
 
         temperature_cycle_warmup_hysteresis_c_element = root.find('TemperatureCycleWarmupHysteresisC')
         if (

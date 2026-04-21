@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QSpinBox,
+    QCheckBox,
     QFrame,
     QColorDialog,
     QScrollArea,
@@ -39,6 +40,7 @@ from icescopy_freezfinder import (
     DEFAULT_FREEZE_FINDER_PROMINENCE,
     DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     DEFAULT_FREEZE_FINDER_WIDTH,
+    DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
     DEFAULT_FREEZE_RESULT_HEADERS,
     build_freeze_output_path,
     compute_freeze_result_rows,
@@ -99,6 +101,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "FreezeFinderTailExtendPoints": DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     "ConvolutionHalfWindowPoints": DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     "ConvolutionRampPoints": DEFAULT_CONVOLUTION_RAMP_POINTS,
+    "FreezeFinderDetectBrightening": DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
     "TemperatureCycleWarmupHysteresisC": 0.02,
     "TimeseriesPalette": "bright",
     "TimeseriesTraceLineWidth": 2.0,
@@ -399,6 +402,7 @@ class Image_analysis_thread(QThread):
         freeze_finder_tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
         convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
         convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
+        freeze_finder_detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
     ):
         super().__init__()
         self.filePath   = filePath
@@ -420,6 +424,7 @@ class Image_analysis_thread(QThread):
         self.freeze_finder_tail_extend_points = freeze_finder_tail_extend_points
         self.convolution_half_window_points = convolution_half_window_points
         self.convolution_ramp_points = convolution_ramp_points
+        self.freeze_finder_detect_brightening = bool(freeze_finder_detect_brightening)
         self.grayscale_result_headers = []
         self.grayscale_result_rows = []
         self.freeze_result_headers = list(DEFAULT_FREEZE_RESULT_HEADERS)
@@ -547,6 +552,7 @@ class Image_analysis_thread(QThread):
             tail_extend_points=self.freeze_finder_tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
+            detect_brightening=self.freeze_finder_detect_brightening,
             cell_ids=ordered_cell_ids,
         )
         if self.freeze_output_path:
@@ -771,6 +777,8 @@ class PreferencesDialog(QDialog):
         self.freeze_finder_tail_extend_points_field = self.make_spinbox(0, 1000, self.pref_value("FreezeFinderTailExtendPoints"))
         self.convolution_half_window_points_field = self.make_spinbox(0, 100000, self.pref_value("ConvolutionHalfWindowPoints"))
         self.convolution_ramp_points_field = self.make_spinbox(0, 1000, self.pref_value("ConvolutionRampPoints"))
+        self.freeze_finder_detect_brightening_field = QCheckBox("Detect freezing from brightening")
+        self.freeze_finder_detect_brightening_field.setChecked(bool(self.pref_value("FreezeFinderDetectBrightening")))
         self.temperature_cycle_warmup_hysteresis_c_field = self.make_double_spinbox(
             0.0,
             10.0,
@@ -825,6 +833,7 @@ class PreferencesDialog(QDialog):
             self.freeze_finder_tail_extend_points_field,
             self.convolution_half_window_points_field,
             self.convolution_ramp_points_field,
+            self.freeze_finder_detect_brightening_field,
             self.temperature_cycle_warmup_hysteresis_c_field,
             self.timeseries_palette_field,
             self.timeseries_trace_line_width_field,
@@ -1128,7 +1137,7 @@ class PreferencesDialog(QDialog):
                 "Grayscale",
                 [
                     "Mean grayscale is measured inside each selected circle for every frame.",
-                    "The solid trace shows the raw mean grayscale signal. The dashed convolution trace is the edge-enhanced signal used to detect sudden darkening steps.",
+                    "The solid trace shows the raw mean grayscale signal. The dashed convolution trace is the edge-enhanced signal used to detect sudden freezing steps, whether they appear as darkening or brightening depending on the selected polarity.",
                 ],
             ),
         )
@@ -1170,6 +1179,13 @@ class PreferencesDialog(QDialog):
                         self.build_field_with_help(
                             self.convolution_ramp_points_field,
                             "Softens the step kernel near its center. Larger values better match gradual sloped darkening without changing the convolution implementation.",
+                        ),
+                    ),
+                    (
+                        "Detection Polarity",
+                        self.build_field_with_help(
+                            self.freeze_finder_detect_brightening_field,
+                            "Off detects sudden darkening as freezing. Turn this on when frozen wells become brighter so the app detects upward convolution peaks instead.",
                         ),
                     ),
                     (
@@ -1230,6 +1246,7 @@ class PreferencesDialog(QDialog):
         SubElement(root, "FreezeFinderTailExtendPoints").text = str(self.freeze_finder_tail_extend_points_field.value())
         SubElement(root, "ConvolutionHalfWindowPoints").text = str(self.convolution_half_window_points_field.value())
         SubElement(root, "ConvolutionRampPoints").text = str(self.convolution_ramp_points_field.value())
+        SubElement(root, "FreezeFinderDetectBrightening").text = "true" if self.freeze_finder_detect_brightening_field.isChecked() else "false"
         SubElement(root, "TemperatureCycleWarmupHysteresisC").text = str(
             self.temperature_cycle_warmup_hysteresis_c_field.value()
         )

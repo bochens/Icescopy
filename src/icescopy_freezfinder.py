@@ -20,6 +20,7 @@ DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS = 5
 DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS = 0
 DEFAULT_CONVOLUTION_RAMP_POINTS = 0
 DEFAULT_ONSET_DIFF_FRACTION = 0.5
+DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING = False
 
 
 def build_image_datetime_array(datetime_array, filename_array):
@@ -77,6 +78,7 @@ def compute_freeze_result_rows(
     tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
+    detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
     cell_ids=None,
     interpolated_image_temps=None,
     correction_func=None,
@@ -116,7 +118,7 @@ def compute_freeze_result_rows(
         )
 
         peaks, peak_properties = signal.find_peaks(
-            -g_array_step,
+            g_array_step if detect_brightening else -g_array_step,
             width=width,
             prominence=prominence,
         )
@@ -133,6 +135,7 @@ def compute_freeze_result_rows(
                     right_ip,
                     center_offset,
                     max_frame_index,
+                    detect_brightening=detect_brightening,
                 )
             )
 
@@ -159,6 +162,7 @@ def refine_event_index_from_raw_trace(
     center_offset,
     max_frame_index,
     onset_diff_fraction=DEFAULT_ONSET_DIFF_FRACTION,
+    detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
 ):
     search_start = max(0, int(np.floor(float(left_ip) + center_offset)) - 1)
     search_end = min(max_frame_index, int(np.ceil(float(right_ip) + center_offset)) + 1)
@@ -173,42 +177,42 @@ def refine_event_index_from_raw_trace(
         return int(np.clip(np.floor(event_position), 0, max_frame_index))
 
     raw_diffs = np.diff(raw_window)
-    negative_indexes = np.where(raw_diffs < 0)[0]
-    if negative_indexes.size == 0:
+    candidate_indexes = np.where(raw_diffs > 0)[0] if detect_brightening else np.where(raw_diffs < 0)[0]
+    if candidate_indexes.size == 0:
         event_position = float(peak_index) + center_offset
         return int(np.clip(np.floor(event_position), 0, max_frame_index))
 
-    negative_magnitudes = -raw_diffs[negative_indexes]
-    if negative_magnitudes.size == 1:
-        onset_local_index = int(negative_indexes[0])
+    candidate_magnitudes = raw_diffs[candidate_indexes] if detect_brightening else -raw_diffs[candidate_indexes]
+    if candidate_magnitudes.size == 1:
+        onset_local_index = int(candidate_indexes[0])
     else:
-        # Split the negative derivative magnitudes into two groups
-        # (small changes vs large drops) using a simple 1D 2-means fit,
-        # then choose the first derivative in time that belongs to the
-        # large-drop cluster.
+        # Split the candidate derivative magnitudes into two groups
+        # (small changes vs large freezing steps) using a simple 1D 2-means
+        # fit, then choose the first derivative in time that belongs to the
+        # larger-change cluster.
         centers = np.array(
-            [float(np.min(negative_magnitudes)), float(np.max(negative_magnitudes))],
+            [float(np.min(candidate_magnitudes)), float(np.max(candidate_magnitudes))],
             dtype=float,
         )
         if np.isclose(centers[0], centers[1]):
-            onset_local_index = int(negative_indexes[0])
+            onset_local_index = int(candidate_indexes[0])
         else:
-            labels = np.zeros_like(negative_magnitudes, dtype=int)
+            labels = np.zeros_like(candidate_magnitudes, dtype=int)
             for _ in range(16):
-                distances = np.abs(negative_magnitudes[:, None] - centers[None, :])
+                distances = np.abs(candidate_magnitudes[:, None] - centers[None, :])
                 new_labels = np.argmin(distances, axis=1)
                 if np.array_equal(new_labels, labels):
                     break
                 labels = new_labels
                 for cluster_index in (0, 1):
-                    cluster_values = negative_magnitudes[labels == cluster_index]
+                    cluster_values = candidate_magnitudes[labels == cluster_index]
                     if cluster_values.size:
                         centers[cluster_index] = float(np.mean(cluster_values))
 
             large_drop_cluster = int(np.argmax(centers))
-            onset_candidates = negative_indexes[labels == large_drop_cluster]
+            onset_candidates = candidate_indexes[labels == large_drop_cluster]
             if onset_candidates.size == 0:
-                onset_local_index = int(negative_indexes[np.argmax(negative_magnitudes)])
+                onset_local_index = int(candidate_indexes[np.argmax(candidate_magnitudes)])
             else:
                 onset_local_index = int(onset_candidates[0])
 
