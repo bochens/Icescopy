@@ -2,6 +2,13 @@
 
 Icescopy is a desktop application for reviewing image sequences from ice-freezing array experiments, annotating droplets or wells, generating grayscale measurement timeseries, identifying freezing frames, and merging those image-derived results with external temperature data.
 
+## Citation
+
+If you use Icescopy in your work, please cite it as:
+
+Chen, B. (2026). *Icescopy* (Version 1.0.1) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19673845
+
+
 ## What The Software Does
 
 Icescopy is built around four core tasks:
