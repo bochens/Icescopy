@@ -22,9 +22,14 @@ env/
 build/
 dist/
 output/
+tmp/
 
 # Generated documentation/build artifacts
 documentation/__pycache__/
+manual/
+
+# Design work files
+design/
 
 # Editor state
 .vscode/
