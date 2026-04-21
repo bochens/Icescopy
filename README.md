@@ -24,9 +24,9 @@ The current application also supports:
 
 - [src](/Users/C832577250/Project/Icescopy/src): application source code
 - [resources](/Users/C832577250/Project/Icescopy/resources): runtime assets packaged with the app
-- [manual](/Users/C832577250/Project/Icescopy/manual): user-facing documentation
-- [documentation](/Users/C832577250/Project/Icescopy/documentation): developer notes and implementation reviews
-- [design](/Users/C832577250/Project/Icescopy/design): design work files and icon source material
+- [documentation](/Users/C832577250/Project/Icescopy/documentation): developer notes, manual build tooling, and the LaTeX template
+- [Icescopy.spec](/Users/C832577250/Project/Icescopy/Icescopy.spec): PyInstaller build specification for the macOS app
+- [Icescopy-Manual.pdf](/Users/C832577250/Project/Icescopy/Icescopy-Manual.pdf): tracked PDF copy of the user manual
 
 ## Run From Source
 
@@ -56,11 +56,15 @@ Build outputs:
 - [dist/Icescopy](/Users/C832577250/Project/Icescopy/dist/Icescopy)
 - [dist/Icescopy-macos-arm64.zip](/Users/C832577250/Project/Icescopy/dist/Icescopy-macos-arm64.zip)
 
+These build outputs are generated locally and are not intended to stay tracked in git.
+
 ## Documentation
 
-Start with:
+Tracked documentation entry points:
 
-- [manual/README.md](/Users/C832577250/Project/Icescopy/manual/README.md)
+- [Icescopy-Manual.pdf](/Users/C832577250/Project/Icescopy/Icescopy-Manual.pdf)
+- [documentation/build_manual_pdf.py](/Users/C832577250/Project/Icescopy/documentation/build_manual_pdf.py)
+- [documentation/latex/icescopy-manual-template.tex](/Users/C832577250/Project/Icescopy/documentation/latex/icescopy-manual-template.tex)
 
 The manual covers:
 
@@ -74,5 +78,7 @@ The manual covers:
 
 ## Notes
 
-- The packaged app does not include the repo `README.md`, `manual/`, or `documentation/` folders.
+- The packaged app does not include the repo `README.md`, `documentation/`, or the tracked PDF manual.
 - `.icescopy` session files are zip-based bundles containing the saved session state and result tables.
+- Local working folders such as `manual/`, `design/`, `tmp/`, `build/`, `dist/`, and `output/` are ignored and are not part of the tracked source tree.
+- Please reach out to me if you have a special temperature file format that needs to be paired with the freezing detection workflow, and I will help incorporate it into Icescopy.
