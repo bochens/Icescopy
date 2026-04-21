@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QToolButton, QAbstractSpinBox,
                                QListView, QListWidget, QListWidgetItem, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QFormLayout, QStackedWidget, QSpinBox, QComboBox,
-                               QTableWidgetItem, QAbstractItemView, QMessageBox, QDialogButtonBox, QFrame, QDockWidget, QTabWidget, QStyle, QCheckBox)
+                               QTableWidgetItem, QAbstractItemView, QMessageBox, QDialogButtonBox, QFrame, QDockWidget, QTabWidget, QStyle, QCheckBox, QScrollArea, QStyleOptionSlider)
 from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
@@ -144,9 +144,19 @@ class ToolOptionsInfoPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        layout.addWidget(self.scroll_area)
 
-        self.column_widget = QWidget(self)
+        self.scroll_contents = QWidget(self.scroll_area)
+        self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
+        self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_contents_layout.setSpacing(0)
+        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
+        self.column_widget = QWidget(self.scroll_contents)
         self.column_widget.setFixedWidth(self.content_width)
         self.column_layout = QVBoxLayout(self.column_widget)
         self.column_layout.setContentsMargins(0, 0, 0, 0)
@@ -158,8 +168,9 @@ class ToolOptionsInfoPage(QWidget):
         self.message_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         self.column_layout.addWidget(self.message_label)
         self.column_layout.addStretch(1)
-        layout.addWidget(self.column_widget)
-        layout.addStretch(1)
+        self.scroll_contents_layout.addWidget(self.column_widget)
+        self.scroll_contents_layout.addStretch(1)
+        self.scroll_area.setWidget(self.scroll_contents)
 
     def set_message(self, text):
         self.message_label.setText(text)
@@ -184,16 +195,27 @@ class ToolOptionsFormPage(QWidget):
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(0)
-        self.root_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.root_layout.addWidget(self.scroll_area)
 
-        self.column_widget = QWidget(self)
+        self.scroll_contents = QWidget(self.scroll_area)
+        self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
+        self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_contents_layout.setSpacing(0)
+        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
+        self.column_widget = QWidget(self.scroll_contents)
         self.column_widget.setFixedWidth(self.content_width)
         self.column_layout = QVBoxLayout(self.column_widget)
         self.column_layout.setContentsMargins(0, 0, 0, 0)
         self.column_layout.setSpacing(10)
         self.column_layout.setAlignment(Qt.AlignTop)
-        self.root_layout.addWidget(self.column_widget)
-        self.root_layout.addStretch(1)
+        self.scroll_contents_layout.addWidget(self.column_widget)
+        self.scroll_contents_layout.addStretch(1)
+        self.scroll_area.setWidget(self.scroll_contents)
 
         self.hint_label = None
         self.apply_button = None
@@ -3682,6 +3704,7 @@ class IceScopy(QMainWindow):
         layout.addWidget(self.tool_options_mode_label)
 
         self.tool_options_stack = QStackedWidget(panel)
+        self.tool_options_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self.tool_options_none_page = ToolOptionsInfoPage(panel)
         self.tool_options_none_label = self.tool_options_none_page.message_label
@@ -3750,16 +3773,19 @@ class IceScopy(QMainWindow):
             shortcut_width=0,
         )
         self.image_edit_histogram_widget = ImageHistogramWidget(self.image_edit_tool_page.column_widget)
+        self.image_edit_histogram_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.image_edit_tool_page.column_layout.addWidget(self.image_edit_histogram_widget)
         self.image_edit_histogram_separator = self.image_edit_tool_page.add_separator()
 
         self.image_edit_exposure_block = QWidget(self.image_edit_tool_page.column_widget)
         self.image_edit_exposure_block.setFixedWidth(self.image_edit_tool_page.content_width)
+        self.image_edit_exposure_block.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         image_edit_exposure_block_layout = QVBoxLayout(self.image_edit_exposure_block)
         image_edit_exposure_block_layout.setContentsMargins(0, 0, 0, 0)
         image_edit_exposure_block_layout.setSpacing(4)
 
         self.image_edit_exposure_header = QWidget(self.image_edit_exposure_block)
+        self.image_edit_exposure_header.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         image_edit_exposure_header_layout = QHBoxLayout(self.image_edit_exposure_header)
         image_edit_exposure_header_layout.setContentsMargins(0, 0, 0, 0)
         image_edit_exposure_header_layout.setSpacing(8)
@@ -3785,17 +3811,21 @@ class IceScopy(QMainWindow):
         self.image_edit_exposure_slider.installEventFilter(self)
         self.image_edit_exposure_slider.valueChanged.connect(self.handle_image_edit_exposure_slider_changed)
         self.image_edit_exposure_slider.sliderReleased.connect(self.handle_image_edit_exposure_slider_released)
+        self.image_edit_exposure_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         image_edit_exposure_block_layout.addWidget(self.image_edit_exposure_slider)
+        self.image_edit_exposure_block.setFixedHeight(self.image_edit_exposure_block.sizeHint().height())
         self.image_edit_tool_page.column_layout.addWidget(self.image_edit_exposure_block)
         self.image_edit_exposure_separator = self.image_edit_tool_page.add_separator()
 
         self.image_edit_contrast_block = QWidget(self.image_edit_tool_page.column_widget)
         self.image_edit_contrast_block.setFixedWidth(self.image_edit_tool_page.content_width)
+        self.image_edit_contrast_block.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         image_edit_contrast_block_layout = QVBoxLayout(self.image_edit_contrast_block)
         image_edit_contrast_block_layout.setContentsMargins(0, 0, 0, 0)
         image_edit_contrast_block_layout.setSpacing(4)
 
         self.image_edit_contrast_header = QWidget(self.image_edit_contrast_block)
+        self.image_edit_contrast_header.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         image_edit_contrast_header_layout = QHBoxLayout(self.image_edit_contrast_header)
         image_edit_contrast_header_layout.setContentsMargins(0, 0, 0, 0)
         image_edit_contrast_header_layout.setSpacing(8)
@@ -3820,7 +3850,9 @@ class IceScopy(QMainWindow):
         self.image_edit_contrast_slider.installEventFilter(self)
         self.image_edit_contrast_slider.valueChanged.connect(self.handle_image_edit_contrast_slider_changed)
         self.image_edit_contrast_slider.sliderReleased.connect(self.handle_image_edit_contrast_slider_released)
+        self.image_edit_contrast_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         image_edit_contrast_block_layout.addWidget(self.image_edit_contrast_slider)
+        self.image_edit_contrast_block.setFixedHeight(self.image_edit_contrast_block.sizeHint().height())
         self.image_edit_tool_page.column_layout.addWidget(self.image_edit_contrast_block)
         self.image_edit_contrast_separator = self.image_edit_tool_page.add_separator()
 
@@ -4088,8 +4120,7 @@ class IceScopy(QMainWindow):
         self.tool_options_stack.addWidget(self.grid_tool_page)
         self.tool_options_stack.addWidget(self.edit_circle_tool_page)
         self.tool_options_stack.addWidget(self.edit_grid_tool_page)
-        layout.addWidget(self.tool_options_stack)
-        layout.addStretch(1)
+        layout.addWidget(self.tool_options_stack, 1)
 
         panel.setStyleSheet(f"""
             QLabel {{ line-height: 1.3; }}
@@ -5007,6 +5038,44 @@ class IceScopy(QMainWindow):
             if self.tool_options_dock is not None and shiboken6.isValid(self.tool_options_dock):
                 self.tool_options_dock.raise_()
 
+    def get_slider_handle_rect(self, slider):
+        if slider is None:
+            return QRectF()
+        option = QStyleOptionSlider()
+        slider.initStyleOption(option)
+        handle_rect = slider.style().subControlRect(
+            QStyle.CC_Slider,
+            option,
+            QStyle.SC_SliderHandle,
+            slider,
+        )
+        return QRectF(handle_rect)
+
+    def reset_image_edit_slider_to_default(self, slider):
+        if slider is getattr(self, "image_edit_exposure_slider", None):
+            self.begin_image_edit_history("Reset Exposure")
+            self.reset_pending_image_edit_preview_state(stop_timer=True)
+            self.apply_image_edit_state(
+                self.compose_image_edit_state(exposure=0.0),
+                invalidate_results=True,
+                refresh_display=True,
+                sync_controls=True,
+            )
+            self.commit_image_edit_history("Reset Exposure")
+            return True
+        if slider is getattr(self, "image_edit_contrast_slider", None):
+            self.begin_image_edit_history("Reset Contrast")
+            self.reset_pending_image_edit_preview_state(stop_timer=True)
+            self.apply_image_edit_state(
+                self.compose_image_edit_state(contrast=0.0),
+                invalidate_results=True,
+                refresh_display=True,
+                sync_controls=True,
+            )
+            self.commit_image_edit_history("Reset Contrast")
+            return True
+        return False
+
     def eventFilter(self, watched, event):
         if watched is getattr(self, "cursor_freeze_lineedit", None):
             if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -5041,6 +5110,21 @@ class IceScopy(QMainWindow):
             self.grayscale_plot_widget,
             self.grayscale_plot_widget.plot_widget,
         ):
+            if watched in (
+                getattr(self, "image_edit_exposure_slider", None),
+                getattr(self, "image_edit_contrast_slider", None),
+            ):
+                if event.type() == QEvent.Wheel:
+                    event.accept()
+                    return True
+                if (
+                    event.type() == QEvent.MouseButtonDblClick
+                    and event.button() == Qt.LeftButton
+                    and self.get_slider_handle_rect(watched).contains(event.position())
+                ):
+                    if self.reset_image_edit_slider_to_default(watched):
+                        event.accept()
+                        return True
             if event.type() == QEvent.KeyPress and self.handle_frame_navigation_shortcut(event.key()):
                 event.accept()
                 return True
@@ -9320,6 +9404,7 @@ class IceScopy(QMainWindow):
         else:
             self.image_slider.setStyleSheet(icescopy_stylesheet.light_mode_time_line_slider_style)
             self.zoom_slider.setStyleSheet(icescopy_stylesheet.light_zoom_slider_stylesheet)
+        self.image_slider.sync_timeline_geometry()
     
     def reset_status_bar_stylesheet(self, theme=None):
         if darkdetect.isDark():
@@ -9653,8 +9738,6 @@ class IceScopy(QMainWindow):
 if __name__ == '__main__':
     app = QApplication([])
     app.setWindowIcon(QIcon(os.path.join(resources_dir, "app_icons", "IcescopyApp.png")))
-    if platform.system() == "Darwin":
-        app.setStyle('macos')
     window = IceScopy()
     window.show()
     

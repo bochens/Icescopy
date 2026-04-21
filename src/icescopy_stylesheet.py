@@ -1,10 +1,15 @@
-# Stylesheet 
+# Stylesheet
 import os
-module_dir = os.path.dirname(__file__)
-resources_dir = os.path.join(module_dir, 'resources')
+import platform
+
+from PySide6.QtCore import QUrl
+
+module_dir = os.path.abspath(os.path.dirname(__file__))
+resources_dir = os.path.abspath(os.path.join(module_dir, 'resources'))
 if not os.path.isdir(resources_dir):
-    resources_dir = os.path.join(os.path.dirname(module_dir), 'resources')
-ui_images_dir = os.path.join(resources_dir, 'ui_images')
+    resources_dir = os.path.abspath(os.path.join(os.path.dirname(module_dir), 'resources'))
+ui_images_dir = os.path.abspath(os.path.join(resources_dir, 'ui_images'))
+IS_WINDOWS = platform.system() == "Windows"
 
 darkmode_toolbar_style_sheet = """
                 QToolButton {
@@ -62,14 +67,37 @@ light_mode_toolbar_style_sheet = """
                 }
             """
 
-slider_url = os.path.join(ui_images_dir, "slider_handle.png")
+slider_handle_path = os.path.abspath(os.path.join(ui_images_dir, "slider_handle.png"))
+slider_url = (
+    QUrl.fromLocalFile(slider_handle_path).toString()
+    if IS_WINDOWS
+    else slider_handle_path.replace(os.sep, "/")
+)
+timeline_groove_margin = "margin: 0px 0px 6px 0px;" if IS_WINDOWS else "margin-bottom: 10px;"
+timeline_handle_style = (
+    """
+                    width: 16px;
+                    height: 20px;
+                    border: none;
+                    background: transparent;
+                    margin: -7px 0px;
+    """
+    if IS_WINDOWS
+    else f"""
+                    width: 16px;  /* Slightly fatter drag thumb */
+                    height: 20px;  /* Adjust to your trapezoid height */
+                    border: none;
+                    margin: -7px 0px -13px 0px;  /* handle starts left most of the groove */
+                    image: url({slider_url});
+    """
+)
 dark_mode_time_line_slider_style = f"""
                 QSlider::groove:horizontal {{
                     border: 1px solid #999999;
                     background: #323232;
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
 
                 QSlider::add-page:horizontal {{
@@ -77,22 +105,18 @@ dark_mode_time_line_slider_style = f"""
                     background: #323232;
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
                 QSlider::sub-page:horizontal {{
                     border: 1px solid #999999;
                     background: rgba(80, 80, 80, 255);
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
 
                 QSlider::handle:horizontal {{
-                    width: 16px;  /* Slightly fatter drag thumb */
-                    height: 20px;  /* Adjust to your trapezoid height */
-                    border: none;
-                    margin: -7px 0px -13px 0px;  /* handle starts left most of the groove */
-                    image: url({slider_url});
+                    {timeline_handle_style}
                 }}
                 """
 light_mode_time_line_slider_style = f"""
@@ -101,7 +125,7 @@ light_mode_time_line_slider_style = f"""
                     background: #ececec;
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
 
                 QSlider::add-page:horizontal {{
@@ -109,22 +133,18 @@ light_mode_time_line_slider_style = f"""
                     background: #FFFFFF;
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
                 QSlider::sub-page:horizontal {{
                     border: 1px solid #212121;
                     background: #ececec;
                     height: 6px;
                     border-radius: 3px;
-                    margin-bottom: 10px;
+                    {timeline_groove_margin}
                 }}
 
                 QSlider::handle:horizontal {{
-                    width: 16px;  /* Slightly fatter drag thumb */
-                    height: 20px;  /* Adjust to your trapezoid height */
-                    border: none;
-                    margin: -7px 0px -13px 0px;  /* handle starts left most of the groove */
-                    image: url({slider_url});
+                    {timeline_handle_style}
                 }}
                 """
 
