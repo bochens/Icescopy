@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 import re
 import zipfile
@@ -408,3 +409,116 @@ def reconcile_cumulative_counts(raw_counts, anchor_counts, maximum_count):
         corrected[row_index] = min(running, max_count)
 
     return corrected
+
+
+def normalize_temperature_reset_threshold(reset_temperature):
+    if reset_temperature in (None, ""):
+        return None
+    try:
+        return float(reset_temperature)
+    except (TypeError, ValueError):
+        return None
+
+
+def detect_cycle_start_indexes_from_temperatures(
+    temperatures,
+    reset_temperature,
+    warmup_hysteresis_c=0.02,
+):
+    if temperatures is None:
+        return [0]
+
+    values = [float(value) for value in temperatures]
+    if not values:
+        return [0]
+
+    threshold = normalize_temperature_reset_threshold(reset_temperature)
+    if threshold is None:
+        return [0]
+
+    cycle_start_indexes = [0]
+    warmup_hysteresis_c = max(0.0, float(warmup_hysteresis_c))
+
+    first_value = values[0]
+    previous_above = bool(math.isfinite(first_value) and first_value >= threshold)
+    cool_segment_min = None
+    if math.isfinite(first_value) and first_value < threshold:
+        cool_segment_min = float(first_value)
+
+    for index in range(1, len(values)):
+        current_value = values[index]
+        current_finite = bool(math.isfinite(current_value))
+        current_above = bool(current_finite and current_value >= threshold)
+        if current_finite and (not current_above):
+            if cool_segment_min is None:
+                cool_segment_min = float(current_value)
+            else:
+                cool_segment_min = min(cool_segment_min, float(current_value))
+        if current_above and (not previous_above):
+            minimum_below_threshold = cool_segment_min
+            if (
+                minimum_below_threshold is not None
+                and (float(current_value) - float(minimum_below_threshold)) >= warmup_hysteresis_c
+            ):
+                cycle_start_indexes.append(index)
+            cool_segment_min = None
+        previous_above = current_above
+
+    return cycle_start_indexes
+
+
+def build_cycle_ids_from_start_indexes(total_count, cycle_start_indexes):
+    cycle_ids = []
+    if total_count <= 0:
+        return cycle_ids
+
+    normalized_starts = sorted(
+        set(
+            int(index)
+            for index in (cycle_start_indexes or [0])
+            if 0 <= int(index) < total_count
+        )
+    )
+    if not normalized_starts or normalized_starts[0] != 0:
+        normalized_starts.insert(0, 0)
+
+    current_cycle_id = 0
+    next_start_pointer = 1
+    for index in range(total_count):
+        while next_start_pointer < len(normalized_starts) and index >= normalized_starts[next_start_pointer]:
+            current_cycle_id += 1
+            next_start_pointer += 1
+        cycle_ids.append(int(current_cycle_id))
+    return cycle_ids
+
+
+def reconcile_counts_by_cycle(raw_counts, anchor_counts, maximum_count, cycle_ids):
+    raw_counts = [int(value) for value in raw_counts]
+    if not raw_counts:
+        return []
+    if not cycle_ids or len(cycle_ids) != len(raw_counts):
+        return reconcile_cumulative_counts(raw_counts, anchor_counts, maximum_count)
+
+    corrected_counts = [0] * len(raw_counts)
+    segment_start = 0
+    while segment_start < len(raw_counts):
+        cycle_id = cycle_ids[segment_start]
+        segment_end = segment_start + 1
+        while segment_end < len(raw_counts) and cycle_ids[segment_end] == cycle_id:
+            segment_end += 1
+
+        segment_raw = raw_counts[segment_start:segment_end]
+        segment_anchors = {}
+        for global_index, anchor_value in anchor_counts.items():
+            if segment_start <= int(global_index) < segment_end:
+                segment_anchors[int(global_index) - segment_start] = int(anchor_value)
+
+        segment_corrected = reconcile_cumulative_counts(
+            segment_raw,
+            segment_anchors,
+            maximum_count,
+        )
+        corrected_counts[segment_start:segment_end] = segment_corrected
+        segment_start = segment_end
+
+    return corrected_counts

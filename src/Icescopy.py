@@ -49,12 +49,16 @@ from icescopy_plot import GrayscalePlotWidget
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
     TemperatureImportError,
+    build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
+    detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
     normalize_sample_name,
+    normalize_temperature_reset_threshold as normalize_temperature_reset_threshold_value,
     parse_ice_array_calibration_csv,
     parse_csu_is_dat,
     parse_tamu_image_timestamp,
     parse_tamu_linkam_xlsx,
     reconcile_cumulative_counts,
+    reconcile_counts_by_cycle as reconcile_temperature_counts_by_cycle,
 )
 from icescopy_session import (
     FrameNavigationCommand,
@@ -6569,74 +6573,17 @@ class IceScopy(QMainWindow):
         return {}, "samples"
 
     def normalize_temperature_reset_threshold(self, reset_temperature):
-        if reset_temperature in (None, ""):
-            return None
-        try:
-            return float(reset_temperature)
-        except (TypeError, ValueError):
-            return None
+        return normalize_temperature_reset_threshold_value(reset_temperature)
 
     def detect_cycle_start_indexes_from_temperatures(self, temperatures, reset_temperature):
-        temperatures = np.asarray(temperatures, dtype=float)
-        if temperatures.size == 0:
-            return [0]
-        threshold = self.normalize_temperature_reset_threshold(reset_temperature)
-        if threshold is None:
-            return [0]
-
-        cycle_start_indexes = [0]
-        # Require a meaningful warm-up from a below-threshold minimum before
-        # starting a new cycle. This avoids tiny threshold jitter during a
-        # cooling ramp from creating a false cycle boundary.
-        warmup_hysteresis_c = max(
-            0.0,
-            float(getattr(self, "temperature_cycle_warmup_hysteresis_c", 0.02)),
+        return detect_temperature_cycle_start_indexes(
+            temperatures,
+            reset_temperature,
+            warmup_hysteresis_c=float(getattr(self, "temperature_cycle_warmup_hysteresis_c", 0.02)),
         )
-        previous_above = bool(np.isfinite(temperatures[0]) and temperatures[0] >= threshold)
-        cool_segment_min = None
-        if np.isfinite(temperatures[0]) and temperatures[0] < threshold:
-            cool_segment_min = float(temperatures[0])
-        for index in range(1, len(temperatures)):
-            current_value = temperatures[index]
-            current_finite = bool(np.isfinite(current_value))
-            current_above = bool(current_finite and current_value >= threshold)
-            if current_finite and (not current_above):
-                if cool_segment_min is None:
-                    cool_segment_min = float(current_value)
-                else:
-                    cool_segment_min = min(cool_segment_min, float(current_value))
-            if current_above and (not previous_above):
-                minimum_below_threshold = cool_segment_min
-                if (
-                    minimum_below_threshold is not None
-                    and (float(current_value) - float(minimum_below_threshold)) >= warmup_hysteresis_c
-                ):
-                    cycle_start_indexes.append(index)
-                cool_segment_min = None
-            previous_above = current_above
-        return cycle_start_indexes
 
     def build_cycle_ids_from_start_indexes(self, total_count, cycle_start_indexes):
-        cycle_ids = []
-        if total_count <= 0:
-            return cycle_ids
-        normalized_starts = sorted(
-            set(
-                int(index)
-                for index in (cycle_start_indexes or [0])
-                if 0 <= int(index) < total_count
-            )
-        )
-        if not normalized_starts or normalized_starts[0] != 0:
-            normalized_starts.insert(0, 0)
-        current_cycle_id = 0
-        next_start_pointer = 1
-        for index in range(total_count):
-            while next_start_pointer < len(normalized_starts) and index >= normalized_starts[next_start_pointer]:
-                current_cycle_id += 1
-                next_start_pointer += 1
-            cycle_ids.append(int(current_cycle_id))
-        return cycle_ids
+        return build_cycle_ids_from_temperature_starts(total_count, cycle_start_indexes)
 
     def cycle_index_for_position(self, position_value, cycle_start_positions):
         if position_value is None or not cycle_start_positions:
@@ -6721,35 +6668,12 @@ class IceScopy(QMainWindow):
         return image_counts_by_sample
 
     def reconcile_counts_by_cycle(self, raw_counts, anchor_counts, maximum_count, cycle_ids):
-        raw_counts = [int(value) for value in raw_counts]
-        if not raw_counts:
-            return []
-        if not cycle_ids or len(cycle_ids) != len(raw_counts):
-            return reconcile_cumulative_counts(raw_counts, anchor_counts, maximum_count)
-
-        corrected_counts = [0] * len(raw_counts)
-        segment_start = 0
-        while segment_start < len(raw_counts):
-            cycle_id = cycle_ids[segment_start]
-            segment_end = segment_start + 1
-            while segment_end < len(raw_counts) and cycle_ids[segment_end] == cycle_id:
-                segment_end += 1
-
-            segment_raw = raw_counts[segment_start:segment_end]
-            segment_anchors = {}
-            for global_index, anchor_value in anchor_counts.items():
-                if segment_start <= int(global_index) < segment_end:
-                    segment_anchors[int(global_index) - segment_start] = int(anchor_value)
-
-            segment_corrected = reconcile_cumulative_counts(
-                segment_raw,
-                segment_anchors,
-                maximum_count,
-            )
-            corrected_counts[segment_start:segment_end] = segment_corrected
-            segment_start = segment_end
-
-        return corrected_counts
+        return reconcile_temperature_counts_by_cycle(
+            raw_counts,
+            anchor_counts,
+            maximum_count,
+            cycle_ids,
+        )
 
     def corrected_temperature_for_cell(self, measured_temperature, cell_id, calibration_by_well):
         if measured_temperature is None or calibration_by_well is None:
