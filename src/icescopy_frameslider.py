@@ -176,14 +176,12 @@ class FrameSlider(QSlider):
             position = self.main_window.image_index
             if position in self.keyframes:
                 self.keyframes.remove(position)
-                self.main_window.update_toggle_keyframe_button_icon()
                 self.update()  # Trigger repaint
                 self.keyframeClicked.emit(False)  # False for remove
                 self.main_window.log(f"Removed keyframe at frame {position}")
                 
             else:
                 self.keyframes.add(position)
-                self.main_window.update_toggle_keyframe_button_icon()
                 self.update()  # Trigger repaint
                 self.keyframeClicked.emit(True)  # True for add
                 self.main_window.log(f"Added keyframe at frame {position}")
@@ -198,14 +196,12 @@ class FrameSlider(QSlider):
             position = self.main_window.image_index
             if position in self.flaggedframes:
                 self.flaggedframes.remove(position)
-                self.main_window.update_toggle_flagging_button_icon()
                 self.update()  # Trigger repaint
                 self.flagframeClicked.emit(False)
                 self.main_window.log(f"Removed flagged frame at {position}")
                 
             else:
                 self.flaggedframes.add(position)
-                self.main_window.update_toggle_flagging_button_icon()
                 self.update()  # Trigger repaint
                 self.flagframeClicked.emit(True)
                 self.main_window.log(f"Added flagged frame at {position}")

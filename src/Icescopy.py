@@ -7414,11 +7414,13 @@ class IceScopy(QMainWindow):
             self.keyframe_cell_items_dict.pop(self.image_index, None)
 
         self.update_image_list_annotations([self.image_index])
+        self.update_toggle_keyframe_button_icon()
 
     
     def update_flaggedframe_list(self, is_flagging):
         self.flagframe_list = list(sorted(self.image_slider.flaggedframes))
         self.update_image_list_annotations([self.image_index])
+        self.update_toggle_flagging_button_icon()
             
     
     def edit_current_keyframe_cell_item(self):
