@@ -1898,6 +1898,7 @@ class IceScopy(QMainWindow):
         self.pending_image_edit_preview_state = None
         self.image_edit_preview_in_progress = False
         self.pending_image_edit_histogram_qimage = None
+        self.pending_image_edit_histogram_apply_crop = None
         if hasattr(self, "image_edit_preview_timer"):
             self.image_edit_preview_timer.stop()
         if hasattr(self, "image_edit_histogram_timer"):
@@ -2139,10 +2140,13 @@ class IceScopy(QMainWindow):
     def get_image_edit_histogram_interval_ms(self):
         return 15
 
-    def request_image_edit_histogram_refresh(self, q_image=None, *, immediate=False):
+    def request_image_edit_histogram_refresh(self, q_image=None, *, immediate=False, apply_crop=None):
         if not hasattr(self, "image_edit_histogram_widget"):
             return
+        if apply_crop is None:
+            apply_crop = self.should_apply_crop_in_display()
         self.pending_image_edit_histogram_qimage = q_image
+        self.pending_image_edit_histogram_apply_crop = bool(apply_crop)
         if immediate:
             if hasattr(self, "image_edit_histogram_timer"):
                 self.image_edit_histogram_timer.stop()
@@ -2153,7 +2157,9 @@ class IceScopy(QMainWindow):
     def flush_pending_image_edit_histogram(self):
         q_image = self.pending_image_edit_histogram_qimage
         self.pending_image_edit_histogram_qimage = None
-        self.refresh_image_edit_histogram(q_image)
+        apply_crop = self.pending_image_edit_histogram_apply_crop
+        self.pending_image_edit_histogram_apply_crop = None
+        self.refresh_image_edit_histogram(q_image, apply_crop=apply_crop)
 
     def normalize_image_edit_uniform_exposure_area_state(self, area_state=None, *, raw_width=None, raw_height=None):
         if raw_width is None or raw_height is None:
@@ -2366,7 +2372,7 @@ class IceScopy(QMainWindow):
         self.sync_image_edit_uniform_exposure_overlay()
         self.sync_image_edit_crop_overlay()
 
-    def refresh_image_edit_histogram(self, q_image=None):
+    def refresh_image_edit_histogram(self, q_image=None, *, apply_crop=None):
         if not hasattr(self, "image_edit_histogram_widget"):
             return
         if getattr(self, "tool_mode", "") != "image-edit":
@@ -2375,8 +2381,10 @@ class IceScopy(QMainWindow):
             self.image_edit_histogram_widget.clear_histogram()
             return
 
+        if apply_crop is None:
+            apply_crop = self.should_apply_crop_in_display()
         if q_image is None:
-            q_image = self.get_cached_image(self.image_index, apply_crop=False)
+            q_image = self.get_cached_image(self.image_index, apply_crop=apply_crop)
         gray_array = qimage_to_grayscale_array(q_image)
         histogram = compute_histogram_bins(gray_array, IMAGE_EDIT_HISTOGRAM_BIN_COUNT)
         overlay_histogram = None
@@ -2385,6 +2393,17 @@ class IceScopy(QMainWindow):
         if selected_items and gray_array is not None and gray_array.size > 0:
             selected_values = []
             image_height, image_width = gray_array.shape[:2]
+            crop_matrix = None
+            crop_is_identity = True
+            if apply_crop:
+                raw_width, raw_height = self.get_raw_image_dimensions(self.image_index)
+                crop_state = self.current_image_edit_crop_state(index=self.image_index)
+                crop_is_identity = crop_state_is_identity(raw_width, raw_height, crop_state)
+                _crop_state, crop_matrix, _output_size = build_rotated_crop_affine(
+                    raw_width,
+                    raw_height,
+                    crop_state,
+                )
             for item in selected_items:
                 try:
                     center_x = float(item.circle_pixel_positions[0])
@@ -2394,6 +2413,8 @@ class IceScopy(QMainWindow):
                     continue
                 if radius <= 0:
                     continue
+                if apply_crop and (not crop_is_identity):
+                    center_x, center_y = apply_affine_to_point(crop_matrix, center_x, center_y)
                 left = max(0, int(math.floor(center_x - radius)))
                 top = max(0, int(math.floor(center_y - radius)))
                 right = min(image_width, int(math.ceil(center_x + radius)) + 1)
