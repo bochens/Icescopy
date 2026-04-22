@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import sys
 
 
 project_root = Path(SPECPATH).resolve()
@@ -9,6 +10,40 @@ app_icon = resources_dir / "app_icons" / "IcescopyApp.icns"
 document_icon = resources_dir / "app_icons" / "IcescopyDocument.icns"
 
 block_cipher = None
+
+
+def patch_cv2_loader_configs(collect_root):
+    collect_root = Path(collect_root)
+    candidate_dirs = [
+        collect_root / "cv2",
+        collect_root / "_internal" / "cv2",
+        collect_root / "Contents" / "Resources" / "cv2",
+        collect_root / "Contents" / "Frameworks" / "cv2",
+    ]
+
+    for cv2_dir in candidate_dirs:
+        if not cv2_dir.is_dir():
+            continue
+
+        config_path = cv2_dir / "config.py"
+        if config_path.exists():
+            config_path.write_text(
+                "import os\n\n"
+                "BINARIES_PATHS = [\n"
+                "    os.path.join(LOADER_DIR, '.dylibs')\n"
+                "] + BINARIES_PATHS\n",
+                encoding="utf-8",
+            )
+
+        versioned_config_path = cv2_dir / f"config-{sys.version_info[0]}.{sys.version_info[1]}.py"
+        if versioned_config_path.exists():
+            versioned_config_path.write_text(
+                "import os\n\n"
+                "PYTHON_EXTENSIONS_PATHS = [\n"
+                "    LOADER_DIR\n"
+                "] + PYTHON_EXTENSIONS_PATHS\n",
+                encoding="utf-8",
+            )
 
 
 a = Analysis(
@@ -59,6 +94,7 @@ coll = COLLECT(
     upx_exclude=[],
     name='Icescopy',
 )
+patch_cv2_loader_configs(project_root / "dist" / "Icescopy")
 app = BUNDLE(
     coll,
     name='Icescopy.app',
@@ -87,3 +123,5 @@ app = BUNDLE(
         ],
     },
 )
+patch_cv2_loader_configs(project_root / "dist" / "Icescopy")
+patch_cv2_loader_configs(project_root / "dist" / "Icescopy.app")
