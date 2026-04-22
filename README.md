@@ -29,7 +29,7 @@ It also supports:
 
 ## Documentation
 
-- [Icescopy-Manual.pdf](/Users/C832577250/Project/Icescopy/Icescopy-Manual.pdf)
+- [Icescopy-Manual.pdf](Icescopy-Manual.pdf)
 
 ## Notes
 
