@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QToolButton, QAbstractSpinBox,
                                QListView, QListWidget, QListWidgetItem, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QFormLayout, QStackedWidget, QSpinBox, QComboBox,
-                               QTableWidgetItem, QAbstractItemView, QMessageBox, QDialogButtonBox, QFrame, QDockWidget, QTabWidget, QStyle, QCheckBox, QScrollArea, QStyleOptionSlider)
+                               QTableWidgetItem, QAbstractItemView, QMessageBox, QDialogButtonBox, QFrame, QDockWidget, QTabWidget, QStyle, QCheckBox, QScrollArea, QStyleOptionSlider, QStyleFactory)
 from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
@@ -13,6 +13,7 @@ import math
 import tempfile
 import darkdetect
 import platform
+import ctypes
 import time
 import cv2
 from functools import partial
@@ -69,6 +70,7 @@ from icescopy_session import (
     SessionLoadedImagesCommand,
     SessionCellCommand,
     SessionSnapshotCommand,
+    SessionTimelineMarkersCommand,
 )
 from icescopy_session_io import build_restore_state, build_session_payload, load_session_bundle, save_session_bundle
 
@@ -77,6 +79,8 @@ module_dir = os.path.dirname(__file__)
 resources_dir = os.path.join(module_dir, 'resources')
 if not os.path.isdir(resources_dir):
     resources_dir = os.path.join(os.path.dirname(module_dir), 'resources')
+IS_WINDOWS = platform.system() == "Windows"
+IS_MACOS = platform.system() == "Darwin"
 ui_images_dir = os.path.join(resources_dir, 'ui_images')
 SIDE_PANEL_DEFAULT_WIDTH = 280
 TOOL_OPTIONS_CONTENT_WIDTH = 252
@@ -3214,6 +3218,11 @@ class IceScopy(QMainWindow):
         self.viewer_orientation_toggle_action = QAction("Stack Top to Bottom", self)
         self.undo_action = QAction("Undo", self)
         self.redo_action = QAction("Redo", self)
+        self.undo_action.setShortcuts([QKeySequence.Undo])
+        if IS_WINDOWS:
+            self.redo_action.setShortcuts([QKeySequence.Redo, QKeySequence("Ctrl+Shift+Z")])
+        else:
+            self.redo_action.setShortcuts([QKeySequence.Redo])
         self.reset_cursor_action = QAction("Cursor Tool (A)", self)
         self.select_tool_action = QAction("Add Cell (S)", self)
         self.grid_tool_action = QAction("Grid Tool (G)", self)
@@ -3258,12 +3267,12 @@ class IceScopy(QMainWindow):
         
 
 
-        if platform.system() == "Darwin":  # macOS
+        if IS_MACOS:
             self.undo_action.setToolTip("Undo (Cmd+Z)")
             self.redo_action.setToolTip("Redo (Shift+Cmd+Z)")
-        else:  # Windows and others
+        else:
             self.undo_action.setToolTip("Undo (Ctrl+Z)")
-            self.redo_action.setToolTip("Redo (Shift+Cmd+Z)")
+            self.redo_action.setToolTip("Redo (Ctrl+Y)")
         self.deselect_tool_action.setToolTip(
             "Delete mode. Click cells to remove them. In Cursor mode, Delete or Backspace removes the selected cells."
         )
@@ -3433,13 +3442,15 @@ class IceScopy(QMainWindow):
         slider_buttons_layout.addWidget(self.rightButton)
         slider_buttons_layout.addStretch(1)
         slider_buttons_layout.setContentsMargins(0, 0, 0, 3)
+        self.slider_buttons_layout = slider_buttons_layout
 
         slider_buttons_widget = QWidget()
         slider_buttons_widget.setLayout(slider_buttons_layout)
+        self.slider_buttons_widget = slider_buttons_widget
 
         # Create a QHBoxLayout for image slider and text box
         image_navigation_layout = QVBoxLayout()
-        image_navigation_layout.setContentsMargins(0, 0, 0, 6)
+        image_navigation_layout.setContentsMargins(0, 0, 0, 0 if platform.system() == "Windows" else 6)
         image_navigation_layout.addWidget(self.image_slider)
 
         # CustomGraphicsView and QGraphicsScene for image display
@@ -4055,9 +4066,9 @@ class IceScopy(QMainWindow):
         self.grid_tool_page.add_row("Rows", self.grid_rows_spinbox)
         self.grid_tool_page.add_row("Cols", self.grid_columns_spinbox)
         self.grid_tool_page.add_row("Radius", self.grid_radius_spinbox, "scroll")
-        self.grid_tool_page.add_row("H Pitch", self.grid_hpitch_spinbox, "opt+scroll")
-        self.grid_tool_page.add_row("V Pitch", self.grid_vpitch_spinbox, "ctrl+scroll")
-        self.grid_tool_page.add_row("Tilt", self.grid_rotation_spinbox, "cmd+scroll")
+        self.grid_tool_page.add_row("H Pitch", self.grid_hpitch_spinbox, self.grid_horizontal_pitch_shortcut_label())
+        self.grid_tool_page.add_row("V Pitch", self.grid_vpitch_spinbox, self.grid_vertical_pitch_shortcut_label())
+        self.grid_tool_page.add_row("Tilt", self.grid_rotation_spinbox, self.grid_tilt_shortcut_label())
         self.grid_tool_page.add_row("X", self.grid_offset_x_spinbox)
         self.grid_tool_page.add_row("Y", self.grid_offset_y_spinbox)
         self.grid_tool_page.add_action_row(
@@ -4105,9 +4116,9 @@ class IceScopy(QMainWindow):
             value_handler=self.handle_preview_offset_change,
         )
         self.edit_grid_tool_page.add_row("Radius Delta", self.edit_grid_radius_spinbox, "scroll")
-        self.edit_grid_tool_page.add_row("H Pitch Delta", self.edit_grid_hpitch_spinbox, "opt+scroll")
-        self.edit_grid_tool_page.add_row("V Pitch Delta", self.edit_grid_vpitch_spinbox, "ctrl+scroll")
-        self.edit_grid_tool_page.add_row("Tilt Delta", self.edit_grid_rotation_spinbox, "cmd+scroll")
+        self.edit_grid_tool_page.add_row("H Pitch Delta", self.edit_grid_hpitch_spinbox, self.grid_horizontal_pitch_shortcut_label())
+        self.edit_grid_tool_page.add_row("V Pitch Delta", self.edit_grid_vpitch_spinbox, self.grid_vertical_pitch_shortcut_label())
+        self.edit_grid_tool_page.add_row("Tilt Delta", self.edit_grid_rotation_spinbox, self.grid_tilt_shortcut_label())
         self.edit_grid_tool_page.add_row("X Offset", self.edit_grid_offset_x_spinbox)
         self.edit_grid_tool_page.add_row("Y Offset", self.edit_grid_offset_y_spinbox)
         self.edit_grid_tool_page.add_action_row(
@@ -5424,6 +5435,15 @@ class IceScopy(QMainWindow):
             "tool_mode": getattr(self, "tool_mode", "cursor"),
         }
 
+    def capture_timeline_marker_state(self):
+        return {
+            "keyframe_list": self.keyframe_list.copy(),
+            "flagframe_list": self.flagframe_list.copy(),
+            "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
+            "image_index": int(self.image_index),
+            "tool_mode": getattr(self, "tool_mode", "cursor"),
+        }
+
     def capture_loaded_images_state(self):
         return {
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
@@ -5578,9 +5598,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setMaximum(len(self.imagePaths) - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.keyframes = set(self.keyframe_list)
-                self.image_slider.flaggedframes = set(self.flagframe_list)
-                self.image_slider.update()
+                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5620,9 +5638,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setValue(0)
                 self.image_slider.blockSignals(False)
                 self.image_slider.setEnabled(False)
-                self.image_slider.keyframes = set()
-                self.image_slider.flaggedframes = set()
-                self.image_slider.update()
+                self.image_slider.clear_marker_state()
                 self.sync_image_list_selection()
                 self.select_tool_action.setEnabled(False)
                 self.grid_tool_action.setEnabled(False)
@@ -5700,9 +5716,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setMaximum(len(self.imagePaths) - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.keyframes = set(self.keyframe_list)
-                self.image_slider.flaggedframes = set(self.flagframe_list)
-                self.image_slider.update()
+                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5741,9 +5755,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setValue(0)
                 self.image_slider.blockSignals(False)
                 self.image_slider.setEnabled(False)
-                self.image_slider.keyframes = set()
-                self.image_slider.flaggedframes = set()
-                self.image_slider.update()
+                self.image_slider.clear_marker_state()
                 self.sync_image_list_selection()
                 self.select_tool_action.setEnabled(False)
                 self.grid_tool_action.setEnabled(False)
@@ -5839,9 +5851,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setMaximum(len(self.imagePaths) - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.keyframes = set(self.keyframe_list)
-                self.image_slider.flaggedframes = set(self.flagframe_list)
-                self.image_slider.update()
+                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5865,9 +5875,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.setValue(0)
                 self.image_slider.blockSignals(False)
                 self.image_slider.setEnabled(False)
-                self.image_slider.keyframes = set()
-                self.image_slider.flaggedframes = set()
-                self.image_slider.update()
+                self.image_slider.clear_marker_state()
                 self.image_textbox.clear()
                 self.image_name_label.clear()
                 self.reset_transient_interaction_state()
@@ -6014,9 +6022,7 @@ class IceScopy(QMainWindow):
             self.image_slider.blockSignals(True)
             self.image_slider.setValue(target_index)
             self.image_slider.blockSignals(False)
-            self.image_slider.keyframes = set(self.keyframe_list)
-            self.image_slider.flaggedframes = set(self.flagframe_list)
-            self.image_slider.update()
+            self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
             self.update_image_list_annotations()
 
             if target_index != self.image_index:
@@ -6029,6 +6035,65 @@ class IceScopy(QMainWindow):
             if not has_analysis_payload:
                 self.refresh_grayscale_plot()
             self.refresh_sample_catalog_table(preserve_selection=False)
+            self.update_session_actions_state()
+            self.updateButtonStates()
+            self.restore_tool_mode_ui(restore_tool_mode)
+        finally:
+            self.history_restoring = False
+            self.set_undo_status()
+            self.set_redo_status()
+
+    def restore_timeline_marker_state(self, state, preserve_active_tool=False):
+        self.history_restoring = True
+        try:
+            restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
+            frame_count = len(self.imagePaths)
+            if frame_count <= 0:
+                self.keyframe_list = []
+                self.flagframe_list = []
+                self.keyframe_cell_items_dict = {}
+                self.image_slider.clear_marker_state()
+                self.update_toggle_keyframe_button_icon()
+                self.update_toggle_flagging_button_icon()
+                self.update_image_list_annotations()
+                self.restore_tool_mode_ui(restore_tool_mode)
+                return
+
+            self.keyframe_list = sorted(
+                frame for frame in state.get("keyframe_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            self.flagframe_list = sorted(
+                frame for frame in state.get("flagframe_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            self.keyframe_cell_items_dict = {
+                frame: copy.deepcopy(items)
+                for frame, items in state.get("keyframe_cell_items_dict", {}).items()
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            }
+
+            target_index = state.get("image_index", self.image_index)
+            if not isinstance(target_index, int):
+                target_index = self.image_index
+            target_index = max(0, min(target_index, frame_count - 1))
+
+            self.ensure_slider_window_contains_index(target_index)
+            self.image_slider.blockSignals(True)
+            self.image_slider.setValue(target_index)
+            self.image_slider.blockSignals(False)
+            self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+            self.update_image_list_annotations()
+
+            if target_index != self.image_index:
+                self.updateImage(target_index, preview=False)
+                self.finalize_frame_update(target_index)
+            else:
+                self.interpolate_and_displayMarkedRegions(target_index, preview=False)
+                self.finalize_frame_update(target_index)
+
+            self.update_toggle_keyframe_button_icon()
+            self.update_toggle_flagging_button_icon()
             self.update_session_actions_state()
             self.updateButtonStates()
             self.restore_tool_mode_ui(restore_tool_mode)
@@ -6143,6 +6208,15 @@ class IceScopy(QMainWindow):
 
         after_state = self.capture_cell_state(include_analysis=include_analysis)
         self.undo_stack.push(SessionCellCommand(self, text, before_state, after_state))
+
+    def push_timeline_marker_history(self, text, before_state):
+        if not self.undo_redo_enabled:
+            return
+        if self.history_restoring:
+            return
+
+        after_state = self.capture_timeline_marker_state()
+        self.undo_stack.push(SessionTimelineMarkersCommand(self, text, before_state, after_state))
 
     def push_image_session_history(self, text, before_state):
         if not self.undo_redo_enabled:
@@ -7468,6 +7542,33 @@ class IceScopy(QMainWindow):
             else: # no kf at all, just use the cell_items
                 return self.cell_items
                 
+    def grid_horizontal_pitch_shortcut_label(self):
+        return "opt+scroll" if IS_MACOS else "caps+scroll"
+
+    def grid_vertical_pitch_shortcut_label(self):
+        return "ctrl+scroll"
+
+    def grid_tilt_shortcut_label(self):
+        return "cmd+scroll" if IS_MACOS else "shift+scroll"
+
+    def is_caps_lock_pressed(self):
+        if not IS_WINDOWS:
+            return False
+        try:
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x14) & 0x8000)
+        except Exception:
+            return False
+
+    def is_grid_horizontal_pitch_modifier_active(self, modifiers):
+        if IS_MACOS:
+            return bool(modifiers & Qt.AltModifier)
+        return self.is_caps_lock_pressed()
+
+    def is_grid_tilt_modifier_active(self, modifiers):
+        if IS_MACOS:
+            return bool(modifiers & Qt.MetaModifier)
+        return bool(modifiers & Qt.ShiftModifier)
+
 
     def showAboutDialog(self):
         about_dialog = AboutDialog(self)
@@ -7739,8 +7840,15 @@ class IceScopy(QMainWindow):
     def get_image_paths_from_folder(self, input_dirpath):
         image_extensions = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"}
         input_imagePath = []
+
+        def is_hidden_image_entry(name):
+            return name.startswith("_") or name.startswith(".")
+
         for root, dirs, files in os.walk(input_dirpath):
+            dirs[:] = [directory for directory in dirs if not is_hidden_image_entry(directory)]
             for file in files:
+                if is_hidden_image_entry(file):
+                    continue
                 if file.split('.')[-1].lower() in image_extensions:
                     input_imagePath.append(os.path.join(root, file))
         return self.sort_image_paths(input_imagePath)
@@ -8351,9 +8459,7 @@ class IceScopy(QMainWindow):
         self.image_slider.setMaximum(len(self.imagePaths) - 1)
         self.image_slider.setValue(new_image_index)
         self.image_slider.blockSignals(False)
-        self.image_slider.keyframes = set(self.keyframe_list)
-        self.image_slider.flaggedframes = set(self.flagframe_list)
-        self.image_slider.update()
+        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
         self.image_textbox.setText(str(new_image_index))
 
         self.image_list_model.remove_rows(rows_to_remove)
@@ -8422,9 +8528,7 @@ class IceScopy(QMainWindow):
         self.image_slider.setValue(0)
         self.image_slider.blockSignals(False)
         self.image_slider.setEnabled(False)
-        self.image_slider.keyframes = set()
-        self.image_slider.flaggedframes = set()
-        self.image_slider.update()
+        self.image_slider.clear_marker_state()
 
         self.select_tool_action.setEnabled(False)
         self.grid_tool_action.setEnabled(False)
@@ -8477,9 +8581,7 @@ class IceScopy(QMainWindow):
         self.image_slider.setValue(0)
         self.image_slider.blockSignals(False)
         self.image_slider.setEnabled(False)
-        self.image_slider.keyframes = set()
-        self.image_slider.flaggedframes = set()
-        self.image_slider.update()
+        self.image_slider.clear_marker_state()
 
         self.select_tool_action.setEnabled(False)
         self.grid_tool_action.setEnabled(False)
@@ -9064,53 +9166,63 @@ class IceScopy(QMainWindow):
             self.set_redo_status()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Z:
-            if (event.modifiers() & Qt.ControlModifier) and (event.modifiers() & Qt.ShiftModifier):
-                if self.redo_action.isEnabled():
-                    self.redo_action.trigger()  # Shift + Ctrl + Z for redo
-                    self.key_press_toolbutton_highlight(self.redo_action) # simulate pressing button highlight for visual cue
-            elif (event.modifiers() & Qt.ControlModifier):
-                if self.undo_action.isEnabled():
-                    self.undo_action.trigger()  # Ctrl + Z for undo
-                    self.key_press_toolbutton_highlight(self.undo_action) # simulate pressing button highlight for visual cue
-            else:
-                if self.pan_tool_action.isEnabled():
-                    self.pan_tool_action.trigger()  # Z for Zoom and Pan
-                    self.key_press_toolbutton_highlight(self.pan_tool_action)
-        elif event.key() == Qt.Key_S:
+        modifiers = event.modifiers()
+        no_modifiers = modifiers == Qt.NoModifier
+        windows_ctrl_y_redo = (
+            IS_WINDOWS
+            and event.key() == Qt.Key_Y
+            and bool(modifiers & Qt.ControlModifier)
+            and not bool(modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier))
+        )
+
+        if event.matches(QKeySequence.Redo) or windows_ctrl_y_redo:
+            if self.redo_action.isEnabled():
+                self.redo_action.trigger()
+                self.key_press_toolbutton_highlight(self.redo_action)
+            return
+        elif event.matches(QKeySequence.Undo):
+            if self.undo_action.isEnabled():
+                self.undo_action.trigger()
+                self.key_press_toolbutton_highlight(self.undo_action)
+            return
+        elif event.key() == Qt.Key_Z and no_modifiers:
+            if self.pan_tool_action.isEnabled():
+                self.pan_tool_action.trigger()
+                self.key_press_toolbutton_highlight(self.pan_tool_action)
+        elif event.key() == Qt.Key_S and no_modifiers:
             # Select Add cell key
             if self.select_tool_action.isEnabled():
                 self.select_tool_action.trigger() # S for Add Cell
                 self.key_press_toolbutton_highlight(self.select_tool_action)
-        elif event.key() == Qt.Key_D:
+        elif event.key() == Qt.Key_D and no_modifiers:
             # Select Add cell key
             if self.deselect_tool_action.isEnabled():
                 self.deselect_tool_action.trigger() # D for Delete Cells
                 self.key_press_toolbutton_highlight(self.deselect_tool_action)
-        elif event.key() == Qt.Key_G:
+        elif event.key() == Qt.Key_G and no_modifiers:
             if self.grid_tool_action.isEnabled():
                 self.grid_tool_action.trigger()
                 self.key_press_toolbutton_highlight(self.grid_tool_action)
-        elif event.key() == Qt.Key_E:
+        elif event.key() == Qt.Key_E and no_modifiers:
             # Select Add cell key
             if self.edit_tool_action.isEnabled():
                 self.edit_tool_action.trigger() # E for Delete Cells
                 self.key_press_toolbutton_highlight(self.edit_tool_action)
-        elif event.key() == Qt.Key_A:
+        elif event.key() == Qt.Key_A and no_modifiers:
             # Select Default Cursor Key
             if self.reset_cursor_action.isEnabled():
                 self.reset_cursor_action.trigger() # A for Delete Cells
                 self.key_press_toolbutton_highlight(self.reset_cursor_action)
-        elif event.key() == Qt.Key_Comma:
+        elif event.key() == Qt.Key_Comma and no_modifiers:
             if self.leftButton.isEnabled():
                 self.leftButton.click()
                 self.key_press_button_highlight(self.leftButton)
-        elif event.key() == Qt.Key_Period:
+        elif event.key() == Qt.Key_Period and no_modifiers:
             if self.rightButton.isEnabled():
                 self.rightButton.click()
                 self.key_press_button_highlight(self.rightButton)
 
-        elif (event.key() == Qt.Key_Space) and (self.space_held == False):
+        elif (event.key() == Qt.Key_Space) and (self.space_held == False) and no_modifiers:
             # Temporarily switch to zoom and pan
 
             if self.imagePaths:
@@ -9328,6 +9440,38 @@ class IceScopy(QMainWindow):
             self.toolbar.setStyleSheet(icescopy_stylesheet.darkmode_toolbar_style_sheet)
         else:
             self.toolbar.setStyleSheet(icescopy_stylesheet.light_mode_toolbar_style_sheet)
+
+    def sync_zoom_slider_row_geometry(self):
+        if not IS_WINDOWS:
+            return
+        zoom_slider = getattr(self, "zoom_slider", None)
+        row_widget = getattr(self, "slider_buttons_widget", None)
+        row_layout = getattr(self, "slider_buttons_layout", None)
+        if zoom_slider is None or row_widget is None or row_layout is None:
+            return
+
+        zoom_slider.ensurePolished()
+        row_widget.ensurePolished()
+
+        zoom_slider_height = max(28, zoom_slider.sizeHint().height(), zoom_slider.minimumSizeHint().height())
+        zoom_slider.setFixedHeight(int(zoom_slider_height))
+        zoom_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        button_heights = [
+            widget.sizeHint().height()
+            for widget in (
+                getattr(self, "keyframe_toggle_button", None),
+                getattr(self, "flag_toggle_button", None),
+                getattr(self, "leftButton", None),
+                getattr(self, "rightButton", None),
+            )
+            if widget is not None
+        ]
+        content_height = max(button_heights + [zoom_slider.height()])
+        margins = row_layout.contentsMargins()
+        row_height = int(content_height + margins.top() + margins.bottom())
+        row_widget.setFixedHeight(row_height)
+        row_widget.updateGeometry()
     
     def reset_slider_stylesheet(self, theme=None):
         if darkdetect.isDark():
@@ -9337,6 +9481,11 @@ class IceScopy(QMainWindow):
             self.image_slider.setStyleSheet(icescopy_stylesheet.light_mode_time_line_slider_style)
             self.zoom_slider.setStyleSheet(icescopy_stylesheet.light_zoom_slider_stylesheet)
         self.image_slider.sync_timeline_geometry()
+        if platform.system() == "Windows":
+            self.sync_zoom_slider_row_geometry()
+            self.image_slider.updateGeometry()
+            if self.view_slider_widget.layout() is not None:
+                self.view_slider_widget.layout().activate()
     
     def reset_status_bar_stylesheet(self, theme=None):
         if darkdetect.isDark():
@@ -9432,25 +9581,27 @@ class IceScopy(QMainWindow):
             self.updateImage(self.image_index)
 
     def update_toggle_keyframe_button_icon(self, theme=None):
+        is_keyframe = self.image_index in self.keyframe_list
         if darkdetect.isDark():
-            if self.image_index in self.image_slider.keyframes:
+            if is_keyframe:
                 self.keyframe_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'diamond_key.png')))
             else:
                 self.keyframe_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'diamond.png')))
         else:
-            if self.image_index in self.image_slider.keyframes:
+            if is_keyframe:
                 self.keyframe_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'diamond_key_2.png')))
             else:
                 self.keyframe_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'diamond_2.png')))
     
     def update_toggle_flagging_button_icon(self, theme=None):
+        is_flagged = self.image_index in self.flagframe_list
         if darkdetect.isDark():
-            if self.image_index in self.image_slider.flaggedframes:
+            if is_flagged:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag_red.png')))
             else:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag.png')))
         else:
-            if self.image_index in self.image_slider.flaggedframes:
+            if is_flagged:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag_red_2.png')))
             else:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag_2.png')))
@@ -9678,6 +9829,8 @@ class IceScopy(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication([])
+    if platform.system() == "Windows" and "Fusion" in QStyleFactory.keys():
+        app.setStyle(QStyleFactory.create("Fusion"))
     app.setWindowIcon(QIcon(os.path.join(resources_dir, "app_icons", "IcescopyApp.png")))
     window = IceScopy()
     window.show()

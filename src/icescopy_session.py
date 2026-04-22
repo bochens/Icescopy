@@ -38,6 +38,24 @@ class SessionCellCommand(QUndoCommand):
         self.main_window.restore_cell_state(self.after_state, preserve_active_tool=True)
 
 
+class SessionTimelineMarkersCommand(QUndoCommand):
+    def __init__(self, main_window, text, before_state, after_state):
+        super().__init__(text)
+        self.main_window = main_window
+        self.before_state = before_state
+        self.after_state = after_state
+        self._first_redo = True
+
+    def undo(self):
+        self.main_window.restore_timeline_marker_state(self.before_state, preserve_active_tool=True)
+
+    def redo(self):
+        if self._first_redo:
+            self._first_redo = False
+            return
+        self.main_window.restore_timeline_marker_state(self.after_state, preserve_active_tool=True)
+
+
 class SessionImageListCommand(QUndoCommand):
     def __init__(self, main_window, text, before_state, after_state):
         super().__init__(text)

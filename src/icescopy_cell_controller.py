@@ -1347,21 +1347,23 @@ class CellEditController:
         pitch_step = float(getattr(self.main_window, "grid_pitch_wheel_step", 1.0))
         tilt_step = float(getattr(self.main_window, "grid_tilt_wheel_step", 1.0))
 
-        if event.modifiers() & Qt.AltModifier:
+        modifiers = event.modifiers()
+
+        if self.main_window.is_grid_horizontal_pitch_modifier_active(modifiers):
             if self.is_group_edit_mode():
                 self.main_window.edit_group_horizontal_pitch_delta += direction * pitch_step
                 base_pitch = float(self.main_window.edit_group_base_horizontal_pitch or self.main_window.grid_horizontal_pitch)
                 self.main_window.grid_horizontal_pitch = max(0.1, base_pitch + self.main_window.edit_group_horizontal_pitch_delta)
             else:
                 self.main_window.grid_horizontal_pitch = max(0.1, self.main_window.grid_horizontal_pitch + direction * pitch_step)
-        elif event.modifiers() & Qt.ControlModifier:
+        elif modifiers & Qt.ControlModifier:
             if self.is_group_edit_mode():
                 self.main_window.edit_group_vertical_pitch_delta += direction * pitch_step
                 base_pitch = float(self.main_window.edit_group_base_vertical_pitch or self.main_window.grid_vertical_pitch)
                 self.main_window.grid_vertical_pitch = max(0.1, base_pitch + self.main_window.edit_group_vertical_pitch_delta)
             else:
                 self.main_window.grid_vertical_pitch = max(0.1, self.main_window.grid_vertical_pitch + direction * pitch_step)
-        elif event.modifiers() & Qt.MetaModifier:
+        elif self.main_window.is_grid_tilt_modifier_active(modifiers):
             if self.is_group_edit_mode():
                 self.main_window.edit_group_rotation_delta += direction * tilt_step
                 base_rotation = float(self.main_window.edit_group_base_rotation_degrees or self.main_window.grid_rotation_degrees)

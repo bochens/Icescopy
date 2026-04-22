@@ -28,18 +28,33 @@ class FrameSlider(QSlider):
         self.setMaximum(1)  # Will be updated when images are loaded
         self.setEnabled(False)
         self.setFocusPolicy(Qt.StrongFocus)
-        if IS_WINDOWS:
-            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.custom_ticks = [0] # set when loading images
         self.left_ratio = None
         self.raise_()
         self.value_has_changed = False
-        self._handle_pixmap = QPixmap(slider_handle_path) if IS_WINDOWS else QPixmap()
+        self._handle_pixmap = QPixmap()
+        self._paint_impl = self._paint_windows if IS_WINDOWS else self._paint_default
+        self._position_to_x_impl = self._slider_position_to_x_windows if IS_WINDOWS else self._slider_position_to_x_default
+        self._mouse_press_impl = self._mouse_press_windows if IS_WINDOWS else self._mouse_press_default
+        self._platform_initialize()
 
         self.valueChanged.connect(self.handle_value_change)
         self.sliderReleased.connect(self.handle_slider_release)
-        if IS_WINDOWS:
-            QTimer.singleShot(0, self.sync_timeline_geometry)
+
+    def _platform_initialize(self):
+        if not IS_WINDOWS:
+            return
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._handle_pixmap = QPixmap(slider_handle_path)
+        QTimer.singleShot(0, self.sync_timeline_geometry)
+
+    def sync_marker_state(self, keyframes, flaggedframes):
+        self.keyframes = set(keyframes)
+        self.flaggedframes = set(flaggedframes)
+        self.update()
+
+    def clear_marker_state(self):
+        self.sync_marker_state([], [])
 
     def _current_slider_position(self):
         if self.isSliderDown():
@@ -79,7 +94,7 @@ class FrameSlider(QSlider):
     def _indicator_y_positions(self):
         _option, groove_rect, handle_rect = self._slider_geometry()
         metrics = self._indicator_metrics()
-        tick_y = float(handle_rect.center().y())
+        tick_y = float(groove_rect.center().y()) - 2.0
         marker_y = float(handle_rect.bottom()) + metrics["marker_gap"] + metrics["keyframe_half"]
         marker_limit = float(self.height()) - metrics["keyframe_half"] - 1.0
         marker_y = min(marker_y, marker_limit)
@@ -157,41 +172,45 @@ class FrameSlider(QSlider):
     def toggle_keyframe(self):
         """Toggle a keyframe at the given position."""
         if self.isEnabled():
-            before_state = self.main_window.capture_cell_state()
+            before_state = self.main_window.capture_timeline_marker_state()
             position = self.main_window.image_index
             if position in self.keyframes:
                 self.keyframes.remove(position)
                 self.main_window.update_toggle_keyframe_button_icon()
                 self.update()  # Trigger repaint
                 self.keyframeClicked.emit(False)  # False for remove
+                self.main_window.log(f"Removed keyframe at frame {position}")
                 
             else:
                 self.keyframes.add(position)
                 self.main_window.update_toggle_keyframe_button_icon()
                 self.update()  # Trigger repaint
                 self.keyframeClicked.emit(True)  # True for add
+                self.main_window.log(f"Added keyframe at frame {position}")
         
-            self.main_window.push_cell_history("Toggle Keyframe", before_state)
+            self.main_window.push_timeline_marker_history("Toggle Keyframe", before_state)
             
 
     def toggle_flagging(self):
         """Toggle a keyframe at the given position."""
         if self.isEnabled():
-            before_state = self.main_window.capture_cell_state()
+            before_state = self.main_window.capture_timeline_marker_state()
             position = self.main_window.image_index
             if position in self.flaggedframes:
                 self.flaggedframes.remove(position)
                 self.main_window.update_toggle_flagging_button_icon()
                 self.update()  # Trigger repaint
                 self.flagframeClicked.emit(False)
+                self.main_window.log(f"Removed flagged frame at {position}")
                 
             else:
                 self.flaggedframes.add(position)
                 self.main_window.update_toggle_flagging_button_icon()
                 self.update()  # Trigger repaint
                 self.flagframeClicked.emit(True)
+                self.main_window.log(f"Added flagged frame at {position}")
         
-            self.main_window.push_cell_history("Toggle Flagged Frame", before_state)
+            self.main_window.push_timeline_marker_history("Toggle Flagged Frame", before_state)
 
 
     def paintEvent(self, event):
@@ -201,86 +220,116 @@ class FrameSlider(QSlider):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        self._paint_impl(painter)
+        painter.end()
+
+    def _paint_windows(self, painter):
         visible_min = int(self.minimum())
         visible_max = int(self.maximum())
-        if IS_WINDOWS:
-            tick_y, marker_y = self._indicator_y_positions()
-            metrics = self._indicator_metrics()
-            keyframe_half = metrics["keyframe_half"]
-            flag_radius = metrics["flag_radius"]
-            tick_radius = metrics["tick_radius"]
+        tick_y, marker_y = self._indicator_y_positions()
+        metrics = self._indicator_metrics()
+        keyframe_half = metrics["keyframe_half"]
+        flag_radius = metrics["flag_radius"]
+        tick_radius = metrics["tick_radius"]
 
-        # keyframe indicator
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(QColor(10, 132, 255, 255)))
         for keyframe in self.keyframes:
             if keyframe < visible_min or keyframe > visible_max:
                 continue
             x = self.sliderPositionToX(keyframe)
-            y = marker_y if IS_WINDOWS else (self.height() - 5.5)
-
-            # Define the points for the diamond shape
-            if IS_WINDOWS:
-                pointsF = [
-                    QPointF(x, y - keyframe_half),
-                    QPointF(x + keyframe_half, y),
-                    QPointF(x, y + keyframe_half),
-                    QPointF(x - keyframe_half, y),
-                ]
-            else:
-                pointsF = [QPointF(x * 1.0, y - 5.0), QPointF(x * 1.0 + 5.0, y), QPointF(x * 1.0, y + 5.0), QPointF(x - 5.0, y * 1.0)]
-
+            y = marker_y
+            pointsF = [
+                QPointF(x, y - keyframe_half),
+                QPointF(x + keyframe_half, y),
+                QPointF(x, y + keyframe_half),
+                QPointF(x - keyframe_half, y),
+            ]
             polygonF = QPolygonF(pointsF)
-            
-            # Convert QPolygonF to a list of QPointF
             points_list = [polygonF.at(i) for i in range(polygonF.count())]
-
-            # Draw using QPainterPath
             path = QPainterPath()
             path.moveTo(points_list[0])
             for point in points_list[1:]:
                 path.lineTo(point)
-            path.lineTo(points_list[0])  # close the shape
+            path.lineTo(points_list[0])
             painter.drawPath(path)
 
-        # Flag indicator
         pen = QPen(QColor(255, 69, 58, 255))
         pen.setWidth(1)
         brush = QBrush(QColor(255, 69, 58, 255))
         painter.setPen(pen)
         painter.setBrush(brush)
-
         for a_flag in self.flaggedframes:
             if a_flag < visible_min or a_flag > visible_max:
                 continue
             x = self.sliderPositionToX(a_flag) * 1.0
-            y = marker_y if IS_WINDOWS else (self.height() - 5.5)
-            radius = flag_radius if IS_WINDOWS else 2.5
-            painter.drawEllipse(QPointF(x, y), radius, radius)
+            painter.drawEllipse(QPointF(x, marker_y), flag_radius, flag_radius)
 
-        # Tick Mark
         pen = QPen(QColor(178, 178, 178, 178))
         brush = QBrush(QColor(178, 178, 178, 178))
         pen.setWidth(1)
         painter.setPen(pen)
         painter.setBrush(brush)
-
-        # Draw tick marks
+        value_x = self.sliderPositionToX(self._current_slider_position())
         for i in self.custom_ticks:
             if i < visible_min or i > visible_max:
                 continue
             x = self.sliderPositionToX(i)
-            value_x = self.sliderPositionToX(self._current_slider_position() if IS_WINDOWS else self.value())
-            if (x < (value_x)-6) or (x > (value_x+6)):
-                if IS_WINDOWS:
-                    painter.drawEllipse(QPointF(float(x), tick_y), tick_radius, tick_radius)
-                else:
-                    y = self.height() - 18
-                    radius = 1
-                    painter.drawEllipse(QPoint(x, y), radius, radius)
+            if (x < (value_x) - 6) or (x > (value_x + 6)):
+                painter.drawEllipse(QPointF(float(x), tick_y), tick_radius, tick_radius)
 
         self._paint_custom_handle(painter)
-        painter.end()
+
+    def _paint_default(self, painter):
+        visible_min = int(self.minimum())
+        visible_max = int(self.maximum())
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(10, 132, 255, 255)))
+        for keyframe in self.keyframes:
+            if keyframe < visible_min or keyframe > visible_max:
+                continue
+            x = self.sliderPositionToX(keyframe)
+            y = self.height() - 5.5
+            pointsF = [
+                QPointF(x * 1.0, y - 5.0),
+                QPointF(x * 1.0 + 5.0, y),
+                QPointF(x * 1.0, y + 5.0),
+                QPointF(x - 5.0, y * 1.0),
+            ]
+            polygonF = QPolygonF(pointsF)
+            points_list = [polygonF.at(i) for i in range(polygonF.count())]
+            path = QPainterPath()
+            path.moveTo(points_list[0])
+            for point in points_list[1:]:
+                path.lineTo(point)
+            path.lineTo(points_list[0])
+            painter.drawPath(path)
+
+        pen = QPen(QColor(255, 69, 58, 255))
+        pen.setWidth(1)
+        brush = QBrush(QColor(255, 69, 58, 255))
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        for a_flag in self.flaggedframes:
+            if a_flag < visible_min or a_flag > visible_max:
+                continue
+            x = self.sliderPositionToX(a_flag) * 1.0
+            y = self.height() - 5.5
+            painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
+
+        pen = QPen(QColor(178, 178, 178, 178))
+        brush = QBrush(QColor(178, 178, 178, 178))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        value_x = self.sliderPositionToX(self.value())
+        for i in self.custom_ticks:
+            if i < visible_min or i > visible_max:
+                continue
+            x = self.sliderPositionToX(i)
+            if (x < (value_x) - 6) or (x > (value_x + 6)):
+                painter.drawEllipse(QPoint(x, self.height() - 18), 1, 1)
 
     def _slider_style_option(self, position=None):
         option = QStyleOptionSlider()
@@ -307,22 +356,25 @@ class FrameSlider(QSlider):
 
     def sliderPositionToX(self, position):
         """Convert a slider position to its corresponding X coordinate."""
-        if IS_WINDOWS:
-            minimum_value = self.minimum()
-            maximum_value = self.maximum()
-            option, groove_rect, handle_rect = self._slider_geometry()
-            travel_span = max(0, int(groove_rect.width() - handle_rect.width()))
-            if maximum_value == minimum_value or travel_span <= 0:
-                return float(groove_rect.center().x())
-            slider_offset = QStyle.sliderPositionFromValue(
-                minimum_value,
-                maximum_value,
-                int(round(float(position))),
-                travel_span,
-                option.upsideDown,
-            )
-            return float(groove_rect.x()) + (float(handle_rect.width()) * 0.5) + float(slider_offset)
+        return self._position_to_x_impl(position)
 
+    def _slider_position_to_x_windows(self, position):
+        minimum_value = self.minimum()
+        maximum_value = self.maximum()
+        option, groove_rect, handle_rect = self._slider_geometry()
+        travel_span = max(0, int(groove_rect.width() - handle_rect.width()))
+        if maximum_value == minimum_value or travel_span <= 0:
+            return float(groove_rect.center().x())
+        slider_offset = QStyle.sliderPositionFromValue(
+            minimum_value,
+            maximum_value,
+            int(round(float(position))),
+            travel_span,
+            option.upsideDown,
+        )
+        return float(groove_rect.x()) + (float(handle_rect.width()) * 0.5) + float(slider_offset)
+
+    def _slider_position_to_x_default(self, position):
         minimum_value = self.minimum()
         maximum_value = self.maximum()
         minimum_handle = self._handle_rect_for_position(minimum_value)
@@ -349,27 +401,28 @@ class FrameSlider(QSlider):
         clicked_position = int(round(self.xToSliderPosition(x)))
         clicked_position = max(self.minimum(), min(self.maximum(), clicked_position))
 
-        # Check if clicked near any keyframe
-        if IS_WINDOWS:
-            _tick_y, marker_y = self._indicator_y_positions()
-            metrics = self._indicator_metrics()
-            keyframe_threshold_sq = (metrics["keyframe_half"] + 1.5) ** 2
-            flag_threshold_sq = (metrics["flag_radius"] + 1.0) ** 2
+        if self._mouse_press_impl(x, y, clicked_position):
+            event.accept()
+            return
+
+        super(FrameSlider, self).mousePressEvent(event)  # Call parent's mousePressEvent
+
+    def _mouse_press_windows(self, x, y, clicked_position):
+        _tick_y, marker_y = self._indicator_y_positions()
+        metrics = self._indicator_metrics()
+        keyframe_threshold_sq = (metrics["keyframe_half"] + 1.5) ** 2
+        flag_threshold_sq = (metrics["flag_radius"] + 1.0) ** 2
         for keyframe in self.keyframes:
             keyframe_x = self.sliderPositionToX(keyframe)
-            keyframe_y = marker_y if IS_WINDOWS else (self.height() - 5.5)
-            threshold_sq = keyframe_threshold_sq if IS_WINDOWS else 25
-            if ((keyframe_x - x)**2 + (keyframe_y - y)**2) <= threshold_sq:
+            if ((keyframe_x - x)**2 + (marker_y - y)**2) <= keyframe_threshold_sq:
                 self.main_window.navigate_to_image(keyframe)
-                return  # Don't propagate event further
+                return True
         
         for flagframe in self.flaggedframes:
             flagframe_x = self.sliderPositionToX(flagframe)
-            flagframe_y = marker_y if IS_WINDOWS else (self.height() - 5.5)
-            threshold_sq = flag_threshold_sq if IS_WINDOWS else 9
-            if ((flagframe_x - x)**2 + (flagframe_y - y)**2) <= threshold_sq:
+            if ((flagframe_x - x)**2 + (marker_y - y)**2) <= flag_threshold_sq:
                 self.main_window.navigate_to_image(flagframe)
-                return  # Don't propagate event further
+                return True
 
         handle_rect = self._handle_rect_for_position(self._current_slider_position()).adjusted(-2, -2, 2, 2)
         if not handle_rect.contains(QPoint(int(round(x)), int(round(y)))):
@@ -377,10 +430,32 @@ class FrameSlider(QSlider):
                 self.main_window.navigate_to_image(clicked_position)
             else:
                 self.setValue(clicked_position)
-            event.accept()
-            return
+            return True
+        return False
 
-        super(FrameSlider, self).mousePressEvent(event)  # Call parent's mousePressEvent
+    def _mouse_press_default(self, x, y, clicked_position):
+        for keyframe in self.keyframes:
+            keyframe_x = self.sliderPositionToX(keyframe)
+            keyframe_y = self.height() - 5.5
+            if ((keyframe_x - x)**2 + (keyframe_y - y)**2) <= 25:
+                self.main_window.navigate_to_image(keyframe)
+                return True
+
+        for flagframe in self.flaggedframes:
+            flagframe_x = self.sliderPositionToX(flagframe)
+            flagframe_y = self.height() - 5.5
+            if ((flagframe_x - x)**2 + (flagframe_y - y)**2) <= 9:
+                self.main_window.navigate_to_image(flagframe)
+                return True
+
+        handle_rect = self._handle_rect_for_position(self._current_slider_position()).adjusted(-2, -2, 2, 2)
+        if not handle_rect.contains(QPoint(int(round(x)), int(round(y)))):
+            if self.main_window is not None:
+                self.main_window.navigate_to_image(clicked_position)
+            else:
+                self.setValue(clicked_position)
+            return True
+        return False
 
     def mouseReleaseEvent(self, event):
         super(FrameSlider, self).mouseReleaseEvent(event)
@@ -441,6 +516,9 @@ class SliderZoom_Slider(QSlider):
         self.setMaximum(2)
         self.setSingleStep(1)
         self.setFixedWidth(200)
+        if IS_WINDOWS:
+            self.setFixedHeight(max(self.sizeHint().height(), 22))
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         
     def mousePressEvent(self, event):
         self.main_window.image_slider.set_left_ratio()
