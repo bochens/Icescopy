@@ -8045,8 +8045,14 @@ class IceScopy(QMainWindow):
             return
 
         try:
-            payload, grayscale_table, freeze_table = load_session_bundle(file_path)
-            state = build_restore_state(self, payload, grayscale_table, freeze_table)
+            payload, grayscale_table, freeze_table, temperature_sync_table = load_session_bundle(file_path)
+            state = build_restore_state(
+                self,
+                payload,
+                grayscale_table,
+                freeze_table,
+                temperature_sync_table,
+            )
             self.session_active = True
             self.current_session_file_path = file_path
             self.restore_session_state(state)
@@ -8280,6 +8286,8 @@ class IceScopy(QMainWindow):
                 self.grayscale_results_rows,
                 self.freeze_results_headers,
                 self.freeze_results_rows,
+                self.temperature_sync_headers,
+                self.temperature_sync_rows,
             )
             self.current_session_file_path = file_path
             self.log(f"Saved session at {file_path}")

@@ -6,10 +6,11 @@ import zipfile
 from icescopy_cell_items import CellCircle
 
 
-SESSION_SCHEMA_VERSION = 5
+SESSION_SCHEMA_VERSION = 6
 SESSION_STATE_FILENAME = "session.json"
 GRAYSCALE_CSV_FILENAME = "grayscale.csv"
 FREEZE_CSV_FILENAME = "freeze.csv"
+TEMPERATURE_SYNC_CSV_FILENAME = "temperature_sync.csv"
 SORT_MODE_LABELS = {
     "natural_filename": "Natural Filename",
     "filename_asc": "Filename (A-Z)",
@@ -78,17 +79,13 @@ def build_session_payload(main_window):
         "last_temperature_import_path": getattr(main_window, "last_temperature_import_path", None),
         "last_temperature_calibration_path": getattr(main_window, "last_temperature_calibration_path", None),
         "last_temperature_reset_temperature": getattr(main_window, "last_temperature_reset_temperature", None),
-        "has_grayscale_results": bool(main_window.grayscale_results_headers),
-        "has_freeze_results": bool(main_window.freeze_results_headers),
-        "temperature_sync_headers": getattr(main_window, "temperature_sync_headers", []).copy(),
-        "temperature_sync_rows": [list(row) for row in getattr(main_window, "temperature_sync_rows", [])],
         "temperature_sync_summary": dict(getattr(main_window, "temperature_sync_summary", {})),
         "console_history": main_window.terminal.toPlainText() if hasattr(main_window, "terminal") else "",
     }
     return payload
 
 
-def build_restore_state(main_window, payload, grayscale_table, freeze_table):
+def build_restore_state(main_window, payload, grayscale_table, freeze_table, temperature_sync_table):
     cell_items = [cell_circle_from_dict(main_window, item) for item in payload["cell_items"]]
     keyframe_cell_items_dict = {
         int(frame): [cell_circle_from_dict(main_window, item) for item in circles]
@@ -97,6 +94,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table):
 
     grayscale_headers, grayscale_rows = grayscale_table
     freeze_headers, freeze_rows = freeze_table
+    temperature_sync_headers, temperature_sync_rows = temperature_sync_table
 
     return {
         "session_metadata": payload.get("session_metadata", {}),
@@ -125,8 +123,8 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table):
         "grayscale_results_rows": grayscale_rows,
         "freeze_results_headers": freeze_headers,
         "freeze_results_rows": freeze_rows,
-        "temperature_sync_headers": payload.get("temperature_sync_headers", []).copy(),
-        "temperature_sync_rows": [list(row) for row in payload.get("temperature_sync_rows", [])],
+        "temperature_sync_headers": temperature_sync_headers,
+        "temperature_sync_rows": temperature_sync_rows,
         "temperature_sync_summary": dict(payload.get("temperature_sync_summary", {})),
         "tool_mode": payload.get("tool_mode", "cursor"),
         "console_history": payload.get("console_history", ""),
@@ -150,13 +148,27 @@ def _csv_text_to_rows(text):
     return rows[0], rows[1:]
 
 
-def save_session_bundle(file_path, payload, grayscale_headers, grayscale_rows, freeze_headers, freeze_rows):
+def save_session_bundle(
+    file_path,
+    payload,
+    grayscale_headers,
+    grayscale_rows,
+    freeze_headers,
+    freeze_rows,
+    temperature_sync_headers,
+    temperature_sync_rows,
+):
     with zipfile.ZipFile(file_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(SESSION_STATE_FILENAME, json.dumps(payload, indent=2))
         if grayscale_headers:
             archive.writestr(GRAYSCALE_CSV_FILENAME, _rows_to_csv_text(grayscale_headers, grayscale_rows))
         if freeze_headers:
             archive.writestr(FREEZE_CSV_FILENAME, _rows_to_csv_text(freeze_headers, freeze_rows))
+        if temperature_sync_headers:
+            archive.writestr(
+                TEMPERATURE_SYNC_CSV_FILENAME,
+                _rows_to_csv_text(temperature_sync_headers, temperature_sync_rows),
+            )
 
 
 def load_session_bundle(file_path):
@@ -164,10 +176,15 @@ def load_session_bundle(file_path):
         payload = json.loads(archive.read(SESSION_STATE_FILENAME).decode("utf-8"))
         grayscale_table = ([], [])
         freeze_table = ([], [])
+        temperature_sync_table = ([], [])
 
         if GRAYSCALE_CSV_FILENAME in archive.namelist():
             grayscale_table = _csv_text_to_rows(archive.read(GRAYSCALE_CSV_FILENAME).decode("utf-8"))
         if FREEZE_CSV_FILENAME in archive.namelist():
             freeze_table = _csv_text_to_rows(archive.read(FREEZE_CSV_FILENAME).decode("utf-8"))
+        if TEMPERATURE_SYNC_CSV_FILENAME in archive.namelist():
+            temperature_sync_table = _csv_text_to_rows(
+                archive.read(TEMPERATURE_SYNC_CSV_FILENAME).decode("utf-8")
+            )
 
-    return payload, grayscale_table, freeze_table
+    return payload, grayscale_table, freeze_table, temperature_sync_table
