@@ -6903,9 +6903,13 @@ class IceScopy(QMainWindow):
 
         blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
         output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
+        blank_correction_enabled = bool(blank_samples)
         blank_correction_by_row = []
         for row in parsed_rows:
             row_index = int(row.row_index)
+            if not blank_correction_enabled:
+                blank_correction_by_row.append(None)
+                continue
             blank_correction = 0
             for blank_sample in blank_samples:
                 counts = corrected_counts_by_sample.get(blank_sample["normalized_name"], [])
@@ -6917,7 +6921,9 @@ class IceScopy(QMainWindow):
         for sample in output_samples:
             sample_name = str(sample["sample_name"])
             total_cells = int(sample["total_cells"])
-            headers.append(f"{sample_name} (n={total_cells}) frozen count")
+            headers.append(f"{sample_name} (n={total_cells}) number total")
+            headers.append(f"{sample_name} (n={total_cells}) number frozen")
+            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
 
         rows = []
         for row in parsed_rows:
@@ -6928,17 +6934,26 @@ class IceScopy(QMainWindow):
                 "" if getattr(row, "avg_temp", None) is None else f"{float(row.avg_temp):.3f}",
                 str(int(row_cycle_ids[row_index])) if row_index < len(row_cycle_ids) else "0",
                 str(getattr(row, "picture_name", "") or ""),
-                str(int(blank_correction)),
+                "nan" if blank_correction is None else str(int(blank_correction)),
             ]
             for sample in output_samples:
                 normalized_name = sample["normalized_name"]
                 total_cells = int(sample["total_cells"])
                 sample_counts = corrected_counts_by_sample.get(normalized_name, [])
                 frozen_value = sample_counts[row_index] if row_index < len(sample_counts) else 0
-                adjusted_total = max(0, total_cells - int(blank_correction))
-                adjusted_frozen = max(0, int(frozen_value) - int(blank_correction))
+                if blank_correction is None:
+                    adjusted_total = max(0, total_cells)
+                    adjusted_frozen = max(0, int(frozen_value))
+                else:
+                    adjusted_total = max(0, total_cells - int(blank_correction))
+                    adjusted_frozen = max(0, int(frozen_value) - int(blank_correction))
                 adjusted_frozen = min(adjusted_frozen, adjusted_total)
+                fraction_frozen = None
+                if adjusted_total > 0:
+                    fraction_frozen = adjusted_frozen / adjusted_total
+                output_row.append(str(int(adjusted_total)))
                 output_row.append(str(int(adjusted_frozen)))
+                output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
             rows.append(output_row)
 
         summary = {
@@ -6994,7 +7009,9 @@ class IceScopy(QMainWindow):
             total_cells = int(group.get("total_cells", 0))
             if include_corrected_temperature:
                 headers.append(f"{sample_name} (n={total_cells}) corrected temperature_C")
-            headers.append(f"{sample_name} (n={total_cells}) frozen count")
+            headers.append(f"{sample_name} (n={total_cells}) number total")
+            headers.append(f"{sample_name} (n={total_cells}) number frozen")
+            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
 
         rows = []
         in_range_image_count = 0
@@ -7032,8 +7049,14 @@ class IceScopy(QMainWindow):
                         calibration_by_well,
                     )
                     output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
+                total_cells = int(group.get("total_cells", 0))
                 frozen_count = image_counts_by_sample.get(normalized_name, {}).get(image_index, 0)
+                fraction_frozen = None
+                if total_cells > 0:
+                    fraction_frozen = frozen_count / total_cells
+                output_row.append(str(int(total_cells)))
                 output_row.append(str(int(frozen_count)))
+                output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
             rows.append(output_row)
 
         summary = {
@@ -7259,36 +7282,8 @@ class IceScopy(QMainWindow):
             writer.writerows(rows)
 
     def write_temperature_sync_csv(self, file_path):
-        summary = dict(self.temperature_sync_summary or {})
-        sample_total_cells = list(summary.get("sample_total_cells", []) or [])
-
         with open(file_path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
-
-            if sample_total_cells:
-                writer.writerow(
-                    ["sample_name"]
-                    + [
-                        str(entry.get("sample_name", "") or "")
-                        for entry in sample_total_cells
-                    ]
-                )
-                writer.writerow(
-                    ["cell_number"]
-                    + [
-                        str(int(entry.get("total_cells", 0)))
-                        for entry in sample_total_cells
-                    ]
-                )
-                if any(str(entry.get("role", "sample") or "sample") != "sample" for entry in sample_total_cells):
-                    writer.writerow(
-                        ["sample_type"]
-                        + [
-                            str(entry.get("role", "sample") or "sample")
-                            for entry in sample_total_cells
-                        ]
-                    )
-                writer.writerow([])
             if self.temperature_sync_headers:
                 writer.writerow(self.temperature_sync_headers)
             writer.writerows(self.temperature_sync_rows)
