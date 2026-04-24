@@ -1104,6 +1104,12 @@ class IceScopy(QMainWindow):
         self.cells_panel_force_refresh = True
         self.refresh_cells_panel()
 
+    def handle_grayscale_plot_visibility_changed(self, visible):
+        if not visible:
+            return
+        self.refresh_grayscale_plot()
+        self.update_grayscale_plot_current_frame()
+
     def refresh_cursor_selection_info(self, selected_items=None):
         if not hasattr(self, "cursor_info_value_labels"):
             return 0
@@ -3065,6 +3071,7 @@ class IceScopy(QMainWindow):
         self.grayscale_plot_dock.hide()
         self.results_tables_dock.hide()
         self.cells_dock.visibilityChanged.connect(self.handle_cells_panel_visibility_changed)
+        self.grayscale_plot_dock.visibilityChanged.connect(self.handle_grayscale_plot_visibility_changed)
 
         reset_layout_action = QAction("Reset Panel Layout", self)
         reset_layout_action.triggered.connect(self.reset_panel_layout)
@@ -5023,6 +5030,7 @@ class IceScopy(QMainWindow):
             self.timeseries_freeze_line_width,
             self.get_qcolor(self.timeseries_current_frame_color).getRgb(),
             self.timeseries_current_frame_line_width,
+            current_image_name=self.get_plot_current_image_name(),
         )
 
     def grayscale_plot_is_visible(self):
@@ -5042,13 +5050,24 @@ class IceScopy(QMainWindow):
             return
         if not self.grayscale_plot_is_visible():
             return
-        self.grayscale_plot_widget.set_current_image_index(self.get_plot_current_image_index())
+        self.grayscale_plot_widget.set_current_image_index(
+            self.get_plot_current_image_index(),
+            self.get_plot_current_image_name(),
+        )
 
     def get_plot_current_image_index(self):
         if self.pending_preview_image_index is not None:
             return self.pending_preview_image_index
         if self.imagePaths and (0 <= self.image_index < len(self.imagePaths)):
             return self.image_index
+        return None
+
+    def get_plot_current_image_name(self):
+        current_index = self.get_plot_current_image_index()
+        if current_index is None:
+            return None
+        if self.imageNames and (0 <= int(current_index) < len(self.imageNames)):
+            return self.imageNames[int(current_index)]
         return None
 
     def capture_session_state(self):

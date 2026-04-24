@@ -54,6 +54,7 @@ class GrayscalePlotWidget(QWidget):
         self.freeze_rows = []
         self.cell_ids = []
         self.current_image_index = None
+        self.current_image_name = None
         self.tail_extend_points = 0
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
@@ -68,9 +69,12 @@ class GrayscalePlotWidget(QWidget):
         self._data_signature = None
         self._render_signature = None
         self._column_map_cache = None
+        self._file_name_column_index_cache = None
+        self._row_indexes_by_file_name_cache = None
         self._freeze_map_cache = None
         self._series_cache_by_cell = {}
         self._convolution_cache = {}
+        self._preserve_view_range_on_next_refresh = False
 
         self.message_label = QLabel(
             "Run analysis, then select one or more circles to plot grayscale timeseries."
@@ -137,6 +141,7 @@ class GrayscalePlotWidget(QWidget):
         freeze_line_width=1.0,
         current_frame_color=(255, 204, 0, 220),
         current_frame_width=2.0,
+        current_image_name=None,
     ):
         normalized_headers = list(grayscale_headers or [])
         normalized_rows = list(grayscale_rows or [])
@@ -166,7 +171,8 @@ class GrayscalePlotWidget(QWidget):
             style_signature,
         )
 
-        if data_signature != self._data_signature:
+        data_changed = data_signature != self._data_signature
+        if data_changed:
             self._data_signature = data_signature
             self._invalidate_data_caches()
 
@@ -174,7 +180,6 @@ class GrayscalePlotWidget(QWidget):
         self.grayscale_rows = normalized_rows
         self.freeze_rows = normalized_freeze_rows
         self.cell_ids = list(normalized_cell_ids)
-        self.current_image_index = current_image_index
         self.tail_extend_points = style_signature[0]
         self.convolution_half_window_points = style_signature[1]
         self.convolution_ramp_points = style_signature[2]
@@ -189,18 +194,31 @@ class GrayscalePlotWidget(QWidget):
         # Fast path: if plot content/style/selected cells are unchanged, only move
         # the current-frame indicator instead of rebuilding all curves.
         if render_signature == self._render_signature:
-            self.set_current_image_index(current_image_index)
+            self.set_current_image_index(current_image_index, current_image_name)
             return
 
+        self.current_image_index = current_image_index
+        self.current_image_name = current_image_name
+        self._preserve_view_range_on_next_refresh = (
+            not data_changed
+            and self.stack.currentWidget() is self.plot_widget
+        )
         self._render_signature = render_signature
         self.refresh_plot()
 
-    def set_current_image_index(self, current_image_index):
-        if self.current_image_index == current_image_index:
-            return
+    def set_current_image_index(self, current_image_index, current_image_name=None):
         self.current_image_index = current_image_index
-        if self.current_frame_line is not None and current_image_index is not None:
-            self.current_frame_line.setPos(float(current_image_index))
+        self.current_image_name = current_image_name
+        frame_x = self._current_frame_x()
+        if self.current_frame_line is None:
+            if frame_x is not None and self.stack.currentWidget() is self.plot_widget:
+                self._add_current_frame_line(frame_x, include_legend=False)
+            return
+        if frame_x is None:
+            self.plot_item.removeItem(self.current_frame_line)
+            self.current_frame_line = None
+            return
+        self.current_frame_line.setValue(frame_x)
 
     def _palette_colors(self):
         return self.PALETTES.get(self.timeseries_palette, self.PALETTES["bright"])
@@ -239,27 +257,148 @@ class GrayscalePlotWidget(QWidget):
         self.plot_item.setLabel("right", "Convolution Signal")
 
     def _build_data_signature(self, headers, rows, freeze_rows):
-        row_count = len(rows)
-        header_tuple = tuple(headers)
-        first_row_probe = ()
-        last_row_probe = ()
-        if row_count:
-            first_row_probe = tuple(rows[0][:8])
-            last_row_probe = tuple(rows[-1][:8])
-        freeze_signature = tuple(tuple(row[:4]) for row in freeze_rows)
         return (
-            header_tuple,
-            row_count,
-            first_row_probe,
-            last_row_probe,
-            freeze_signature,
+            tuple(headers),
+            tuple(tuple(row) for row in rows),
+            tuple(tuple(row) for row in freeze_rows),
         )
+
+    def _file_name_column_index(self):
+        if self._file_name_column_index_cache is not None:
+            if self._file_name_column_index_cache < 0:
+                return None
+            return self._file_name_column_index_cache
+        for index, header in enumerate(self.grayscale_headers):
+            if str(header).strip().casefold() == "file_name":
+                self._file_name_column_index_cache = index
+                return index
+        self._file_name_column_index_cache = -1
+        return None
+
+    def _row_indexes_by_file_name(self):
+        if self._row_indexes_by_file_name_cache is not None:
+            return self._row_indexes_by_file_name_cache
+        file_name_column = self._file_name_column_index()
+        mapping = {}
+        if file_name_column is not None:
+            for row_index, row in enumerate(self.grayscale_rows):
+                try:
+                    file_name = str(row[file_name_column])
+                except IndexError:
+                    continue
+                mapping.setdefault(file_name, []).append(row_index)
+        self._row_indexes_by_file_name_cache = mapping
+        return mapping
+
+    def _current_frame_x(self):
+        if not self.grayscale_rows:
+            return None
+
+        current_image_name = None
+        if self.current_image_name is not None:
+            current_image_name = str(self.current_image_name)
+
+        file_name_column = self._file_name_column_index()
+        if file_name_column is not None and current_image_name:
+            try:
+                current_image_index = int(self.current_image_index)
+            except (TypeError, ValueError):
+                current_image_index = None
+
+            if (
+                current_image_index is not None
+                and 0 <= current_image_index < len(self.grayscale_rows)
+            ):
+                row = self.grayscale_rows[current_image_index]
+                if (
+                    file_name_column < len(row)
+                    and str(row[file_name_column]) == current_image_name
+                ):
+                    return float(current_image_index)
+
+            row_indexes = self._row_indexes_by_file_name().get(current_image_name, [])
+            if row_indexes:
+                return float(row_indexes[0])
+            return None
+
+        try:
+            current_image_index = int(self.current_image_index)
+        except (TypeError, ValueError):
+            return None
+        if not (0 <= current_image_index < len(self.grayscale_rows)):
+            return None
+        return float(current_image_index)
+
+    def _finite_range(self, range_values):
+        if not isinstance(range_values, (list, tuple)) or len(range_values) != 2:
+            return None
+        try:
+            lower = float(range_values[0])
+            upper = float(range_values[1])
+        except (TypeError, ValueError):
+            return None
+        if not (np.isfinite(lower) and np.isfinite(upper)) or lower == upper:
+            return None
+        return (lower, upper)
+
+    def _capture_view_ranges(self):
+        primary_ranges = self.plot_item.vb.viewRange()
+        convolution_ranges = self.convolution_view_box.viewRange()
+        if len(primary_ranges) < 2 or len(convolution_ranges) < 2:
+            return None
+        x_range = self._finite_range(primary_ranges[0])
+        y_range = self._finite_range(primary_ranges[1])
+        convolution_y_range = self._finite_range(convolution_ranges[1])
+        if x_range is None or y_range is None:
+            return None
+        return {
+            "x_range": x_range,
+            "y_range": y_range,
+            "convolution_y_range": convolution_y_range,
+        }
+
+    def _restore_view_ranges(self, ranges):
+        if not ranges:
+            return False
+        self.plot_item.setRange(
+            xRange=ranges["x_range"],
+            yRange=ranges["y_range"],
+            padding=0,
+        )
+        if ranges.get("convolution_y_range") is not None:
+            self.convolution_view_box.setYRange(
+                ranges["convolution_y_range"][0],
+                ranges["convolution_y_range"][1],
+                padding=0,
+            )
+        return True
 
     def _invalidate_data_caches(self):
         self._column_map_cache = None
+        self._file_name_column_index_cache = None
+        self._row_indexes_by_file_name_cache = None
         self._freeze_map_cache = None
         self._series_cache_by_cell = {}
         self._convolution_cache = {}
+
+    def _add_current_frame_line(self, frame_x, include_legend):
+        self.current_frame_line = pg.InfiniteLine(
+            pos=float(frame_x),
+            angle=90,
+            pen=self._current_frame_pen(),
+            movable=False,
+        )
+        self.current_frame_line.setZValue(1000)
+        self.plot_item.addItem(self.current_frame_line, ignoreBounds=True)
+        if include_legend:
+            self._configure_data_item(
+                self.plot_item.plot(
+                    np.empty(0, dtype=float),
+                    np.empty(0, dtype=float),
+                    pen=self._current_frame_pen(),
+                    name="Current Frame",
+                )
+            )
 
     def update_convolution_view_geometry(self):
         self.convolution_view_box.setGeometry(self.plot_item.vb.sceneBoundingRect())
@@ -396,6 +535,13 @@ class GrayscalePlotWidget(QWidget):
     def refresh_plot(self):
         self.plot_widget.setUpdatesEnabled(False)
         try:
+            preserved_view_ranges = (
+                self._capture_view_ranges()
+                if self._preserve_view_range_on_next_refresh
+                else None
+            )
+            self._preserve_view_range_on_next_refresh = False
+
             if not self.grayscale_headers or not self.grayscale_rows:
                 self._clear_plot()
                 self._show_message("Run analysis to generate grayscale timeseries.")
@@ -499,30 +645,21 @@ class GrayscalePlotWidget(QWidget):
                     )
                 )
 
-            if self.current_image_index is not None:
-                self.current_frame_line = pg.InfiniteLine(
-                    pos=float(self.current_image_index),
-                    angle=90,
-                    pen=self._current_frame_pen(),
-                    movable=False,
-                )
-                self.current_frame_line.setZValue(1000)
-                self.plot_item.addItem(self.current_frame_line, ignoreBounds=True)
-                if show_legend:
-                    self._configure_data_item(
-                        self.plot_item.plot(
-                            np.empty(0, dtype=float),
-                            np.empty(0, dtype=float),
-                            pen=self._current_frame_pen(),
-                            name="Current Frame",
-                        )
-                    )
+            current_frame_x = self._current_frame_x()
+            if current_frame_x is not None:
+                self._add_current_frame_line(current_frame_x, include_legend=show_legend)
 
-            if grayscale_y_min is not None and grayscale_y_max is not None:
+            if preserved_view_ranges and self._restore_view_ranges(preserved_view_ranges):
+                pass
+            elif grayscale_y_min is not None and grayscale_y_max is not None:
                 padding = max((grayscale_y_max - grayscale_y_min) * 0.08, 1.0)
                 self.plot_item.setYRange(grayscale_y_min - padding, grayscale_y_max + padding, padding=0)
 
-            if convolution_y_min is not None and convolution_y_max is not None:
+            if (
+                not preserved_view_ranges
+                and convolution_y_min is not None
+                and convolution_y_max is not None
+            ):
                 conv_padding = max((convolution_y_max - convolution_y_min) * 0.08, 1.0)
                 self.convolution_view_box.setYRange(
                     convolution_y_min - conv_padding,
@@ -530,7 +667,8 @@ class GrayscalePlotWidget(QWidget):
                     padding=0,
                 )
 
-            self.plot_item.enableAutoRange(axis="x")
+            if not preserved_view_ranges:
+                self.plot_item.enableAutoRange(axis="x")
             self.update_convolution_view_geometry()
             self._show_plot()
         finally:
