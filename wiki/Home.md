@@ -60,6 +60,6 @@ Cells have stable IDs and can also be grouped into samples.
 A keyframe stores a known cell layout at a particular frame.
 Icescopy interpolates between keyframes to reduce repetitive manual edits.
 
-### Temperature sync
+### Freeze Count Timeseries
 
-Temperature sync combines image-derived freeze counts with external temperature timeseries, including repeated cooling-warming cycles when supported by the imported format.
+Freeze count timeseries combines image-derived freeze counts with external temperature timeseries, including repeated cooling-warming cycles when supported by the imported format.

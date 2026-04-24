@@ -36,7 +36,7 @@ from icescopy_temperature_import import (  # noqa: E402
 )
 
 
-class TemperatureSyncLogicTests(unittest.TestCase):
+class FreezeCountTimeseriesLogicTests(unittest.TestCase):
     def expected_epoch_utc_naive(self, seconds_value):
         return datetime.fromtimestamp(seconds_value, tz=timezone.utc).replace(tzinfo=None)
 
