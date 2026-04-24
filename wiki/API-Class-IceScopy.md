@@ -245,7 +245,7 @@ Main application shell and composition root for the desktop app.
 | `last_standard_temperature_temperature_timestamp_style` | `initData` | 1378 | Most recently used value for standard temperature temperature timestamp style. |
 | `last_standard_temperature_temperature_unit` | `initData` | 1382 | Most recently used value for standard temperature temperature unit. |
 | `last_standard_temperature_use_image_timestamp_style` | `initData` | 1379 | Most recently used value for standard temperature use image timestamp style. |
-| `last_temperature_blank_sample_names` | `initData` | 1375 | Most recently used value for temperature blank sample names. |
+| `last_temperature_blank_sample_names` | `initData` | 1375 | Most recently used value for temperature water blank sample names. |
 | `last_temperature_calibration_path` | `initData` | 1373 | Most recently used value for temperature calibration path. |
 | `last_temperature_import_path` | `initData` | 1372 | Most recently used value for temperature import path. |
 | `last_temperature_reset_temperature` | `initData` | 1374 | Most recently used value for temperature reset temperature. |

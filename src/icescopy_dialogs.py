@@ -180,7 +180,7 @@ class CSUTemperatureImportDialog(QDialog):
         )
 
         intro_label = QLabel(
-            "Select the CSU .dat file and optionally mark app samples that should be treated as blank controls.",
+            "Select the CSU .dat file and optionally mark app samples that should be treated as water blank controls.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -218,7 +218,7 @@ class CSUTemperatureImportDialog(QDialog):
             item = QListWidgetItem(str(sample_name), self.blank_sample_list)
             if "blank" in str(sample_name).casefold():
                 item.setSelected(True)
-        form.addRow("Blank samples", self.blank_sample_list)
+        form.addRow("Water blank samples", self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
@@ -241,7 +241,7 @@ class CSUTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            "Blank correction is applied within each cycle. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
+            "Water blank correction is applied within each cycle. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
             self,
         )
         hint_label.setWordWrap(True)
@@ -326,7 +326,7 @@ class TAMUTemperatureImportDialog(QDialog):
 
         intro_label = QLabel(
             "Select the TAMU Linkam workbook. Image timestamps will be read from the PNG filenames and matched to the Linkam temperature timeseries by time interpolation. "
-            "You can also mark app samples that should be treated as blank controls.",
+            "You can also mark app samples that should be treated as water blank controls.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -389,7 +389,7 @@ class TAMUTemperatureImportDialog(QDialog):
                 not selected_blank_names and "blank" in sample_label.casefold()
             ):
                 item.setSelected(True)
-        form.addRow("Blank samples", self.blank_sample_list)
+        form.addRow("Water blank samples", self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
@@ -413,7 +413,7 @@ class TAMUTemperatureImportDialog(QDialog):
 
         hint_label = QLabel(
             "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. "
-            "If blank samples are selected, their cumulative frozen counts are subtracted from every non-blank output group. "
+            "If water blank samples are selected, their cumulative frozen counts are subtracted from every non-blank output group. "
             "If reset is enabled, counts restart once temperature warms back to the selected threshold.",
             self,
         )
@@ -716,7 +716,7 @@ class StandardTemperatureImportDialog(QDialog):
         blank_separator.setFrameShadow(QFrame.Sunken)
         self.temperature_form.addRow(blank_separator)
 
-        blank_section_label = QLabel("Blank correction", self)
+        blank_section_label = QLabel("Water blank correction", self)
         blank_section_label.setStyleSheet("font-weight: 600;")
         self.temperature_form.addRow(blank_section_label)
 
@@ -730,7 +730,7 @@ class StandardTemperatureImportDialog(QDialog):
                 not selected_blank_names and "blank" in sample_label.casefold()
             ):
                 item.setSelected(True)
-        self.temperature_form.addRow(make_form_label("Blank samples"), self.blank_sample_list)
+        self.temperature_form.addRow(make_form_label("Water blank samples"), self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
@@ -758,7 +758,7 @@ class StandardTemperatureImportDialog(QDialog):
             "YYYYMMDD_HHMMSS, YYYYMMDD HHMMSS, YYMMDD_HHMMSS, YYMMDD HHMMSS, YYMMDD HHMM, YYMMDD-HHMMSS, "
             "YY/MM/DD HH:MM:SS, and EXIF text YYYY:MM:DD HH:MM:SS.</li>"
             "<li>Use the explicit Unix epoch options for 10-digit seconds or 13-digit milliseconds since 1970-01-01 00:00:00 UTC.</li>"
-            "<li>If blank samples are selected, their cumulative frozen counts are subtracted from each non-blank output group.</li>"
+            "<li>If water blank samples are selected, their cumulative frozen counts are subtracted from each non-blank output group.</li>"
             "</ul>",
             self,
         )

@@ -20,7 +20,7 @@ CSUTemperature Import Dialog class.
 
 | Attribute | First assigned in | Line | Explanation |
 | --- | --- | --- | --- |
-| `blank_sample_list` | `__init__` | 214 | Ordered list used for blank sample list. |
+| `blank_sample_list` | `__init__` | 214 | Ordered list used for water blank sample selection. |
 | `file_path_edit` | `__init__` | 200 | Stores file path edit. |
 | `main_window` | `__init__` | 173 | Stores main window. |
 | `reset_temperature_spinbox` | `__init__` | 223 | Spin box widget for reset temperature spinbox. |

@@ -19,18 +19,18 @@ Use the CSU importer when you have the CSU `.dat` output format.
 The CSU workflow supports:
 
 - sample matching
-- blank sample designation
+- water blank sample designation
 - reset-after-warmed-to cycle splitting
 
-## CSU blank correction
+## CSU Water Blank Correction
 
-Blank correction is applied within a cycle.
+Water blank correction is applied within a cycle.
 
 In the current logic:
 
 - the imported `.dat` series is treated as cumulative count data
 - image-derived anchor points from Icescopy are used to reconcile the cumulative series
-- blank samples contribute a cumulative blank correction within each cycle
+- water blank samples contribute a cumulative correction within each cycle
 
 The algorithm defaults to the imported cumulative series when it is consistent, but corrects it when it violates:
 

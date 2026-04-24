@@ -20,7 +20,7 @@ Standard Temperature Import Dialog class.
 
 | Attribute | First assigned in | Line | Explanation |
 | --- | --- | --- | --- |
-| `blank_sample_list` | `__init__` | 723 | Ordered list used for blank sample list. |
+| `blank_sample_list` | `__init__` | 723 | Ordered list used for water blank sample selection. |
 | `button_box` | `__init__` | 774 | Stores button box. |
 | `file_path_edit` | `__init__` | 595 | Stores file path edit. |
 | `frame_interval_spinbox` | `__init__` | 647 | Spin box widget for frame interval spinbox. |

@@ -87,8 +87,8 @@ Temperature import, parsing, reconciliation, and cycle-detection helpers.
 | `resolve_image_timestamp(file_path, image_name, source=IMAGE_TIMESTAMP_SOURCE_FILENAME, timestamp_style=TIMESTAMP_STYLE_AUTO, generated_start_text='', frame_interval_seconds=None, image_index=0)` | 484 | Implements resolve image timestamp. |
 | `resolve_image_timestamps(image_paths, image_names, source=IMAGE_TIMESTAMP_SOURCE_FILENAME, timestamp_style=TIMESTAMP_STYLE_AUTO, generated_start_text='', frame_interval_seconds=None)` | 532 | Implements resolve image timestamps. |
 | `parse_standard_temperature_csv(file_path, timestamp_style=TIMESTAMP_STYLE_AUTO, temperature_unit=TEMPERATURE_UNIT_CELSIUS)` | 566 | Parses standard temperature CSV. |
-| `compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count)` | 630 | Computes blank correction by index. |
-| `apply_blank_correction(total_cells, frozen_count, blank_correction)` | 649 | Applies blank correction. |
+| `compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count)` | 630 | Computes water blank correction by index. |
+| `apply_blank_correction(total_cells, frozen_count, blank_correction)` | 649 | Applies water blank correction. |
 | `parse_tamu_image_timestamp(image_name)` | 665 | Parses tamu image timestamp. |
 | `_read_xlsx_shared_strings(archive)` | 682 | Implements read xlsx shared strings. |
 | `_resolve_first_sheet_path(archive)` | 692 | Implements resolve first sheet path. |

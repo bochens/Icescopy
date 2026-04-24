@@ -36,7 +36,7 @@ _None._
 | `normalize_sample_catalog_record(value)` | 57 | Normalizes sample catalog record. |
 | `serialize_sample_catalog_payload(catalog)` | 75 | Serializes sample catalog payload. |
 | `deserialize_sample_catalog_payload(payload)` | 84 | Deserializes sample catalog payload. |
-| `build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=None, summary=None, exported_at=None)` | 97 | Builds freeze count timeseries CSV text. |
+| `build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=None, summary=None)` | 95 | Builds freeze count timeseries CSV text. |
 | `cell_circle_to_dict(circle)` | 144 | Serializes cell circle to a dictionary payload. |
 | `cell_circle_from_dict(main_window, payload)` | 154 | Rebuilds cell circle from a dictionary payload. |
 | `build_session_payload(main_window)` | 171 | Builds session payload. |

@@ -325,14 +325,16 @@ class SessionIoTests(unittest.TestCase):
                     }
                 ],
             },
-            exported_at="2026-04-22T12:30:00",
         )
 
         self.assertIn("# format_name: icescopy_freeze_count_timeseries\n", csv_text)
         self.assertIn("# file_version: 1\n", csv_text)
         self.assertIn("# project_name: Proj\n", csv_text)
+        self.assertIn("# analysis_date: 2026-04-22\n", csv_text)
         self.assertIn("# well_volume_uL: 50\n", csv_text)
         self.assertIn("# reset_temperature_C: 5.0\n", csv_text)
+        self.assertNotIn("# date:", csv_text)
+        self.assertNotIn("# exported_at:", csv_text)
         self.assertIn("# sample_id,1\n", csv_text)
         self.assertIn("# sample_name,Sample A\n", csv_text)
         self.assertIn("# collection_start,2026-04-22T12:00:00\n", csv_text)
@@ -380,12 +382,13 @@ class SessionIoTests(unittest.TestCase):
                     }
                 ],
             },
-            exported_at="2026-04-22T12:30:00",
         )
 
         self.assertIn("# project_name: nan\n", csv_text)
+        self.assertIn("# analysis_date: nan\n", csv_text)
         self.assertIn("# well_volume_uL: nan\n", csv_text)
         self.assertIn("# reset_temperature_C: nan\n", csv_text)
+        self.assertNotIn("# exported_at:", csv_text)
         self.assertIn("# sample_long_name,nan\n", csv_text)
         self.assertIn("# collection_start,nan\n", csv_text)
         self.assertIn("# collection_end,nan\n", csv_text)

@@ -2,7 +2,6 @@ import csv
 import io
 import json
 import zipfile
-from datetime import datetime
 
 from icescopy_cell_items import CellCircle
 
@@ -34,10 +33,9 @@ FREEZE_COUNT_TIMESERIES_PREAMBLE_KEYS = (
     "project_name",
     "user_name",
     "institution",
-    "date",
+    "analysis_date",
     "well_volume_uL",
     "reset_temperature_C",
-    "exported_at",
 )
 FREEZE_COUNT_TIMESERIES_METADATA_ROW_LABELS = ("sample_id",) + FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
 FREEZE_COUNT_TIMESERIES_FORMAT_NAME = "icescopy_freeze_count_timeseries"
@@ -100,7 +98,6 @@ def build_freeze_count_timeseries_csv_text(
     *,
     session_metadata=None,
     summary=None,
-    exported_at=None,
 ):
     session_metadata = dict(session_metadata or {})
     summary = dict(summary or {})
@@ -116,14 +113,11 @@ def build_freeze_count_timeseries_csv_text(
         "project_name": metadata_text(session_metadata.get("project_name", "")),
         "user_name": metadata_text(session_metadata.get("user_name", "")),
         "institution": metadata_text(session_metadata.get("institution", "")),
-        "date": metadata_text(session_metadata.get("date", "")),
+        "analysis_date": metadata_text(session_metadata.get("date", "")),
         "well_volume_uL": metadata_text(
             session_metadata.get("well_volume_uL", summary.get("well_volume_uL", ""))
         ),
         "reset_temperature_C": metadata_text(summary.get("reset_temperature")),
-        "exported_at": str(
-            exported_at or datetime.now().isoformat(timespec="seconds")
-        ),
     }
 
     buffer = io.StringIO()

@@ -6771,7 +6771,7 @@ class IceScopy(QMainWindow):
         )
         parsed_image_timestamps = timing_context["parsed_image_timestamps"]
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample.get("sample_name", ""))
@@ -7010,7 +7010,7 @@ class IceScopy(QMainWindow):
             len(parsed_rows),
         )
 
-        headers = ["timestamp", "temperature_C", "cycle", "picture", "blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "picture", "water blank correction count"]
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample["sample_name"])
@@ -7111,7 +7111,7 @@ class IceScopy(QMainWindow):
                     if int(cell_id) in calibration_by_well:
                         calibrated_cell_ids.add(int(cell_id))
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample.get("sample_name", ""))
@@ -7342,9 +7342,9 @@ class IceScopy(QMainWindow):
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            message_lines.append("Blank correction samples: " + ", ".join(matched_blank_samples))
+            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
-            message_lines.append("Selected blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
+            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if out_of_range_image_count:
             message_lines.append(
                 f"Images outside the timeseries range: {out_of_range_image_count}"
@@ -7371,9 +7371,9 @@ class IceScopy(QMainWindow):
         if matched_samples:
             self.log("Standard temperature output samples: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            self.log("Standard temperature blank correction samples: " + ", ".join(matched_blank_samples))
+            self.log("Standard temperature water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
-            self.log("Standard temperature unmatched selected blank samples: " + ", ".join(unmatched_blank))
+            self.log("Standard temperature unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_csu_is_dat(self, checked=False):
         if not self.imagePaths:
@@ -7449,13 +7449,13 @@ class IceScopy(QMainWindow):
         if matched_samples:
             message_lines.append("Matched sample names: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            message_lines.append("Blank correction samples: " + ", ".join(matched_blank_samples))
+            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_app:
             message_lines.append("No CSU column match for app sample(s): " + ", ".join(unmatched_app))
         if unmatched_dat:
             message_lines.append("No app sample match for CSU column(s): " + ", ".join(unmatched_dat))
         if unmatched_blank:
-            message_lines.append("Selected blank sample(s) not matched to CSU columns: " + ", ".join(unmatched_blank))
+            message_lines.append("Selected water blank sample(s) not matched to CSU columns: " + ", ".join(unmatched_blank))
 
         self.show_detailed_information_dialog(
             "CSU IS .dat import",
@@ -7467,13 +7467,13 @@ class IceScopy(QMainWindow):
         if matched_samples:
             self.log("CSU matched samples: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            self.log("CSU blank correction samples: " + ", ".join(matched_blank_samples))
+            self.log("CSU water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_app:
             self.log("CSU unmatched app samples: " + ", ".join(unmatched_app))
         if unmatched_dat:
             self.log("CSU unmatched .dat samples: " + ", ".join(unmatched_dat))
         if unmatched_blank:
-            self.log("CSU unmatched selected blank samples: " + ", ".join(unmatched_blank))
+            self.log("CSU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_tamu_linkam_xlsx(self, checked=False):
         if not self.imagePaths:
@@ -7567,9 +7567,9 @@ class IceScopy(QMainWindow):
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            message_lines.append("Blank correction samples: " + ", ".join(matched_blank_samples))
+            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
-            message_lines.append("Selected blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
+            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             message_lines.append(f"Calibration applied to {calibrated_cell_count} cell(s).")
         if out_of_range_image_count:
@@ -7592,9 +7592,9 @@ class IceScopy(QMainWindow):
         if matched_samples:
             self.log("TAMU output samples: " + ", ".join(matched_samples))
         if matched_blank_samples:
-            self.log("TAMU blank correction samples: " + ", ".join(matched_blank_samples))
+            self.log("TAMU water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
-            self.log("TAMU unmatched selected blank samples: " + ", ".join(unmatched_blank))
+            self.log("TAMU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             self.log(f"TAMU calibration applied to {calibrated_cell_count} cell(s): {calibration_path}")
 

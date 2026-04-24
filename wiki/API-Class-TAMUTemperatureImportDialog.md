@@ -20,7 +20,7 @@ TAMUTemperature Import Dialog class.
 
 | Attribute | First assigned in | Line | Explanation |
 | --- | --- | --- | --- |
-| `blank_sample_list` | `__init__` | 382 | Ordered list used for blank sample list. |
+| `blank_sample_list` | `__init__` | 382 | Ordered list used for water blank sample selection. |
 | `calibration_path_edit` | `__init__` | 363 | Stores calibration path edit. |
 | `file_path_edit` | `__init__` | 346 | Stores file path edit. |
 | `main_window` | `__init__` | 318 | Stores main window. |
