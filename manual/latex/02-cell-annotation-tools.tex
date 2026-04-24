@@ -1,0 +1,417 @@
+\documentclass[
+  9pt,
+  letterpaper,
+  oneside,
+  open=any,
+  DIV=15,
+  parskip=half-,
+  headings=big,
+  numbers=noenddot
+]{scrbook}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[final]{microtype}
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+\usepackage{graphicx}
+\usepackage{bookmark}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\usepackage{fvextra}
+\usepackage{scrlayer-scrpage}
+\usepackage{setspace}
+
+\definecolor{ManualInk}{HTML}{1C1E21}
+\definecolor{ManualMuted}{HTML}{596273}
+\definecolor{ManualBlue}{HTML}{2457D6}
+\definecolor{ManualBlueSoft}{HTML}{EEF3FF}
+\definecolor{ManualBorder}{HTML}{C9D5F2}
+\definecolor{ManualCodeBg}{HTML}{F6F8FB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=ManualBlue,
+  urlcolor=ManualBlue,
+  pdftitle={Annotate Cells},
+  pdfauthor={OpenAI Codex},
+  pdfsubject={Icescopy software manual}
+}
+
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+\setstretch{0.97}
+\setlength{\parskip}{0.18em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+\setlist[enumerate]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+
+\addtokomafont{disposition}{\sffamily\bfseries\color{ManualInk}}
+\addtokomafont{chapter}{\fontsize{18}{20}\selectfont}
+\addtokomafont{section}{\fontsize{12.2}{14}\selectfont}
+\addtokomafont{subsection}{\fontsize{10.8}{12.2}\selectfont}
+\addtokomafont{pagehead}{\sffamily\small\color{ManualMuted}}
+\addtokomafont{pagenumber}{\sffamily\small\color{ManualMuted}}
+
+\renewcommand*{\chapterheadstartvskip}{\vspace*{-1.8\baselineskip}}
+\renewcommand*{\chapterheadendvskip}{\vspace{0.8\baselineskip}}
+
+\clearpairofpagestyles
+\automark[section]{chapter}
+\ihead{\headmark}
+\ohead{\pagemark}
+\KOMAoptions{headsepline=true}
+
+\newcommand{\manuallead}[1]{%
+  \vspace{0.15em}%
+  {\sffamily\bfseries\color{ManualBlue}#1}\par\nobreak\vspace{0.05em}%
+}
+
+\newenvironment{manualcode}
+  {\VerbatimEnvironment
+   \begin{tcolorbox}[
+     breakable,
+     enhanced,
+     sharp corners,
+     colback=ManualCodeBg,
+     colframe=ManualBorder,
+     boxrule=0.4pt,
+     left=0.9mm,
+     right=0.9mm,
+     top=0.5mm,
+     bottom=0.5mm,
+     arc=0.8mm
+   ]
+   \begin{Verbatim}[fontsize=\footnotesize,breaklines=true,breakanywhere=true]}
+  {\end{Verbatim}\end{tcolorbox}}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+  \vspace*{1.1cm}
+  \includegraphics[width=1.8cm]{IcescopyApp.png}\par
+  \vspace{0.75cm}
+  {\sffamily\bfseries\fontsize{24}{27}\selectfont Annotate Cells\par}
+  \vspace{0.25cm}
+  {\sffamily\normalsize\color{ManualMuted}Icescopy manual chapter\par}
+  \vspace{0.8cm}
+  \begin{tcolorbox}[
+    width=0.84\textwidth,
+    enhanced,
+    colback=ManualBlueSoft,
+    colframe=ManualBorder,
+    boxrule=0.5pt,
+    arc=1.4mm,
+    left=2.5mm,
+    right=2.5mm,
+    top=2mm,
+    bottom=2mm
+  ]
+    {\sffamily\bfseries\color{ManualInk}Product manual}\par
+    \vspace{0.1em}
+    {\color{ManualMuted}Current user documentation for the Icescopy desktop application.}
+  \end{tcolorbox}
+  \vfill
+  {\sffamily\small\color{ManualMuted}Generated 2026-04-20}
+\end{titlepage}
+
+\frontmatter
+
+
+
+
+\mainmatter
+\chapter{Annotate Cells}
+
+Use this page to place cells, edit existing cells, assign samples, and review cell records.
+
+
+\section{Choose The Right Tool}
+
+\manuallead{Use these tools by purpose}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item \texttt{Cursor}: inspect cells, select cells, assign samples, edit freeze frames
+\item \texttt{Add Cell}: place one cell at a time
+\item \texttt{Grid Tool}: place a repeated array of cells
+\item \texttt{Edit Cell}: move or resize existing cells
+\item \texttt{Delete Cells}: remove cells
+\item \texttt{Pan and Zoom}: navigate the image
+\end{itemize}
+
+\section{Add One Cell}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Add Cell}.
+\item Move the preview circle over the well or droplet.
+\item Click to place the cell.
+\item Repeat for additional cells.
+\end{enumerate}
+
+Use this tool when wells are irregular or when you only need a few cells.
+
+
+\section{Add A Grid}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Grid Tool}.
+\item Move the preview grid into position.
+\item Adjust rows, columns, pitch, and tilt in the current tool settings.
+\item Click to place the grid.
+\end{enumerate}
+
+Use this tool when the image has a regular layout.
+
+
+\section{Edit Existing Cells}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Edit Cell}.
+\item Select the cell or group of cells to modify.
+\item Drag or resize the selection as needed.
+\end{enumerate}
+
+Use \texttt{Edit Cell} for geometry only. Do not use it for sample assignment or freeze-frame editing.
+
+
+\manuallead{Common uses}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item recenter circles after placement
+\item adjust radius to match the actual droplet or well boundary
+\item correct a full row or group after grid placement
+\end{itemize}
+
+\section{Use Keyframes When Cells Move}
+
+Use keyframes when the droplet positions are not stable across the image sequence.
+
+
+\manuallead{Typical cases}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item camera drift
+\item tray motion
+\item droplets shifting position over time
+\item a layout that is stable at some frames but not all frames
+\end{itemize}
+
+\manuallead{How to use them}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Go to a frame where the cell positions are correct.
+\item Toggle the keyframe marker on that frame with the diamond button near the timeline.
+\item Adjust the cells for that frame.
+\item Move to a later frame where the positions have drifted.
+\item Toggle another keyframe.
+\item Adjust the cells again for that frame.
+\end{enumerate}
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item if the current frame is a keyframe, that frame stores its own cell geometry
+\item between two keyframes, cell positions and radii are interpolated
+\item outside the keyframe range, the nearest keyframe geometry is used
+\end{itemize}
+
+\manuallead{Practical rule}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item use as few keyframes as needed to keep circles centered on the wells or droplets
+\item add more keyframes only where the drift changes enough that interpolation is no longer accurate
+\end{itemize}
+
+\manuallead{Important}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item edits on a keyframe update that keyframe
+\item edits on a non-keyframe frame do not automatically create a new keyframe
+\item analysis uses the interpolated geometry across frames
+\end{itemize}
+
+\manuallead{Review method}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Add a keyframe near the start of the sequence.
+\item Add another only when the circles visibly drift off target.
+\item Scrub between the two keyframes and check the interpolation.
+\item If interpolation is not accurate enough, insert another keyframe between them.
+\end{enumerate}
+
+\section{Use Flags During Review}
+
+Use the flag button near the timeline to mark frames that need attention.
+
+
+\manuallead{Typical uses}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item suspicious grayscale behavior
+\item frames with motion blur
+\item frames worth revisiting before export
+\end{itemize}
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item flags appear on the timeline
+\item \texttt{flag\_state} is exported in the grayscale results table
+\end{itemize}
+
+\section{Delete Cells}
+
+\manuallead{Use either method}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Delete Cells} and click cells to remove them.
+\end{enumerate}
+
+\manuallead{Or}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Cursor}.
+\item Select one or more cells.
+\item Press \texttt{Delete} or \texttt{Backspace}.
+\end{enumerate}
+
+\section{Select Cells}
+
+Use \texttt{Cursor} to select cells in the image.
+
+
+\manuallead{Selection behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item single click selects one cell
+\item box selection selects multiple cells
+\item selection in the image and selection in the \texttt{Cells} panel stay synchronized
+\end{itemize}
+
+You can also select cells while \texttt{Image Edit} is active. In that mode, selection is available for inspection, but image-edit controls remain visible.
+
+
+\section{Edit Freeze Frames}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Cursor}.
+\item Select a cell.
+\item Enter the freeze frame in the \texttt{Freeze Frame} field.
+\item Press \texttt{Set} or press \texttt{Enter}.
+\end{enumerate}
+
+\manuallead{Result}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item the cell record is updated
+\item the change is logged and undoable
+\item the \texttt{Freeze Events} table is rebuilt from the current freeze-frame assignments
+\end{itemize}
+
+\manuallead{Use this when}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item the automatic detector missed a real freezing event
+\item the detector called the wrong frame
+\item a cell should be left without a freeze event
+\end{itemize}
+
+\section{Assign Samples}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Cursor}.
+\item Select one or more cells.
+\item Choose a sample in the \texttt{Sample ID} control.
+\end{enumerate}
+
+To create a new sample from the current context:
+
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Use \texttt{New Sample}.
+\end{enumerate}
+
+Autogenerated sample names follow the pattern defined in Preferences.
+
+
+\section{Use The Sample Catalog}
+
+Use the \texttt{Sample Catalog} dock to manage the session-level sample list.
+
+
+\manuallead{Current behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item sample IDs are fixed numeric labels
+\item sample names are editable in the table
+\item sample assignment still happens in \texttt{Cursor}
+\end{itemize}
+
+\manuallead{Use it to}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item rename samples
+\item add unused samples ahead of time
+\item review the current sample list
+\end{itemize}
+
+\manuallead{Restriction}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item a sample cannot be deleted while any cells are still assigned to it
+\end{itemize}
+
+\manuallead{Why it matters}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item CSU temperature import matches external sample columns against current sample names
+\item clear sample naming before import reduces manual cleanup later
+\end{itemize}
+
+\section{Use The Cells Panel}
+
+The \texttt{Cells} panel is a read-only inspection and selection view.
+
+
+\manuallead{It shows}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item \texttt{Cell ID}
+\item \texttt{Sample ID}
+\item \texttt{Sample Name}
+\item \texttt{Freeze Frame(s)}
+\end{itemize}
+
+\manuallead{Use it to}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item review cell records
+\item select cells from a list
+\item compare cell metadata quickly
+\end{itemize}
+
+Do not use it for editing. Editing stays in \texttt{Cursor}.
+
+
+\section{Recommended Annotation Order}
+
+For most runs, use this order:
+
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Add or grid the initial cells.
+\item Clean up geometry with \texttt{Edit Cell}.
+\item Add keyframes only if the image sequence drifts.
+\item Assign samples in \texttt{Cursor}.
+\item Rename samples in \texttt{Sample Catalog} if needed.
+\item Run analysis.
+\end{enumerate}
+
+\section{Next Step}
+
+After annotating cells, continue with Edit images or Run analysis, review the Grayscale Plot, and inspect results.
+
+\end{document}

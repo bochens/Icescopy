@@ -1,0 +1,372 @@
+\documentclass[
+  9pt,
+  letterpaper,
+  oneside,
+  open=any,
+  DIV=15,
+  parskip=half-,
+  headings=big,
+  numbers=noenddot
+]{scrbook}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[final]{microtype}
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+\usepackage{graphicx}
+\usepackage{bookmark}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\usepackage{fvextra}
+\usepackage{scrlayer-scrpage}
+\usepackage{setspace}
+
+\definecolor{ManualInk}{HTML}{1C1E21}
+\definecolor{ManualMuted}{HTML}{596273}
+\definecolor{ManualBlue}{HTML}{2457D6}
+\definecolor{ManualBlueSoft}{HTML}{EEF3FF}
+\definecolor{ManualBorder}{HTML}{C9D5F2}
+\definecolor{ManualCodeBg}{HTML}{F6F8FB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=ManualBlue,
+  urlcolor=ManualBlue,
+  pdftitle={Get Started},
+  pdfauthor={OpenAI Codex},
+  pdfsubject={Icescopy software manual}
+}
+
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+\setstretch{0.97}
+\setlength{\parskip}{0.18em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+\setlist[enumerate]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+
+\addtokomafont{disposition}{\sffamily\bfseries\color{ManualInk}}
+\addtokomafont{chapter}{\fontsize{18}{20}\selectfont}
+\addtokomafont{section}{\fontsize{12.2}{14}\selectfont}
+\addtokomafont{subsection}{\fontsize{10.8}{12.2}\selectfont}
+\addtokomafont{pagehead}{\sffamily\small\color{ManualMuted}}
+\addtokomafont{pagenumber}{\sffamily\small\color{ManualMuted}}
+
+\renewcommand*{\chapterheadstartvskip}{\vspace*{-1.8\baselineskip}}
+\renewcommand*{\chapterheadendvskip}{\vspace{0.8\baselineskip}}
+
+\clearpairofpagestyles
+\automark[section]{chapter}
+\ihead{\headmark}
+\ohead{\pagemark}
+\KOMAoptions{headsepline=true}
+
+\newcommand{\manuallead}[1]{%
+  \vspace{0.15em}%
+  {\sffamily\bfseries\color{ManualBlue}#1}\par\nobreak\vspace{0.05em}%
+}
+
+\newenvironment{manualcode}
+  {\VerbatimEnvironment
+   \begin{tcolorbox}[
+     breakable,
+     enhanced,
+     sharp corners,
+     colback=ManualCodeBg,
+     colframe=ManualBorder,
+     boxrule=0.4pt,
+     left=0.9mm,
+     right=0.9mm,
+     top=0.5mm,
+     bottom=0.5mm,
+     arc=0.8mm
+   ]
+   \begin{Verbatim}[fontsize=\footnotesize,breaklines=true,breakanywhere=true]}
+  {\end{Verbatim}\end{tcolorbox}}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+  \vspace*{1.1cm}
+  \includegraphics[width=1.8cm]{IcescopyApp.png}\par
+  \vspace{0.75cm}
+  {\sffamily\bfseries\fontsize{24}{27}\selectfont Get Started\par}
+  \vspace{0.25cm}
+  {\sffamily\normalsize\color{ManualMuted}Icescopy manual chapter\par}
+  \vspace{0.8cm}
+  \begin{tcolorbox}[
+    width=0.84\textwidth,
+    enhanced,
+    colback=ManualBlueSoft,
+    colframe=ManualBorder,
+    boxrule=0.5pt,
+    arc=1.4mm,
+    left=2.5mm,
+    right=2.5mm,
+    top=2mm,
+    bottom=2mm
+  ]
+    {\sffamily\bfseries\color{ManualInk}Product manual}\par
+    \vspace{0.1em}
+    {\color{ManualMuted}Current user documentation for the Icescopy desktop application.}
+  \end{tcolorbox}
+  \vfill
+  {\sffamily\small\color{ManualMuted}Generated 2026-04-20}
+\end{titlepage}
+
+\frontmatter
+
+
+
+
+\mainmatter
+\chapter{Get Started}
+
+Use this page to load images, create a session, and understand the main workspace.
+
+
+\section{Before You Start}
+
+\manuallead{Have these ready}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item an ordered image sequence
+\item a writable location for the \texttt{.icescopy} session file
+\item optional external temperature data files if you plan to import them later
+\end{itemize}
+
+\section{Core Workflow}
+
+\manuallead{Use this order for a standard run}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Create a new session.
+\item Add images or add an image folder.
+\item Sort the image list if needed.
+\item Annotate cells.
+\item Assign samples if your experiment uses sample groups.
+\item Run analysis.
+\item Review the \texttt{Grayscale Plot} dock and the \texttt{Results Tables} dock.
+\item Import external temperature data if needed.
+\item Save the session.
+\item Export result tables.
+\end{enumerate}
+
+\section{Start A New Session}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Open \texttt{File -> New Session}.
+\item Add images with \texttt{File -> Add Images...} or \texttt{File -> Add Folder...}.
+\item Check the image order in the \texttt{Images} dock.
+\item Save the session with \texttt{File -> Save Session} or \texttt{File -> Save Session As...}.
+\end{enumerate}
+
+\manuallead{Result}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item the session is ready for annotation
+\item the image list and frame slider are populated
+\end{itemize}
+
+\manuallead{Practical rule}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item save once near the start so later relink operations can write back into the same session file automatically
+\end{itemize}
+
+\section{Open An Existing Session}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Open \texttt{File -> Open Session...}.
+\item Select the \texttt{.icescopy} file.
+\item Review the restored image list, cells, samples, and results tables.
+\end{enumerate}
+
+If the session opens but images are missing:
+
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Open \texttt{File -> Relink Images Folder...}.
+\item Select the folder that contains the session images.
+\end{enumerate}
+
+\manuallead{Result}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item the saved working state is restored
+\end{itemize}
+
+\manuallead{What is restored}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item image paths and image order
+\item cells and keyframe geometry
+\item sample catalog entries
+\item image-edit state
+\item existing results tables
+\end{itemize}
+
+\section{Main Workspace}
+
+The exact dock arrangement can change, but these panels are the main working areas:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item \texttt{Images}
+\item \texttt{Tool Options}
+\item \texttt{Sample Catalog}
+\item \texttt{Cells}
+\item \texttt{Grayscale Plot}
+\item \texttt{Results Tables}
+\item \texttt{Console}
+\item frame slider and image viewer
+\end{itemize}
+
+\section{Use The Viewer And Timeline}
+
+\manuallead{The viewer supports}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item one-image view
+\item two-image view
+\item three-image view
+\end{itemize}
+
+When two or three images are shown, you can switch between:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item left-right layout
+\item top-down layout
+\end{itemize}
+
+\manuallead{The timeline is used for}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item frame navigation
+\item keyframes
+\item flags
+\item changing the visible timeline resolution
+\end{itemize}
+
+Use the smaller timeline-resolution slider when the image sequence is long and you need finer control over the main frame slider.
+
+
+\manuallead{Working pattern}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Use the large frame slider to scrub through the sequence.
+\item Use the small resolution slider to zoom the visible timeline range when precise frame access is difficult.
+\item Use the diamond button to mark keyframes when cell geometry changes across the run.
+\item Use the flag button to mark frames that need review.
+\end{enumerate}
+
+\manuallead{Important}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item keyframes and flags are frame markers only
+\item keyframes affect interpolated cell geometry
+\item flags are review markers and are exported through \texttt{flag\_state} in the grayscale results
+\end{itemize}
+
+\section{Read The Images Dock}
+
+The \texttt{Images} dock is also a frame marker view.
+
+
+\manuallead{Marker meanings}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item \texttt{K}: keyframe
+\item \texttt{F}: flagged frame
+\end{itemize}
+
+Use the \texttt{Images} dock to:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item confirm image order
+\item jump to a specific frame
+\item review where keyframes and flags are already set
+\end{itemize}
+
+\section{Main Menus}
+
+Use \texttt{File} for session and export actions:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item new session
+\item open session
+\item save session
+\item save session as
+\item add images
+\item add folder
+\item relink images folder
+\item output results
+\end{itemize}
+
+Use \texttt{Analysis} for processing:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item run analysis
+\item import temperature data
+\item CSU and TAMU importers live under this submenu
+\end{itemize}
+
+Use \texttt{Window} to show, hide, and reset docks.
+
+
+\section{Sort Images}
+
+Use \texttt{File -> Sort Images} if the loaded order is wrong.
+
+
+\manuallead{Common sort methods include}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item natural filename
+\item filename ascending
+\item filename descending
+\item created time
+\item modified time
+\item EXIF time
+\end{itemize}
+
+If a sort method is not valid for the current session, the app rejects it instead of partially applying it.
+
+
+\manuallead{Use sorting carefully}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item sorting changes frame order
+\item changed frame order invalidates existing analysis results
+\item if you sort after annotation or analysis, review the sequence again before continuing
+\end{itemize}
+
+\section{Keyboard Shortcuts}
+
+\manuallead{Common shortcuts}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item \texttt{A}: Cursor
+\item \texttt{S}: Add Cell
+\item \texttt{G}: Grid Tool
+\item \texttt{E}: Edit Cell
+\item \texttt{D}: Delete Cells
+\item \texttt{Z}: Pan and Zoom
+\item \texttt{Space}: temporary pan while working in another tool
+\item \texttt{Enter}: apply the focused action, such as \texttt{Set} for freeze frame or \texttt{Apply} for crop
+\item \texttt{Cmd+S} or \texttt{Ctrl+S}: save session
+\end{itemize}
+
+\section{Next Step}
+
+After loading images, continue with Annotate cells.
+
+\end{document}

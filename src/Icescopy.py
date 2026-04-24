@@ -1,16 +1,17 @@
 from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
                                QWidget, QGraphicsScene, QLineEdit, QLabel,
                                QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
-                               QStatusBar, QDialog, QDoubleSpinBox, QToolButton, QAbstractSpinBox,
-                               QListView, QListWidget, QListWidgetItem, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QFormLayout, QStackedWidget, QSpinBox, QComboBox,
-                               QTableWidgetItem, QAbstractItemView, QMessageBox, QDialogButtonBox, QFrame, QDockWidget, QTabWidget, QStyle, QCheckBox, QScrollArea, QStyleOptionSlider, QStyleFactory)
-from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence
+                               QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
+                               QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
+                               QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory, QStyledItemDelegate)
+from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPalette, QDoubleValidator
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
 import os
 import math
 import tempfile
+import traceback
 import darkdetect
 import platform
 import ctypes
@@ -19,6 +20,7 @@ import cv2
 from functools import partial
 import copy
 from collections import OrderedDict
+from datetime import datetime
 import numpy as np
 import shiboken6
 import re
@@ -29,6 +31,14 @@ from icescopy_aux import CustomGraphicsView, AboutDialog, Image_analysis_thread,
 import icescopy_stylesheet
 from icescopy_cell import CellStateManager
 from icescopy_cell_items import CellCircle, CellSnapshot
+from icescopy_dialogs import (
+    CSUTemperatureImportDialog,
+    NewSessionMetadataDialog,
+    OutputResultsDialog,
+    StandardTemperatureImportDialog,
+    TAMUTemperatureImportDialog,
+)
+from icescopy_dock import DockTitleBar
 from icescopy_frameslider import FrameSlider, SliderZoom_Slider
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
@@ -49,17 +59,24 @@ from icescopy_image_edit import (
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
+    IMAGE_TIMESTAMP_SOURCE_FILENAME,
+    TEMPERATURE_UNIT_CELSIUS,
+    TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
+    apply_blank_correction,
     build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
+    compute_blank_correction_by_index,
     detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
     normalize_sample_name,
     normalize_temperature_reset_threshold as normalize_temperature_reset_threshold_value,
     parse_ice_array_calibration_csv,
     parse_csu_is_dat,
+    parse_standard_temperature_csv,
     parse_tamu_image_timestamp,
     parse_tamu_linkam_xlsx,
     reconcile_cumulative_counts,
     reconcile_counts_by_cycle as reconcile_temperature_counts_by_cycle,
+    resolve_image_timestamps,
 )
 from icescopy_session import (
     FrameNavigationCommand,
@@ -72,7 +89,31 @@ from icescopy_session import (
     SessionSnapshotCommand,
     SessionTimelineMarkersCommand,
 )
-from icescopy_session_io import build_restore_state, build_session_payload, load_session_bundle, save_session_bundle
+from icescopy_session_io import (
+    ALLOWED_SAMPLE_TYPES,
+    FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES,
+    SAMPLE_CATALOG_FIELD_NAMES,
+    build_restore_state,
+    build_session_payload,
+    build_freeze_count_timeseries_csv_text,
+    deserialize_sample_catalog_payload,
+    load_session_bundle,
+    normalize_sample_catalog_record,
+    save_session_bundle,
+    serialize_sample_catalog_payload,
+)
+from icescopy_tool_options import (
+    TOOL_OPTIONS_BUTTON_SPACING,
+    TOOL_OPTIONS_CONTENT_WIDTH,
+    TOOL_OPTIONS_CONTROL_QSS,
+    TOOL_OPTIONS_FIELD_WIDTH,
+    TOOL_OPTIONS_LABEL_WIDTH,
+    TOOL_OPTIONS_PANEL_DEFAULT_WIDTH,
+    TOOL_OPTIONS_SHORTCUT_WIDTH,
+    TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT,
+    ToolOptionsFormPage,
+    ToolOptionsInfoPage,
+)
 
 
 module_dir = os.path.dirname(__file__)
@@ -83,45 +124,36 @@ IS_WINDOWS = platform.system() == "Windows"
 IS_MACOS = platform.system() == "Darwin"
 ui_images_dir = os.path.join(resources_dir, 'ui_images')
 SIDE_PANEL_DEFAULT_WIDTH = 280
-TOOL_OPTIONS_CONTENT_WIDTH = 252
-TOOL_OPTIONS_BUTTON_SPACING = 8
-TOOL_OPTIONS_LABEL_WIDTH = 84
-TOOL_OPTIONS_FIELD_WIDTH = 96
-TOOL_OPTIONS_SHORTCUT_WIDTH = 56
-TOOL_OPTIONS_PANEL_DEFAULT_WIDTH = TOOL_OPTIONS_CONTENT_WIDTH + 20
-TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT = 30
-TOOL_OPTIONS_CONTROL_QSS = """
-            QSpinBox {
-                min-height: 24px;
-            }
-            QDoubleSpinBox {
-                min-height: 24px;
-            }
-            QWidget#toolOptionsPanel QSlider {
-                min-height: 16px;
-            }
-            QWidget#toolOptionsPanel QSlider::groove:horizontal {
-                height: 4px;
-                border: 1px solid #bdbdbd;
-                background: #d9d9d9;
-                border-radius: 2px;
-            }
-            QWidget#toolOptionsPanel QSlider::sub-page:horizontal {
-                background: #0a84ff;
-                border-radius: 2px;
-            }
-            QWidget#toolOptionsPanel QSlider::add-page:horizontal {
-                background: #d9d9d9;
-                border-radius: 2px;
-            }
-            QWidget#toolOptionsPanel QSlider::handle:horizontal {
-                background: white;
-                border: 1px solid #949494;
-                width: 8px;
-                margin: -6px 0;
-                border-radius: 4px;
-            }
-        """
+SAMPLE_CATALOG_TREE_HEADERS = ("Sample Number", "Sample Name")
+SAMPLE_CATALOG_TREE_ROW_HEIGHT = 30
+SAMPLE_CATALOG_TREE_EDITOR_HEIGHT = 26
+SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH = 146
+SAMPLE_CATALOG_TREE_INDENTATION = 8
+SAMPLE_CATALOG_TREE_FIELDS = (
+    ("sample_name", "Sample name"),
+    ("sample_long_name", "Sample long name"),
+    ("collection_start", "Collection start"),
+    ("collection_end", "Collection end"),
+    ("sample_type", "Sample type"),
+    ("dilution", "Dilution factor"),
+    ("air_volume_L", "Air volume (L)"),
+    ("filter_fraction_used", "Filter fraction used (0-1)"),
+    ("suspension_volume_mL", "Suspension volume (mL)"),
+    ("dry_mass_g", "Dry mass (g)"),
+)
+SAMPLE_CATALOG_TREE_FIELD_LABELS = {
+    field_name: label_text for field_name, label_text in SAMPLE_CATALOG_TREE_FIELDS
+}
+SAMPLE_CATALOG_DATETIME_FIELDS = {"collection_start", "collection_end"}
+SAMPLE_CATALOG_DATETIME_INPUT_FORMAT = "%Y-%m-%d %H:%M:%S"
+SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT = "%Y-%m-%d %H:%M:%S"
+SAMPLE_CATALOG_DATETIME_INPUT_MASK = "0000-00-00 00:00:00;_"
+SAMPLE_CATALOG_DATETIME_HINT = "YYYY-MM-DD HH:MM:SS"
+SAMPLE_CATALOG_TYPE_REQUIRED_FIELDS = {
+    "air": {"dilution", "air_volume_L", "filter_fraction_used", "suspension_volume_mL"},
+    "soil": {"dilution", "suspension_volume_mL", "dry_mass_g"},
+    "other": {"dilution"},
+}
 
 DEFAULT_VISUAL_COLORS = {
     "CircleDefaultColor": "255,0,0,255",
@@ -145,823 +177,141 @@ SAMPLE_VISUAL_PALETTE = (
 )
 
 
-class ToolOptionsInfoPage(QWidget):
-    def __init__(self, parent=None, content_width=TOOL_OPTIONS_CONTENT_WIDTH):
-        super().__init__(parent)
-        self.content_width = content_width
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        layout.addWidget(self.scroll_area)
-
-        self.scroll_contents = QWidget(self.scroll_area)
-        self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
-        self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_contents_layout.setSpacing(0)
-        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-
-        self.column_widget = QWidget(self.scroll_contents)
-        self.column_widget.setFixedWidth(self.content_width)
-        self.column_layout = QVBoxLayout(self.column_widget)
-        self.column_layout.setContentsMargins(0, 0, 0, 0)
-        self.column_layout.setSpacing(10)
-        self.column_layout.setAlignment(Qt.AlignTop)
-
-        self.message_label = QLabel(self.column_widget)
-        self.message_label.setWordWrap(True)
-        self.message_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.column_layout.addWidget(self.message_label)
-        self.column_layout.addStretch(1)
-        self.scroll_contents_layout.addWidget(self.column_widget)
-        self.scroll_contents_layout.addStretch(1)
-        self.scroll_area.setWidget(self.scroll_contents)
-
-    def set_message(self, text):
-        self.message_label.setText(text)
-
-
-class ToolOptionsFormPage(QWidget):
-    def __init__(
-        self,
-        parent=None,
-        *,
-        content_width=TOOL_OPTIONS_CONTENT_WIDTH,
-        label_width=TOOL_OPTIONS_LABEL_WIDTH,
-        field_width=TOOL_OPTIONS_FIELD_WIDTH,
-        shortcut_width=TOOL_OPTIONS_SHORTCUT_WIDTH,
-    ):
-        super().__init__(parent)
-        self.content_width = content_width
-        self.label_width = label_width
-        self.field_width = field_width
-        self.shortcut_width = shortcut_width
-
-        self.root_layout = QVBoxLayout(self)
-        self.root_layout.setContentsMargins(0, 0, 0, 0)
-        self.root_layout.setSpacing(0)
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.root_layout.addWidget(self.scroll_area)
-
-        self.scroll_contents = QWidget(self.scroll_area)
-        self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
-        self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_contents_layout.setSpacing(0)
-        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-
-        self.column_widget = QWidget(self.scroll_contents)
-        self.column_widget.setFixedWidth(self.content_width)
-        self.column_layout = QVBoxLayout(self.column_widget)
-        self.column_layout.setContentsMargins(0, 0, 0, 0)
-        self.column_layout.setSpacing(10)
-        self.column_layout.setAlignment(Qt.AlignTop)
-        self.scroll_contents_layout.addWidget(self.column_widget)
-        self.scroll_contents_layout.addStretch(1)
-        self.scroll_area.setWidget(self.scroll_contents)
-
-        self.hint_label = None
-        self.apply_button = None
-        self.float_button = None
-        self.cancel_button = None
-        self.native_combo_height = self._probe_native_combo_height()
-        self.native_button_height = self._probe_native_button_height()
-
-    def _probe_native_combo_height(self):
-        probe = QComboBox(self.column_widget)
-        height = probe.sizeHint().height()
-        probe.deleteLater()
-        return int(height)
-
-    def _probe_native_button_height(self):
-        probe = QPushButton("Apply", self.column_widget)
-        height = probe.sizeHint().height()
-        probe.deleteLater()
-        return int(height)
-
-    def standard_button_width(self):
-        return int((self.content_width - (2 * TOOL_OPTIONS_BUTTON_SPACING)) / 3)
-
-    def _configure_control(self, control):
-        control.setFixedWidth(self.field_width)
-        control_height = control.property("toolOptionsControlHeight")
-        if control_height not in (None, 0):
-            control.setFixedHeight(int(control_height))
-        control.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        return control
-
-    def create_combo_box(self, *, index_handler=None):
-        combo = QComboBox(self.column_widget)
-        combo.setProperty("toolOptionsControlHeight", TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT)
-        combo.setEditable(True)
-        combo.lineEdit().setReadOnly(True)
-        combo.lineEdit().setFocusPolicy(Qt.NoFocus)
-        combo.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self._configure_control(combo)
-        if index_handler is not None:
-            combo.currentIndexChanged.connect(index_handler)
-        return combo
-
-    def create_spin_box(self, minimum, maximum, *, step=1, value_handler=None):
-        spinbox = QSpinBox(self.column_widget)
-        self._configure_control(spinbox)
-        spinbox.setRange(minimum, maximum)
-        spinbox.setSingleStep(step)
-        if value_handler is not None:
-            spinbox.valueChanged.connect(value_handler)
-        return spinbox
-
-    def create_double_spin_box(
-        self,
-        minimum,
-        maximum,
-        *,
-        decimals=1,
-        step=0.5,
-        value_handler=None,
-    ):
-        spinbox = QDoubleSpinBox(self.column_widget)
-        self._configure_control(spinbox)
-        spinbox.setRange(minimum, maximum)
-        spinbox.setDecimals(decimals)
-        spinbox.setSingleStep(step)
-        if value_handler is not None:
-            spinbox.valueChanged.connect(value_handler)
-        return spinbox
-
-    def _create_button(self, text, parent, handler):
-        button = QPushButton(text, parent)
-        button.setFixedHeight(self.native_button_height)
-        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        button.clicked.connect(handler)
-        return button
-
-    def add_row(self, label_text, editor, shortcut_text=""):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
-
-        label = QLabel(label_text, row_widget)
-        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        label.setFixedWidth(self.label_width)
-        row_layout.addWidget(label)
-
-        self._configure_control(editor)
-        row_layout.addWidget(editor)
-
-        shortcut_label = QLabel(shortcut_text, row_widget)
-        shortcut_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        shortcut_label.setStyleSheet("color: #7a7a7a; font-size: 11px;")
-        shortcut_label.setFixedWidth(self.shortcut_width)
-        row_layout.addWidget(shortcut_label)
-
-        self.column_layout.addWidget(row_widget)
-        return row_widget
-
-    def add_row_with_button(self, label_text, editor, button_text, handler):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
-
-        label = QLabel(label_text, row_widget)
-        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        label.setFixedWidth(self.label_width)
-        row_layout.addWidget(label)
-
-        self._configure_control(editor)
-        row_layout.addWidget(editor)
-
-        button = self._create_button(button_text, row_widget, handler)
-        button.setFixedWidth(self.shortcut_width if self.shortcut_width > 0 else self.standard_button_width())
-        row_layout.addWidget(button)
-
-        self.column_layout.addWidget(row_widget)
-        return row_widget, button
-
-    def add_section_label(self, text):
-        label = QLabel(text, self.column_widget)
-        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        label.setStyleSheet("font-size: 12px; font-weight: 700; color: #2f2f2f;")
-        self.column_layout.addWidget(label)
-        return label
-
-    def add_separator(self):
-        line = QFrame(self.column_widget)
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Plain)
-        line.setStyleSheet("color: #cfcfcf; background-color: #cfcfcf;")
-        line.setFixedHeight(1)
-        self.column_layout.addWidget(line)
-        return line
-
-    def add_value_row(self, label_text, value_text="-"):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
-
-        label = QLabel(label_text, row_widget)
-        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        label.setFixedWidth(self.label_width)
-        row_layout.addWidget(label)
-
-        value_label = QLabel(str(value_text), row_widget)
-        value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        value_label.setFixedWidth(self.field_width)
-        row_layout.addWidget(value_label)
-
-        spacer = QWidget(row_widget)
-        spacer.setFixedWidth(self.shortcut_width)
-        row_layout.addWidget(spacer)
-
-        self.column_layout.addWidget(row_widget)
-        return row_widget, label, value_label
-
-    def add_hint(self, text):
-        self.hint_label = QLabel(text, self.column_widget)
-        self.hint_label.setWordWrap(True)
-        self.hint_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.column_layout.addWidget(self.hint_label)
-        return self.hint_label
-
-    def add_action_row(self, apply_handler, float_handler, cancel_handler):
-        button_width = self.standard_button_width()
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(TOOL_OPTIONS_BUTTON_SPACING)
-
-        self.apply_button = self._create_button("Apply", row_widget, apply_handler)
-        self.float_button = self._create_button("Float", row_widget, float_handler)
-        self.cancel_button = self._create_button("Cancel", row_widget, cancel_handler)
-
-        for button in (self.apply_button, self.float_button, self.cancel_button):
-            button.setFixedWidth(button_width)
-            row_layout.addWidget(button)
-
-        self.column_layout.addWidget(row_widget)
-        return row_widget
-
-    def add_centered_button_row(self, button_text, handler):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(TOOL_OPTIONS_BUTTON_SPACING)
-
-        button = self._create_button(button_text, row_widget, handler)
-        button.setFixedWidth(max(self.standard_button_width(), button.sizeHint().width()))
-        row_layout.addStretch(1)
-        row_layout.addWidget(button)
-        row_layout.addStretch(1)
-
-        self.column_layout.addWidget(row_widget)
-        return row_widget, button
-
-    def add_bottom_stretch(self):
-        self.column_layout.addStretch(1)
-
-
-class NewSessionMetadataDialog(QDialog):
-    def __init__(self, parent=None, metadata=None):
-        super().__init__(parent)
-        self.setWindowTitle("New Session")
-        self.setModal(True)
-        self.setMinimumWidth(420)
-
-        metadata = metadata or {}
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        message = QLabel(
-            "Enter optional session metadata. Leave fields blank if you do not need them.",
-            self,
-        )
-        message.setWordWrap(True)
-        layout.addWidget(message)
-
-        form = QFormLayout()
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
-
-        self.project_name_edit = QLineEdit(str(metadata.get("project_name", "")), self)
-        self.user_name_edit = QLineEdit(str(metadata.get("user_name", "")), self)
-        self.institution_edit = QLineEdit(str(metadata.get("institution", "")), self)
-        self.date_edit = QLineEdit(str(metadata.get("date", "")), self)
-        self.date_edit.setPlaceholderText("Optional")
-
-        form.addRow("Project Name", self.project_name_edit)
-        form.addRow("User Name", self.user_name_edit)
-        form.addRow("Institution", self.institution_edit)
-        form.addRow("Date", self.date_edit)
-        layout.addLayout(form)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def get_metadata(self):
-        return {
-            "project_name": self.project_name_edit.text().strip(),
-            "user_name": self.user_name_edit.text().strip(),
-            "institution": self.institution_edit.text().strip(),
-            "date": self.date_edit.text().strip(),
-        }
-
-
-class CSUTemperatureImportDialog(QDialog):
-    def __init__(self, main_window, initial_path, sample_names, initial_reset_temperature=None, parent=None):
-        super().__init__(parent)
-        self.main_window = main_window
-        self.setWindowTitle("CSU IS .dat import")
-        self.resize(620, 460)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        intro_label = QLabel(
-            "Select the CSU .dat file and optionally mark app samples that should be treated as blank controls.",
-            self,
-        )
-        intro_label.setWordWrap(True)
-        layout.addWidget(intro_label)
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(12)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-
-        file_row = QHBoxLayout()
-        file_row.setContentsMargins(0, 0, 0, 0)
-        file_row.setSpacing(8)
-        self.file_path_edit = QLineEdit(self)
-        self.file_path_edit.setText(str(initial_path or ""))
-        self.file_path_edit.setPlaceholderText("Choose a CSU .dat file")
-        browse_button = QPushButton("Browse", self)
-        browse_button.setAutoDefault(False)
-        browse_button.setDefault(False)
-        browse_button.setFixedWidth(96)
-        browse_button.clicked.connect(self.browse_file)
-        file_row.addWidget(self.file_path_edit, 1)
-        file_row.addWidget(browse_button, 0, Qt.AlignRight)
-        file_row_widget = QWidget(self)
-        file_row_widget.setLayout(file_row)
-        form.addRow("CSU .dat file", file_row_widget)
-
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
-        for sample_name in sample_names:
-            item = QListWidgetItem(str(sample_name), self.blank_sample_list)
-            if "blank" in str(sample_name).casefold():
-                item.setSelected(True)
-        form.addRow("Blank samples", self.blank_sample_list)
-
-        self.reset_temperature_spinbox = QDoubleSpinBox(self)
-        self.reset_temperature_spinbox.setRange(-999.0, 200.0)
-        self.reset_temperature_spinbox.setDecimals(1)
-        self.reset_temperature_spinbox.setSpecialValueText("Off")
-        self.reset_temperature_spinbox.setValue(-999.0 if initial_reset_temperature is None else float(initial_reset_temperature))
-        self.reset_temperature_spinbox.setFixedWidth(120)
-        reset_row = QHBoxLayout()
-        reset_row.setContentsMargins(0, 0, 0, 0)
-        reset_row.addWidget(self.reset_temperature_spinbox, 0, Qt.AlignLeft)
-        reset_row.addStretch(1)
-        reset_row_widget = QWidget(self)
-        reset_row_widget.setLayout(reset_row)
-        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
-
-        layout.addLayout(form, 1)
-
-        hint_label = QLabel(
-            "Blank correction is applied within each cycle. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
-            self,
-        )
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: rgba(96, 96, 96, 255);")
-        layout.addWidget(hint_label)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import CSU IS .dat file",
-            initial_dir,
-            "CSU Data Files (*.dat);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
-
-    def accept(self):
-        file_path = self.file_path_edit.text().strip()
-        if not file_path:
-            QMessageBox.warning(self, "CSU IS .dat import", "Choose a CSU .dat file before importing.")
+class SampleCatalogTreeDelegate(QStyledItemDelegate):
+    SAMPLE_ID_ROLE = Qt.UserRole
+    FIELD_NAME_ROLE = Qt.UserRole + 1
+    EDITABLE_ROLE = Qt.UserRole + 2
+    NUMERIC_FIELDS = {
+        "dilution",
+        "air_volume_L",
+        "filter_fraction_used",
+        "suspension_volume_mL",
+        "dry_mass_g",
+    }
+
+    def createEditor(self, parent, option, index):
+        if int(index.column()) != 1:
+            return None
+        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
+        if not field_name:
+            return None
+        if field_name == "sample_type":
+            editor = QComboBox(parent)
+            editor.addItem("", "")
+            for sample_type in ALLOWED_SAMPLE_TYPES:
+                editor.addItem(sample_type, sample_type)
+            editor.setEditable(True)
+            editor.setInsertPolicy(QComboBox.NoInsert)
+            editor.lineEdit().setReadOnly(True)
+            editor.lineEdit().setFocusPolicy(Qt.NoFocus)
+            editor.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
+            editor.setFocusPolicy(Qt.NoFocus)
+            editor.activated.connect(self.commit_combo_data)
+            return editor
+        editor = QLineEdit(parent)
+        editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
+        if field_name in self.NUMERIC_FIELDS:
+            validator = QDoubleValidator(editor)
+            validator.setNotation(QDoubleValidator.StandardNotation)
+            editor.setValidator(validator)
+            editor.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            editor.setPlaceholderText("number")
+        elif field_name in SAMPLE_CATALOG_DATETIME_FIELDS:
+            editor.setInputMask(SAMPLE_CATALOG_DATETIME_INPUT_MASK)
+            editor.setPlaceholderText("")
+            editor.setToolTip(SAMPLE_CATALOG_DATETIME_HINT)
+        else:
+            editor.setPlaceholderText("text")
+        editor.editingFinished.connect(self.commit_line_edit_data)
+        return editor
+
+    def commit_combo_data(self, *_args):
+        editor = self.sender()
+        if isinstance(editor, QComboBox):
+            self.commitData.emit(editor)
+
+    def commit_line_edit_data(self):
+        editor = self.sender()
+        if isinstance(editor, QLineEdit):
+            self.commitData.emit(editor)
+
+    def setEditorData(self, editor, index):
+        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
+        if field_name == "sample_type":
+            value_text = str(index.data(Qt.EditRole) or "")
+            combo_index = editor.findData(value_text)
+            editor.setCurrentIndex(combo_index if combo_index >= 0 else 0)
             return
-        if not os.path.isfile(file_path):
-            QMessageBox.warning(self, "CSU IS .dat import", "The selected CSU .dat file does not exist.")
-            return
-        super().accept()
-
-    def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
-        return {
-            "file_path": self.file_path_edit.text().strip(),
-            "blank_sample_names": [
-                str(item.text())
-                for item in self.blank_sample_list.selectedItems()
-            ],
-            "reset_temperature": reset_temperature,
-        }
-
-
-class TAMUTemperatureImportDialog(QDialog):
-    def __init__(self, main_window, initial_path, initial_calibration_path="", initial_reset_temperature=None, parent=None):
-        super().__init__(parent)
-        self.main_window = main_window
-        self.setWindowTitle("TAMU Linkam .xlsx import")
-        self.resize(640, 320)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        intro_label = QLabel(
-            "Select the TAMU Linkam workbook. Image timestamps will be read from the PNG filenames and matched to the Linkam temperature trace by time interpolation.",
-            self,
-        )
-        intro_label.setWordWrap(True)
-        layout.addWidget(intro_label)
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(12)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-
-        file_row = QHBoxLayout()
-        file_row.setContentsMargins(0, 0, 0, 0)
-        file_row.setSpacing(8)
-        self.file_path_edit = QLineEdit(self)
-        self.file_path_edit.setText(str(initial_path or ""))
-        self.file_path_edit.setPlaceholderText("Choose a TAMU Linkam workbook")
-        browse_button = QPushButton("Browse", self)
-        browse_button.setAutoDefault(False)
-        browse_button.setDefault(False)
-        browse_button.setFixedWidth(96)
-        browse_button.clicked.connect(self.browse_file)
-        file_row.addWidget(self.file_path_edit, 1)
-        file_row.addWidget(browse_button, 0, Qt.AlignRight)
-        file_row_widget = QWidget(self)
-        file_row_widget.setLayout(file_row)
-        form.addRow("TAMU .xlsx file", file_row_widget)
-
-        calibration_row = QHBoxLayout()
-        calibration_row.setContentsMargins(0, 0, 0, 0)
-        calibration_row.setSpacing(8)
-        self.calibration_path_edit = QLineEdit(self)
-        self.calibration_path_edit.setText(str(initial_calibration_path or ""))
-        self.calibration_path_edit.setPlaceholderText("Optional")
-        calibration_browse_button = QPushButton("Browse", self)
-        calibration_browse_button.setAutoDefault(False)
-        calibration_browse_button.setDefault(False)
-        calibration_browse_button.setFixedWidth(96)
-        calibration_browse_button.clicked.connect(self.browse_calibration_file)
-        calibration_row.addWidget(self.calibration_path_edit, 1)
-        calibration_row.addWidget(calibration_browse_button, 0, Qt.AlignRight)
-        calibration_row_widget = QWidget(self)
-        calibration_row_widget.setLayout(calibration_row)
-        form.addRow("Calibration CSV", calibration_row_widget)
-
-        self.reset_temperature_spinbox = QDoubleSpinBox(self)
-        self.reset_temperature_spinbox.setRange(-999.0, 200.0)
-        self.reset_temperature_spinbox.setDecimals(1)
-        self.reset_temperature_spinbox.setSpecialValueText("Off")
-        self.reset_temperature_spinbox.setValue(-999.0 if initial_reset_temperature is None else float(initial_reset_temperature))
-        self.reset_temperature_spinbox.setFixedWidth(120)
-        reset_row = QHBoxLayout()
-        reset_row.setContentsMargins(0, 0, 0, 0)
-        reset_row.addWidget(self.reset_temperature_spinbox, 0, Qt.AlignLeft)
-        reset_row.addStretch(1)
-        reset_row_widget = QWidget(self)
-        reset_row_widget.setLayout(reset_row)
-        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
-
-        layout.addLayout(form)
-
-        hint_label = QLabel(
-            "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. If reset is enabled, counts restart once temperature warms back to the selected threshold.",
-            self,
-        )
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: rgba(96, 96, 96, 255);")
-        hint_label.setContentsMargins(2, 2, 2, 0)
-        layout.addWidget(hint_label)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import TAMU Linkam .xlsx file",
-            initial_dir,
-            "Excel Files (*.xlsx);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
-
-    def browse_calibration_file(self):
-        initial_dir = ""
-        existing_path = self.calibration_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif self.file_path_edit.text().strip():
-            initial_dir = os.path.dirname(self.file_path_edit.text().strip())
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select calibration CSV",
-            initial_dir,
-            "CSV Files (*.csv);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.calibration_path_edit.setText(file_path)
-
-    def accept(self):
-        file_path = self.file_path_edit.text().strip()
-        calibration_path = self.calibration_path_edit.text().strip()
-        if not file_path:
-            QMessageBox.warning(self, "TAMU Linkam .xlsx import", "Choose a TAMU .xlsx file before importing.")
-            return
-        if not os.path.isfile(file_path):
-            QMessageBox.warning(self, "TAMU Linkam .xlsx import", "The selected TAMU .xlsx file does not exist.")
-            return
-        if calibration_path and not os.path.isfile(calibration_path):
-            QMessageBox.warning(self, "TAMU Linkam .xlsx import", "The selected calibration CSV does not exist.")
-            return
-        super().accept()
-
-    def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
-        return {
-            "file_path": self.file_path_edit.text().strip(),
-            "calibration_path": self.calibration_path_edit.text().strip(),
-            "reset_temperature": reset_temperature,
-        }
-
-
-class OutputResultsDialog(QDialog):
-    def __init__(self, parent=None, *, include_grayscale=False, include_freeze=False, include_temperature=False):
-        super().__init__(parent)
-        self.setWindowTitle("Output Results")
-        self.setModal(True)
-        self.resize(360, 180)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        intro_label = QLabel("Choose which result tables to export as CSV.", self)
-        intro_label.setWordWrap(True)
-        layout.addWidget(intro_label)
-
-        self.select_all_checkbox = QCheckBox("Select All", self)
-        layout.addWidget(self.select_all_checkbox)
-
-        self.grayscale_checkbox = QCheckBox("Grayscale Measurements CSV", self)
-        self.freeze_checkbox = QCheckBox("Freeze Events CSV", self)
-        self.temperature_checkbox = QCheckBox("Temperature Sync CSV", self)
-
-        self.grayscale_checkbox.setVisible(bool(include_grayscale))
-        self.freeze_checkbox.setVisible(bool(include_freeze))
-        self.temperature_checkbox.setVisible(bool(include_temperature))
-
-        layout.addWidget(self.grayscale_checkbox)
-        layout.addWidget(self.freeze_checkbox)
-        layout.addWidget(self.temperature_checkbox)
-
-        self.select_all_checkbox.toggled.connect(self.on_select_all_toggled)
-        self.grayscale_checkbox.toggled.connect(self.sync_select_all_checkbox)
-        self.freeze_checkbox.toggled.connect(self.sync_select_all_checkbox)
-        self.temperature_checkbox.toggled.connect(self.sync_select_all_checkbox)
-        self.sync_select_all_checkbox()
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def accept(self):
-        if not any(self.selected_exports().values()):
-            QMessageBox.warning(self, "Output Results", "Select at least one CSV to export.")
-            return
-        super().accept()
-
-    def selected_exports(self):
-        return {
-            "grayscale": (not self.grayscale_checkbox.isHidden()) and self.grayscale_checkbox.isChecked(),
-            "freeze": (not self.freeze_checkbox.isHidden()) and self.freeze_checkbox.isChecked(),
-            "temperature": (not self.temperature_checkbox.isHidden()) and self.temperature_checkbox.isChecked(),
-        }
-
-    def visible_export_checkboxes(self):
-        return [
-            checkbox
-            for checkbox in (
-                self.grayscale_checkbox,
-                self.freeze_checkbox,
-                self.temperature_checkbox,
-            )
-            if not checkbox.isHidden()
-        ]
-
-    def on_select_all_toggled(self, checked):
-        for checkbox in self.visible_export_checkboxes():
-            with QSignalBlocker(checkbox):
-                checkbox.setChecked(checked)
-        self.sync_select_all_checkbox()
-
-    def sync_select_all_checkbox(self):
-        visible_checkboxes = self.visible_export_checkboxes()
-        all_checked = bool(visible_checkboxes) and all(checkbox.isChecked() for checkbox in visible_checkboxes)
-        with QSignalBlocker(self.select_all_checkbox):
-            self.select_all_checkbox.setChecked(all_checked)
-
-
-class DockTitleBar(QWidget):
-    def __init__(self, dock_widget, title, parent=None):
-        super().__init__(parent or dock_widget)
-        self.dock_widget = dock_widget
-        self.setFixedHeight(26)
-        self.setAutoFillBackground(True)
-
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        header_row = QWidget(self)
-        layout = QHBoxLayout(header_row)
-        layout.setContentsMargins(8, 1, 8, 3)
-        layout.setSpacing(4)
-
-        self.button_row = QWidget(header_row)
-        button_layout = QHBoxLayout(self.button_row)
-        button_layout.setContentsMargins(0, 0, 0, 0)
-        button_layout.setSpacing(4)
-
-        self.close_button = QToolButton(self.button_row)
-        self.close_button.setAutoRaise(True)
-        self.close_button.setFixedSize(14, 14)
-        self.close_button.setIconSize(QSize(10, 10))
-        self.close_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarCloseButton))
-        self.close_button.clicked.connect(self.dock_widget.close)
-
-        self.float_button = QToolButton(self.button_row)
-        self.float_button.setAutoRaise(True)
-        self.float_button.setFixedSize(14, 14)
-        self.float_button.setIconSize(QSize(10, 10))
-        self.float_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarNormalButton))
-        self.float_button.clicked.connect(self.toggle_floating)
-
-        button_layout.addWidget(self.close_button)
-        button_layout.addWidget(self.float_button)
-
-        self.title_label = QLabel(str(title), header_row)
-        title_font = QFont(self.title_label.font())
-        title_font.setPointSize(max(title_font.pointSize(), 12))
-        title_font.setWeight(QFont.Medium)
-        self.title_label.setFont(title_font)
-        self.title_label.setAlignment(Qt.AlignCenter)
-
-        self.right_spacer = QWidget(header_row)
-        self.right_spacer.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-
-        layout.addWidget(self.button_row, 0)
-        layout.addWidget(self.title_label, 1)
-        layout.addWidget(self.right_spacer, 0)
-
-        separator = QFrame(self)
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Plain)
-        separator.setStyleSheet("color: rgba(0, 0, 0, 40);")
-
-        outer_layout.addWidget(header_row)
-        outer_layout.addWidget(separator)
-
-        self.left_edge_cover = QFrame(self)
-        self.left_edge_cover.setFrameShape(QFrame.NoFrame)
-        self.left_edge_cover.setStyleSheet("background: palette(window);")
-        self.left_edge_cover.hide()
-
-        self.right_edge_cover = QFrame(self)
-        self.right_edge_cover.setFrameShape(QFrame.NoFrame)
-        self.right_edge_cover.setStyleSheet("background: palette(window);")
-        self.right_edge_cover.hide()
-
-        self.dock_widget.featuresChanged.connect(self.refresh_buttons)
-        self.dock_widget.topLevelChanged.connect(self.refresh_buttons)
-        try:
-            self.dock_widget.dockLocationChanged.connect(self.refresh_buttons)
-        except Exception:
-            pass
-        self.refresh_buttons()
-
-    def toggle_floating(self):
-        self.dock_widget.setFloating(not self.dock_widget.isFloating())
-
-    def refresh_buttons(self, *args):
-        features = self.dock_widget.features()
-        self.close_button.setVisible(bool(features & QDockWidget.DockWidgetClosable))
-        self.float_button.setVisible(bool(features & QDockWidget.DockWidgetFloatable))
-        self.right_spacer.setFixedWidth(self.button_row.sizeHint().width())
-        float_icon = (
-            QStyle.SP_TitleBarNormalButton
-            if self.dock_widget.isFloating()
-            else QStyle.SP_TitleBarMaxButton
-        )
-        self.float_button.setIcon(self.style().standardIcon(float_icon))
-        self.update_edge_covers()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.update_edge_covers()
-
-    def update_edge_covers(self):
-        left_visible = False
-        right_visible = False
-        main_window = self.dock_widget.parentWidget()
-        if isinstance(main_window, QMainWindow) and not self.dock_widget.isFloating():
+        if field_name in SAMPLE_CATALOG_DATETIME_FIELDS and isinstance(editor, QLineEdit):
+            value_text = str(index.data(Qt.EditRole) or "").strip()
+            if not value_text:
+                editor.clear()
+                return
             try:
-                dock_area = main_window.dockWidgetArea(self.dock_widget)
-            except Exception:
-                dock_area = Qt.NoDockWidgetArea
-            if dock_area == Qt.LeftDockWidgetArea:
-                right_visible = True
-            elif dock_area == Qt.RightDockWidgetArea:
-                left_visible = True
+                parsed_value = datetime.strptime(value_text, SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT)
+            except ValueError:
+                editor.clear()
+                return
+            editor.setText(parsed_value.strftime(SAMPLE_CATALOG_DATETIME_INPUT_FORMAT))
+            return
+        if isinstance(editor, QLineEdit):
+            editor.setText(str(index.data(Qt.EditRole) or ""))
+            return
+        super().setEditorData(editor, index)
 
-        cover_width = 2
-        self.left_edge_cover.setGeometry(0, 0, cover_width, self.height())
-        self.right_edge_cover.setGeometry(max(0, self.width() - cover_width), 0, cover_width, self.height())
-        self.left_edge_cover.setVisible(left_visible)
-        self.right_edge_cover.setVisible(right_visible)
+    def setModelData(self, editor, model, index):
+        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
+        if field_name == "sample_type":
+            model.setData(index, str(editor.currentData() or ""), Qt.EditRole)
+            return
+        if field_name in SAMPLE_CATALOG_DATETIME_FIELDS and isinstance(editor, QLineEdit):
+            raw_text = str(editor.text() or "")
+            normalized_input = raw_text.replace("_", "").strip()
+            if not normalized_input:
+                model.setData(index, "", Qt.EditRole)
+                return
+            try:
+                parsed_value = datetime.strptime(raw_text, SAMPLE_CATALOG_DATETIME_INPUT_FORMAT)
+            except ValueError:
+                return
+            model.setData(index, parsed_value.strftime(SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT), Qt.EditRole)
+            return
+        if isinstance(editor, QLineEdit):
+            model.setData(index, str(editor.text() or "").strip(), Qt.EditRole)
+            return
+        super().setModelData(editor, model, index)
 
-    def mousePressEvent(self, event):
-        event.ignore()
 
-    def mouseReleaseEvent(self, event):
-        event.ignore()
+class SampleCatalogTreeWidget(QTreeWidget):
+    def drawBranches(self, painter, rect, index):
+        super().drawBranches(painter, rect, index)
+        item = self.itemFromIndex(index)
+        if item is None:
+            return
+        parent_item = item.parent()
+        if parent_item is None:
+            return
 
-    def mouseMoveEvent(self, event):
-        event.ignore()
+        child_index = parent_item.indexOfChild(item)
+        child_count = parent_item.childCount()
+        if child_index < 0 or child_count <= 0:
+            return
 
-    def mouseDoubleClickEvent(self, event):
-        event.ignore()
+        x = rect.center().x()
+        center_y = rect.center().y()
+        top_y = center_y if child_index == 0 else rect.top()
+        bottom_y = center_y if child_index == (child_count - 1) else rect.bottom()
+
+        painter.save()
+        line_color = self.palette().color(QPalette.Mid)
+        line_color.setAlpha(180)
+        pen = QPen(line_color)
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawLine(x, top_y, x, bottom_y)
+        painter.drawLine(x, center_y, rect.right() - 2, center_y)
+        painter.restore()
 
 
 class IceScopy(QMainWindow):
@@ -996,7 +346,7 @@ class IceScopy(QMainWindow):
         self.freeze_finder_detect_brightening = False
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
-        self.timeseries_trace_line_width = 2.0
+        self.timeseries_line_width = 2.0
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
@@ -1117,8 +467,8 @@ class IceScopy(QMainWindow):
             )
         )
         self.timeseries_palette = preferences.get('TimeseriesPalette', self.timeseries_palette)
-        self.timeseries_trace_line_width = float(
-            preferences.get('TimeseriesTraceLineWidth', self.timeseries_trace_line_width)
+        self.timeseries_line_width = float(
+            preferences.get('TimeseriesLineWidth', self.timeseries_line_width)
         )
         self.timeseries_convolution_line_width = float(
             preferences.get('TimeseriesConvolutionLineWidth', self.timeseries_convolution_line_width)
@@ -1247,23 +597,10 @@ class IceScopy(QMainWindow):
         return self.cell_state.prune_analysis_results_for_deleted_cells(deleted_cell_ids)
 
     def serialize_sample_catalog(self):
-        catalog = getattr(self, "sample_catalog", {})
-        return {
-            str(int(sample_id)): str(sample_name)
-            for sample_id, sample_name in sorted(catalog.items(), key=lambda pair: int(pair[0]))
-        }
+        return serialize_sample_catalog_payload(getattr(self, "sample_catalog", {}))
 
     def deserialize_sample_catalog(self, payload):
-        catalog = {}
-        if not isinstance(payload, dict):
-            return catalog
-        for key, value in payload.items():
-            try:
-                sample_id = int(key)
-            except (TypeError, ValueError):
-                continue
-            catalog[sample_id] = str(value)
-        return catalog
+        return deserialize_sample_catalog_payload(payload)
 
     def recompute_next_sample_id(self, preserve_if_larger=True):
         max_sample_id = -1
@@ -1314,13 +651,118 @@ class IceScopy(QMainWindow):
         return "".join(output)
 
     def sample_name_for_id(self, sample_id):
+        return str(self.sample_record_for_id(sample_id).get("sample_name", ""))
+
+    def sample_record_for_id(self, sample_id):
         if sample_id in (None, ""):
-            return ""
+            return normalize_sample_catalog_record({})
         try:
             sample_key = int(sample_id)
         except (TypeError, ValueError):
-            return ""
-        return str(self.sample_catalog.get(sample_key, ""))
+            return normalize_sample_catalog_record({})
+        return normalize_sample_catalog_record(self.sample_catalog.get(sample_key, {}))
+
+    def default_sample_record(self, sample_id):
+        record = normalize_sample_catalog_record({})
+        record["sample_name"] = self.default_sample_name(sample_id)
+        return record
+
+    def build_freeze_count_timeseries_sample_column_metadata(self, sample):
+        sample_id = str(sample.get("sample_id", "") or "").strip()
+        if sample_id:
+            record = self.sample_record_for_id(sample_id)
+        else:
+            record = normalize_sample_catalog_record({})
+            record["sample_name"] = str(sample.get("sample_name", "") or "")
+
+        return {
+            "sample_id": sample_id,
+            **{
+                field_name: str(record.get(field_name, "") or "")
+                for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+            },
+        }
+
+    def freeze_count_timeseries_sample_column_metadata(self):
+        return list(
+            getattr(self, "freeze_count_timeseries_summary", {}).get("sample_column_metadata", [])
+            or []
+        )
+
+    def build_freeze_count_timeseries_missing_metadata_report(self):
+        missing_session_fields = []
+        for field_name in (
+            "project_name",
+            "user_name",
+            "institution",
+            "date",
+            "well_volume_uL",
+        ):
+            if not str(self.serialize_session_metadata().get(field_name, "") or "").strip():
+                missing_session_fields.append(field_name)
+
+        missing_sample_lines = []
+        seen_sample_ids = set()
+        for sample_metadata in self.freeze_count_timeseries_sample_column_metadata():
+            sample_id = str(sample_metadata.get("sample_id", "") or "").strip()
+            if not sample_id or sample_id in seen_sample_ids:
+                continue
+            seen_sample_ids.add(sample_id)
+            missing_fields = [
+                field_name
+                for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                if field_name != "sample_name"
+                and not str(sample_metadata.get(field_name, "") or "").strip()
+            ]
+            if not missing_fields:
+                continue
+            sample_name = str(sample_metadata.get("sample_name", "") or "").strip()
+            if sample_name:
+                missing_sample_lines.append(
+                    f"Sample {sample_id} ({sample_name}): " + ", ".join(missing_fields)
+                )
+            else:
+                missing_sample_lines.append(
+                    f"Sample {sample_id}: " + ", ".join(missing_fields)
+                )
+
+        if not missing_session_fields and not missing_sample_lines:
+            return []
+
+        report_lines = [
+            "Missing metadata values were written as nan in the exported Freeze Count Timeseries CSV.",
+        ]
+        if missing_session_fields:
+            report_lines.append("")
+            report_lines.append("Session metadata:")
+            report_lines.extend(f"- {field_name}" for field_name in missing_session_fields)
+        if missing_sample_lines:
+            report_lines.append("")
+            report_lines.append("Sample metadata:")
+            report_lines.extend(f"- {line}" for line in missing_sample_lines)
+        return report_lines
+
+    def show_freeze_count_timeseries_export_notice(self, exported_paths):
+        report_lines = self.build_freeze_count_timeseries_missing_metadata_report()
+        if not report_lines:
+            return
+
+        paths = [str(path) for path in exported_paths if str(path).strip()]
+        if len(paths) == 1:
+            summary_text = (
+                "Freeze Count Timeseries CSV export completed.\n\n"
+                "Some metadata values were missing and were written as nan."
+            )
+        else:
+            summary_text = (
+                "Freeze Count Timeseries CSV export completed.\n\n"
+                f"{len(paths)} files were exported. Some metadata values were missing and were written as nan."
+            )
+        self.show_detailed_information_dialog(
+            "Freeze Count Timeseries CSV export",
+            summary_text,
+            "\n".join(report_lines),
+        )
 
     def ensure_sample_catalog_matches_cell_records(self):
         if not hasattr(self, "sample_catalog") or not isinstance(self.sample_catalog, dict):
@@ -1336,14 +778,30 @@ class IceScopy(QMainWindow):
             if sample_id < 0:
                 continue
             if sample_id not in self.sample_catalog:
-                self.sample_catalog[sample_id] = self.default_sample_name(sample_id)
+                self.sample_catalog[sample_id] = self.default_sample_record(sample_id)
         self.recompute_next_sample_id(preserve_if_larger=True)
 
     def cursor_sample_catalog_signature(self):
         return tuple(
-            (str(int(sample_id)), str(sample_name))
-            for sample_id, sample_name in sorted(self.sample_catalog.items(), key=lambda pair: int(pair[0]))
+            (str(int(sample_id)), str(normalize_sample_catalog_record(sample_record).get("sample_name", "")))
+            for sample_id, sample_record in sorted(self.sample_catalog.items(), key=lambda pair: int(pair[0]))
         )
+
+    def ordered_sample_catalog_records(self):
+        return [
+            (int(sample_id), normalize_sample_catalog_record(sample_record))
+            for sample_id, sample_record in sorted(
+                getattr(self, "sample_catalog", {}).items(),
+                key=lambda pair: int(pair[0]),
+            )
+        ]
+
+    def available_sample_names(self):
+        return [
+            str(sample_record.get("sample_name", "") or "")
+            for _, sample_record in self.ordered_sample_catalog_records()
+            if str(sample_record.get("sample_name", "") or "").strip()
+        ]
 
     def invalidate_cursor_sample_combo_cache(self):
         self.cursor_sample_combo_catalog_signature = None
@@ -1510,7 +968,7 @@ class IceScopy(QMainWindow):
         self.last_freeze_output_path = None
         if hasattr(self, "grayscale_plot_widget"):
             self.grayscale_plot_widget.invalidate_render_cache()
-        self.invalidate_temperature_sync_results("freeze frame annotations changed")
+        self.invalidate_freeze_count_timeseries_results("freeze frame annotations changed")
         if refresh_tables:
             self.update_results_tables()
 
@@ -1522,7 +980,6 @@ class IceScopy(QMainWindow):
             sample_id = str(getattr(record, "sample_id", ""))
             sample_name = self.sample_name_for_id(sample_id)
             freeze_frames = list(getattr(record, "freeze_event_indices", []))
-            grayscale_trace = list(getattr(record, "grayscale_trace", []))
             freeze_rows = list(getattr(record, "freeze_rows", []))
             records.append({
                 "cell_id": int(cell_id),
@@ -1909,12 +1366,20 @@ class IceScopy(QMainWindow):
         self.grayscale_results_rows = []
         self.freeze_results_headers = []
         self.freeze_results_rows = []
-        self.temperature_sync_headers = []
-        self.temperature_sync_rows = []
-        self.temperature_sync_summary = {}
+        self.freeze_count_timeseries_headers = []
+        self.freeze_count_timeseries_rows = []
+        self.freeze_count_timeseries_summary = {}
         self.last_temperature_import_path = None
         self.last_temperature_calibration_path = None
         self.last_temperature_reset_temperature = None
+        self.last_temperature_blank_sample_names = []
+        self.last_standard_temperature_image_timestamp_source = IMAGE_TIMESTAMP_SOURCE_FILENAME
+        self.last_standard_temperature_image_timestamp_style = TIMESTAMP_STYLE_AUTO
+        self.last_standard_temperature_temperature_timestamp_style = TIMESTAMP_STYLE_AUTO
+        self.last_standard_temperature_use_image_timestamp_style = True
+        self.last_standard_temperature_generated_start_text = ""
+        self.last_standard_temperature_frame_interval_seconds = 1.0
+        self.last_standard_temperature_temperature_unit = TEMPERATURE_UNIT_CELSIUS
         self.pending_navigation_before_index = None
         self.pending_navigation_history_text = "Change Frame"
         self.slider_drag_start_index = None
@@ -1927,6 +1392,7 @@ class IceScopy(QMainWindow):
         self.session_user_name = ""
         self.session_institution = ""
         self.session_date = ""
+        self.session_well_volume_uL = ""
 
         # miscellaneous
         self.timer = None
@@ -1966,6 +1432,7 @@ class IceScopy(QMainWindow):
             "user_name": str(getattr(self, "session_user_name", "")).strip(),
             "institution": str(getattr(self, "session_institution", "")).strip(),
             "date": str(getattr(self, "session_date", "")).strip(),
+            "well_volume_uL": str(getattr(self, "session_well_volume_uL", "")).strip(),
         }
 
     def serialize_image_edit_state(self):
@@ -3078,6 +2545,7 @@ class IceScopy(QMainWindow):
         self.session_user_name = str(metadata.get("user_name", "")).strip()
         self.session_institution = str(metadata.get("institution", "")).strip()
         self.session_date = str(metadata.get("date", "")).strip()
+        self.session_well_volume_uL = str(metadata.get("well_volume_uL", "")).strip()
         self.update_session_metadata_status_label()
 
     def format_session_metadata_status_text(self):
@@ -3086,6 +2554,7 @@ class IceScopy(QMainWindow):
             ("user_name", "User"),
             ("institution", "Institution"),
             ("date", "Date"),
+            ("well_volume_uL", "Well Volume (uL)"),
         )
         metadata = self.serialize_session_metadata()
         parts = []
@@ -3127,8 +2596,8 @@ class IceScopy(QMainWindow):
             or self.grayscale_results_rows
             or self.freeze_results_headers
             or self.freeze_results_rows
-            or self.temperature_sync_headers
-            or self.temperature_sync_rows
+            or self.freeze_count_timeseries_headers
+            or self.freeze_count_timeseries_rows
         )
 
     def has_session_save_payload(self):
@@ -3156,11 +2625,24 @@ class IceScopy(QMainWindow):
             return "saved" if self.saveSession() else "cancel"
         return "discard"
 
-    def prompt_new_session_metadata(self):
-        dialog = NewSessionMetadataDialog(self, self.serialize_session_metadata())
+    def prompt_new_session_metadata(self, *, window_title="New Session"):
+        dialog = NewSessionMetadataDialog(
+            self,
+            self.serialize_session_metadata(),
+            window_title=window_title,
+        )
         if dialog.exec() != QDialog.Accepted:
             return None
         return dialog.get_metadata()
+
+    def editSessionMetadata(self, checked=False):
+        metadata = self.prompt_new_session_metadata(window_title="Edit Session Metadata")
+        if metadata is None:
+            return
+        self.apply_session_metadata(metadata)
+        self.session_active = True
+        self.update_session_actions_state()
+        self.log("Update session metadata")
 
     def newSession(self, checked=False):
         save_choice = self.prompt_save_before_replacing_session("starting a new session")
@@ -3223,11 +2705,13 @@ class IceScopy(QMainWindow):
         self.open_session_action = QAction("Open Session", self)
         self.save_session_action = QAction("Save Session", self)
         self.save_session_as_action = QAction("Save Session As...", self)
+        self.edit_session_metadata_action = QAction("Edit Session Metadata...", self)
         self.save_session_action.setShortcuts([QKeySequence.Save, QKeySequence("Ctrl+S")])
         self.save_session_as_action.setShortcuts([QKeySequence.SaveAs])
         self.relink_images_action = QAction("Relink Images Folder...", self)
         self.run_analysis_action = QAction("Run Analysis", self)
         self.output_results_action = QAction("Output Results", self)
+        self.import_temperature_csv_action = QAction("Standard CSV import...", self)
         self.import_csu_is_dat_action = QAction("CSU IS .dat import...", self)
         self.import_tamu_linkam_xlsx_action = QAction("TAMU Linkam .xlsx import...", self)
         self.sort_images_action = QAction("Sort Images", self)
@@ -3257,6 +2741,7 @@ class IceScopy(QMainWindow):
         file_menu.addAction(self.open_session_action)
         file_menu.addAction(self.save_session_action)
         file_menu.addAction(self.save_session_as_action)
+        file_menu.addAction(self.edit_session_metadata_action)
         file_menu.addAction(self.output_results_action)
         file_menu.addSeparator() # Add a separator to the menu
         file_menu.addAction(self.relink_images_action)
@@ -3269,6 +2754,8 @@ class IceScopy(QMainWindow):
         analysis_menu.addAction(self.run_analysis_action)
         analysis_menu.addSeparator()
         import_temperature_menu = analysis_menu.addMenu("Import Temperature Data")
+        import_temperature_menu.addAction(self.import_temperature_csv_action)
+        import_temperature_menu.addSeparator()
         import_temperature_menu.addAction(self.import_csu_is_dat_action)
         import_temperature_menu.addAction(self.import_tamu_linkam_xlsx_action)
 
@@ -3304,8 +2791,10 @@ class IceScopy(QMainWindow):
         self.open_session_action.triggered.connect(self.openSession)
         self.save_session_action.triggered.connect(self.handle_save_session_action)
         self.save_session_as_action.triggered.connect(self.saveSessionAs)
+        self.edit_session_metadata_action.triggered.connect(self.editSessionMetadata)
         self.relink_images_action.triggered.connect(self.relink_images_folder)
         self.output_results_action.triggered.connect(self.export_results_csv)
+        self.import_temperature_csv_action.triggered.connect(self.import_standard_temperature_csv)
         self.import_csu_is_dat_action.triggered.connect(self.import_csu_is_dat)
         self.import_tamu_linkam_xlsx_action.triggered.connect(self.import_tamu_linkam_xlsx)
         self.remove_selected_action.triggered.connect(self.remove_selected_image)
@@ -3510,15 +2999,15 @@ class IceScopy(QMainWindow):
         # children of the main window.
         self.data_table = QTableWidget()
         self.freeze_table = QTableWidget()
-        self.temperature_sync_table = QTableWidget()
+        self.freeze_count_timeseries_table = QTableWidget()
         self.grayscale_plot_widget = GrayscalePlotWidget(self)
         self.setup_table_widget(self.data_table)
         self.setup_table_widget(self.freeze_table)
-        self.setup_table_widget(self.temperature_sync_table)
+        self.setup_table_widget(self.freeze_count_timeseries_table)
         self.results_table_tabs = QTabWidget(self)
         self.results_table_tabs.addTab(self.data_table, "Measurements")
         self.results_table_tabs.addTab(self.freeze_table, "Freeze Events")
-        self.results_table_tabs.addTab(self.temperature_sync_table, "Temperature Sync")
+        self.results_table_tabs.addTab(self.freeze_count_timeseries_table, "Freeze Count Timeseries")
         self.results_table_tabs.setTabPosition(QTabWidget.South)
         self.results_table_tabs.tabBar().setExpanding(False)
         self.results_table_tabs.setStyleSheet("""
@@ -3736,8 +3225,8 @@ class IceScopy(QMainWindow):
         panel = QWidget(self)
         panel.setObjectName("toolOptionsPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
         panel.setMinimumWidth(SIDE_PANEL_DEFAULT_WIDTH)
         panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
@@ -4179,8 +3668,8 @@ class IceScopy(QMainWindow):
         panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
 
         self.cells_tree_widget = QTreeWidget(panel)
         self.cells_tree_widget.setColumnCount(2)
@@ -4219,27 +3708,34 @@ class IceScopy(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        title = QLabel("Sample Catalog", panel)
-        title.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        title.setStyleSheet("font-size: 13px; font-weight: 600; color: #4a4a4a;")
-        layout.addWidget(title)
-
-        self.sample_catalog_table_syncing = False
-        self.sample_catalog_table = QTableWidget(panel)
-        self.sample_catalog_table.setColumnCount(2)
-        self.sample_catalog_table.setHorizontalHeaderLabels(["Sample ID", "Sample Name"])
-        self.sample_catalog_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.sample_catalog_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.sample_catalog_table.setEditTriggers(
+        self.sample_catalog_tree_syncing = False
+        self.sample_catalog_tree = SampleCatalogTreeWidget(panel)
+        self.sample_catalog_tree.setColumnCount(len(SAMPLE_CATALOG_TREE_HEADERS))
+        self.sample_catalog_tree.setHeaderLabels(list(SAMPLE_CATALOG_TREE_HEADERS))
+        self.sample_catalog_tree.setHeaderHidden(True)
+        self.sample_catalog_tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.sample_catalog_tree.setEditTriggers(
             QAbstractItemView.DoubleClicked
             | QAbstractItemView.EditKeyPressed
             | QAbstractItemView.SelectedClicked
         )
-        self.sample_catalog_table.horizontalHeader().setStretchLastSection(True)
-        self.sample_catalog_table.verticalHeader().setVisible(False)
-        self.sample_catalog_table.itemChanged.connect(self.handle_sample_catalog_item_changed)
-        self.sample_catalog_table.itemSelectionChanged.connect(self.update_sample_catalog_buttons)
-        layout.addWidget(self.sample_catalog_table, 1)
+        self.sample_catalog_tree.setRootIsDecorated(True)
+        self.sample_catalog_tree.setUniformRowHeights(True)
+        self.sample_catalog_tree.setAlternatingRowColors(False)
+        self.sample_catalog_tree.setAllColumnsShowFocus(True)
+        self.sample_catalog_tree.setIndentation(SAMPLE_CATALOG_TREE_INDENTATION)
+        self.sample_catalog_tree.header().setStretchLastSection(False)
+        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.sample_catalog_tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.sample_catalog_tree.header().resizeSection(1, SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH)
+        self.sample_catalog_tree.setStyleSheet(
+            f"QTreeView::item {{ min-height: {SAMPLE_CATALOG_TREE_ROW_HEIGHT}px; }}"
+        )
+        self.sample_catalog_tree_delegate = SampleCatalogTreeDelegate(self.sample_catalog_tree)
+        self.sample_catalog_tree.setItemDelegate(self.sample_catalog_tree_delegate)
+        self.sample_catalog_tree.itemChanged.connect(self.handle_sample_catalog_item_changed)
+        self.sample_catalog_tree.itemSelectionChanged.connect(self.update_sample_catalog_buttons)
+        layout.addWidget(self.sample_catalog_tree, 1)
 
         button_row = QWidget(panel)
         button_layout = QHBoxLayout(button_row)
@@ -4255,7 +3751,7 @@ class IceScopy(QMainWindow):
         layout.addWidget(button_row)
 
         hint = QLabel(
-            "Sample IDs are session-level labels. Rename sample names directly in the table.",
+            "Expand a sample to edit metadata. Text fields use text boxes and numeric fields use number-only boxes. Cursor mode only assigns selected cells to a sample or creates a new sample.",
             panel,
         )
         hint.setWordWrap(True)
@@ -4266,27 +3762,87 @@ class IceScopy(QMainWindow):
         return panel
 
     def selected_sample_catalog_id(self):
-        if not hasattr(self, "sample_catalog_table"):
+        if not hasattr(self, "sample_catalog_tree"):
             return None
-        row = self.sample_catalog_table.currentRow()
-        if row < 0:
+        current_item = self.sample_catalog_tree.currentItem()
+        if current_item is None:
             return None
-        id_item = self.sample_catalog_table.item(row, 0)
-        if id_item is None:
-            return None
-        sample_id = id_item.data(Qt.UserRole)
+        top_item = current_item if current_item.parent() is None else current_item.parent()
+        sample_id = top_item.data(0, Qt.UserRole)
         if sample_id is None:
-            try:
-                sample_id = int(id_item.text())
-            except (TypeError, ValueError):
-                return None
+            return None
         try:
             return int(sample_id)
         except (TypeError, ValueError):
             return None
 
+    def sample_catalog_field_is_relevant(self, field_name, sample_record):
+        if field_name in ("sample_name", "sample_long_name", "collection_start", "collection_end", "sample_type"):
+            return True
+        sample_type = str(sample_record.get("sample_type", "") or "").strip().casefold()
+        if not sample_type:
+            return False
+        return field_name in SAMPLE_CATALOG_TYPE_REQUIRED_FIELDS.get(sample_type, set())
+
+    def apply_sample_catalog_tree_field_state(self, child_item, field_name, sample_record):
+        if child_item is None:
+            return
+
+        value_item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
+        is_editable = field_name == "sample_type" or self.sample_catalog_field_is_relevant(field_name, sample_record)
+
+        child_item.setFlags(value_item_flags)
+        child_item.setData(1, SampleCatalogTreeDelegate.EDITABLE_ROLE, bool(is_editable))
+
+        enabled_brush = QBrush(self.sample_catalog_tree.palette().color(QPalette.Active, QPalette.Text))
+        disabled_brush = QBrush(self.sample_catalog_tree.palette().color(QPalette.Disabled, QPalette.Text))
+        brush = enabled_brush if is_editable else disabled_brush
+        child_item.setForeground(0, brush)
+        child_item.setForeground(1, brush)
+        self.sample_catalog_tree.openPersistentEditor(child_item, 1)
+        editor = self.sample_catalog_tree.indexWidget(self.sample_catalog_tree.indexFromItem(child_item, 1))
+        if editor is None:
+            return
+        if isinstance(editor, QLineEdit):
+            with QSignalBlocker(editor):
+                editor.setEnabled(bool(is_editable))
+                editor.setReadOnly(not bool(is_editable))
+                editor.setCursorPosition(0)
+        elif isinstance(editor, QComboBox):
+            with QSignalBlocker(editor):
+                editor.setEnabled(bool(is_editable))
+
+    def apply_sample_catalog_tree_item_state(self, top_item, sample_id, sample_record):
+        if top_item is None:
+            return
+
+        top_item.setText(0, str(sample_id))
+        top_item.setText(1, "")
+        top_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+        top_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+
+        for child_index in range(top_item.childCount()):
+            child_item = top_item.child(child_index)
+            field_name = str(child_item.data(0, SampleCatalogTreeDelegate.FIELD_NAME_ROLE) or "")
+            if not field_name:
+                continue
+            child_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+            child_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+            self.apply_sample_catalog_tree_field_state(child_item, field_name, sample_record)
+            if field_name != "sample_type":
+                child_item.setText(1, str(sample_record.get(field_name, "") or ""))
+
+    def sample_catalog_top_item_by_id(self, sample_id):
+        if not hasattr(self, "sample_catalog_tree"):
+            return None
+        for index in range(self.sample_catalog_tree.topLevelItemCount()):
+            top_item = self.sample_catalog_tree.topLevelItem(index)
+            if int(top_item.data(0, Qt.UserRole)) == int(sample_id):
+                return top_item
+        return None
+
     def refresh_sample_catalog_table(self, select_sample_id=None, preserve_selection=True):
-        if not hasattr(self, "sample_catalog_table"):
+        if not hasattr(self, "sample_catalog_tree"):
             return
 
         self.ensure_sample_catalog_matches_cell_records()
@@ -4294,36 +3850,56 @@ class IceScopy(QMainWindow):
         if select_sample_id is None and preserve_selection:
             select_sample_id = self.selected_sample_catalog_id()
 
-        self.sample_catalog_table_syncing = True
-        self.sample_catalog_table.blockSignals(True)
+        expanded_sample_ids = set()
+        if hasattr(self, "sample_catalog_tree"):
+            for index in range(self.sample_catalog_tree.topLevelItemCount()):
+                top_item = self.sample_catalog_tree.topLevelItem(index)
+                if top_item.isExpanded():
+                    expanded_sample_ids.add(int(top_item.data(0, Qt.UserRole)))
+
+        self.sample_catalog_tree_syncing = True
+        self.sample_catalog_tree.blockSignals(True)
         try:
             ordered_samples = sorted(
-                ((int(sample_id), str(sample_name)) for sample_id, sample_name in self.sample_catalog.items()),
+                (
+                    (int(sample_id), normalize_sample_catalog_record(sample_record))
+                    for sample_id, sample_record in self.sample_catalog.items()
+                ),
                 key=lambda pair: pair[0],
             )
-            self.sample_catalog_table.setRowCount(len(ordered_samples))
-            for row, (sample_id, sample_name) in enumerate(ordered_samples):
-                id_item = QTableWidgetItem(str(sample_id))
-                id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
-                id_item.setData(Qt.UserRole, int(sample_id))
-                self.sample_catalog_table.setItem(row, 0, id_item)
+            self.sample_catalog_tree.clear()
+            for sample_id, sample_record in ordered_samples:
+                top_item = QTreeWidgetItem(self.sample_catalog_tree)
+                top_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                top_item.setData(0, Qt.UserRole, int(sample_id))
+                top_item.setData(1, Qt.UserRole, int(sample_id))
+                self.apply_sample_catalog_tree_item_state(top_item, sample_id, sample_record)
 
-                name_item = QTableWidgetItem(sample_name)
-                name_item.setData(Qt.UserRole, int(sample_id))
-                self.sample_catalog_table.setItem(row, 1, name_item)
+                for field_name, label_text in SAMPLE_CATALOG_TREE_FIELDS:
+                    child_item = QTreeWidgetItem(top_item)
+                    child_item.setText(0, label_text)
+                    child_item.setText(1, str(sample_record.get(field_name, "") or ""))
+                    child_item.setData(0, Qt.UserRole, int(sample_id))
+                    child_item.setData(1, Qt.UserRole, int(sample_id))
+                    child_item.setData(0, SampleCatalogTreeDelegate.FIELD_NAME_ROLE, field_name)
+                    child_item.setData(1, SampleCatalogTreeDelegate.FIELD_NAME_ROLE, field_name)
+                    child_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+                    child_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+                    self.apply_sample_catalog_tree_field_state(child_item, field_name, sample_record)
+
+                should_expand = int(sample_id) in expanded_sample_ids
+                if select_sample_id is not None and int(sample_id) == int(select_sample_id):
+                    should_expand = True
+                top_item.setExpanded(should_expand)
         finally:
-            self.sample_catalog_table.blockSignals(False)
-            self.sample_catalog_table_syncing = False
+            self.sample_catalog_tree.blockSignals(False)
+            self.sample_catalog_tree_syncing = False
 
         if select_sample_id is not None:
-            for row in range(self.sample_catalog_table.rowCount()):
-                id_item = self.sample_catalog_table.item(row, 0)
-                if id_item is None:
-                    continue
-                if int(id_item.data(Qt.UserRole)) == int(select_sample_id):
-                    self.sample_catalog_table.selectRow(row)
-                    self.sample_catalog_table.setCurrentCell(row, 1)
-                    break
+            target_top_item = self.sample_catalog_top_item_by_id(select_sample_id)
+            if target_top_item is not None:
+                self.sample_catalog_tree.setCurrentItem(target_top_item)
+                target_top_item.setSelected(True)
 
         self.update_sample_catalog_buttons()
         self.update_cursor_sample_controls()
@@ -4337,10 +3913,10 @@ class IceScopy(QMainWindow):
     def add_sample_catalog_entry(self):
         before_state = self.capture_data_state()
         sample_id = self.allocate_sample_id()
-        self.sample_catalog[int(sample_id)] = self.default_sample_name(sample_id)
+        self.sample_catalog[int(sample_id)] = self.default_sample_record(sample_id)
         self.recompute_next_sample_id(preserve_if_larger=True)
         self.refresh_sample_catalog_table(select_sample_id=sample_id, preserve_selection=False)
-        self.invalidate_temperature_sync_results("sample catalog changed")
+        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Add Sample", before_state)
         self.log(f"Add sample {sample_id}")
 
@@ -4358,7 +3934,7 @@ class IceScopy(QMainWindow):
             preview = ", ".join(str(cell_id) for cell_id in used_by_cells[:8])
             if len(used_by_cells) > 8:
                 preview += ", ..."
-            sample_name = str(self.sample_catalog.get(sample_id, self.default_sample_name(sample_id)))
+            sample_name = self.sample_name_for_id(sample_id) or self.default_sample_name(sample_id)
             QMessageBox.warning(
                 self,
                 "Delete Sample",
@@ -4373,42 +3949,72 @@ class IceScopy(QMainWindow):
         self.sample_catalog.pop(sample_id, None)
         self.recompute_next_sample_id(preserve_if_larger=True)
         self.refresh_sample_catalog_table(preserve_selection=False)
-        self.invalidate_temperature_sync_results("sample catalog changed")
+        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Delete Sample", before_state)
         self.log(f"Delete sample {sample_id}")
 
-    def handle_sample_catalog_item_changed(self, item):
-        if item is None or self.sample_catalog_table_syncing:
+    def handle_sample_catalog_item_changed(self, item, column):
+        if item is None or self.sample_catalog_tree_syncing or int(column) != 1:
             return
-        if item.column() != 1:
+        if item.parent() is None:
+            return
+        field_name = str(item.data(1, SampleCatalogTreeDelegate.FIELD_NAME_ROLE) or "")
+        if not field_name:
             return
 
-        sample_id = item.data(Qt.UserRole)
+        sample_id = item.data(1, Qt.UserRole)
         try:
             sample_id = int(sample_id)
         except (TypeError, ValueError):
             return
 
-        new_name = str(item.text()).strip()
-        if not new_name:
-            new_name = self.default_sample_name(sample_id)
-            self.sample_catalog_table_syncing = True
-            try:
-                item.setText(new_name)
-            finally:
-                self.sample_catalog_table_syncing = False
+        sample_record = normalize_sample_catalog_record(
+            self.sample_catalog.get(sample_id, self.default_sample_record(sample_id))
+        )
+        new_value = str(item.text(1)).strip()
+        if field_name == "sample_name" and not new_value:
+            new_value = self.default_sample_name(sample_id)
+        elif field_name == "sample_type":
+            normalized_type = new_value.casefold()
+            if normalized_type not in ("",) + ALLOWED_SAMPLE_TYPES:
+                self.sample_catalog_tree_syncing = True
+                try:
+                    item.setText(str(sample_record.get("sample_type", "") or ""))
+                finally:
+                    self.sample_catalog_tree_syncing = False
+                QMessageBox.warning(
+                    self,
+                    "Sample Catalog",
+                    "Sample type must be one of: air, soil, other.",
+                )
+                return
+            new_value = normalized_type
 
-        old_name = str(self.sample_catalog.get(sample_id, ""))
-        if old_name == new_name:
+        canonical_text = str(new_value)
+        if item.text(1) != canonical_text:
+            self.sample_catalog_tree_syncing = True
+            try:
+                item.setText(1, canonical_text)
+            finally:
+                self.sample_catalog_tree_syncing = False
+
+        old_value = str(sample_record.get(field_name, "") or "")
+        if old_value == new_value:
             return
 
         before_state = self.capture_data_state()
-        self.sample_catalog[sample_id] = new_name
-        self.invalidate_temperature_sync_results("sample names changed")
-        self.push_data_history("Rename Sample", before_state)
-        self.log(f"Rename sample {sample_id} to {new_name}")
-        self.update_cursor_sample_controls()
-        self.refresh_cells_panel()
+        sample_record[field_name] = new_value
+        self.sample_catalog[sample_id] = sample_record
+        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog(
+            relabel_headers=(field_name == "sample_name")
+        )
+        self.push_data_history("Update Sample Metadata", before_state)
+        self.log(f"Update sample {sample_id} {field_name} to {new_value}")
+        top_item = item.parent()
+        self.apply_sample_catalog_tree_item_state(top_item, sample_id, sample_record)
+        if field_name == "sample_name":
+            self.update_cursor_sample_controls()
+            self.refresh_cells_panel()
 
     def update_cursor_sample_controls(self):
         if not hasattr(self, "cursor_tool_page") or not hasattr(self, "cursor_sample_combo") or not hasattr(self, "cursor_sample_new_button"):
@@ -4476,7 +4082,7 @@ class IceScopy(QMainWindow):
         if not changed:
             return
 
-        self.invalidate_temperature_sync_results("sample assignments changed")
+        self.invalidate_freeze_count_timeseries_results("sample assignments changed")
         self.push_data_history("Assign Sample", before_state)
         if sample_id:
             self.log(f"Assign sample {sample_id} to {len(selected_items)} selected cell(s)")
@@ -4489,7 +4095,7 @@ class IceScopy(QMainWindow):
     def create_sample_from_cursor_controls(self):
         before_state = self.capture_data_state()
         sample_id = self.allocate_sample_id()
-        self.sample_catalog[int(sample_id)] = self.default_sample_name(sample_id)
+        self.sample_catalog[int(sample_id)] = self.default_sample_record(sample_id)
         selected_items = self.get_selected_cell_items()
         for item in selected_items:
             record = self.ensure_cell_record(item.cell_id)
@@ -4498,11 +4104,12 @@ class IceScopy(QMainWindow):
 
         self.recompute_next_sample_id(preserve_if_larger=True)
         self.refresh_sample_catalog_table(select_sample_id=sample_id, preserve_selection=False)
-        self.invalidate_temperature_sync_results("sample catalog changed")
         if selected_items:
+            self.invalidate_freeze_count_timeseries_results("sample assignments changed")
             self.push_data_history("Create and Assign Sample", before_state)
             self.log(f"Create sample {sample_id} and assign to {len(selected_items)} selected cell(s)")
         else:
+            self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
             self.push_data_history("Add Sample", before_state)
             self.log(f"Add sample {sample_id}")
         self.refresh_cell_sample_visuals()
@@ -5218,16 +4825,16 @@ class IceScopy(QMainWindow):
         self.refresh_grayscale_plot()
         self.refresh_cells_panel()
 
-    def update_temperature_sync_table(self):
-        if hasattr(self, "temperature_sync_table"):
-            self.set_table_data(self.temperature_sync_table, self.temperature_sync_headers, self.temperature_sync_rows)
+    def update_freeze_count_timeseries_table(self):
+        if hasattr(self, "freeze_count_timeseries_table"):
+            self.set_table_data(self.freeze_count_timeseries_table, self.freeze_count_timeseries_headers, self.freeze_count_timeseries_rows)
         self.update_results_table_visibility()
 
     def update_results_table_visibility(self):
         if hasattr(self, "results_table_tabs"):
             grayscale_visible = bool(self.grayscale_results_headers)
             freeze_visible = bool(self.freeze_results_headers)
-            temperature_visible = bool(self.temperature_sync_headers)
+            temperature_visible = bool(self.freeze_count_timeseries_headers)
             self.results_table_tabs.setTabVisible(0, grayscale_visible)
             self.results_table_tabs.setTabVisible(1, freeze_visible)
             self.results_table_tabs.setTabVisible(2, temperature_visible)
@@ -5242,30 +4849,130 @@ class IceScopy(QMainWindow):
                 if visible_count == 0:
                     self.results_tables_dock.hide()
 
-    def set_temperature_sync_results(self, headers, rows, summary=None):
-        self.temperature_sync_headers = [str(value) for value in (headers or [])]
-        self.temperature_sync_rows = [
+    def set_freeze_count_timeseries_results(self, headers, rows, summary=None):
+        self.freeze_count_timeseries_headers = [str(value) for value in (headers or [])]
+        self.freeze_count_timeseries_rows = [
             ["" if value is None else str(value) for value in row]
             for row in (rows or [])
         ]
-        self.temperature_sync_summary = dict(summary or {})
-        self.update_temperature_sync_table()
-        if self.temperature_sync_headers:
+        self.freeze_count_timeseries_summary = dict(summary or {})
+        self.update_freeze_count_timeseries_table()
+        if self.freeze_count_timeseries_headers:
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(2)
             self.show_dock_widget(self.results_tables_dock)
         self.update_session_actions_state()
 
-    def invalidate_temperature_sync_results(self, reason=None):
-        had_results = bool(self.temperature_sync_headers or self.temperature_sync_rows)
-        self.temperature_sync_headers = []
-        self.temperature_sync_rows = []
-        self.temperature_sync_summary = {}
+    def relabel_freeze_count_timeseries_header_sample_name(self, header_text, sample_name):
+        current_header = str(header_text or "")
+        replacement_name = str(sample_name or "").strip()
+        if not replacement_name:
+            return current_header
+        for marker in (" corrected temperature_C", " (n="):
+            marker_index = current_header.rfind(marker)
+            if marker_index >= 0:
+                return f"{replacement_name}{current_header[marker_index:]}"
+        return current_header
+
+    def refresh_freeze_count_timeseries_metadata_from_sample_catalog(self, *, relabel_headers=False):
+        if not self.freeze_count_timeseries_headers:
+            return False
+
+        summary = dict(self.freeze_count_timeseries_summary or {})
+        sample_column_metadata = list(summary.get("sample_column_metadata") or [])
+        if not sample_column_metadata:
+            return False
+
+        refreshed_sample_metadata = []
+        for sample_metadata in sample_column_metadata:
+            sample_id = str(sample_metadata.get("sample_id", "") or "").strip()
+            if sample_id:
+                refreshed_metadata = self.build_freeze_count_timeseries_sample_column_metadata(
+                    {"sample_id": sample_id}
+                )
+            else:
+                refreshed_metadata = dict(sample_metadata)
+            refreshed_sample_metadata.append(refreshed_metadata)
+        summary["sample_column_metadata"] = refreshed_sample_metadata
+
+        refreshed_headers = list(self.freeze_count_timeseries_headers)
+        headers_changed = False
+        if relabel_headers:
+            sample_index = 0
+            column_index = 0
+            while column_index < len(refreshed_headers) and sample_index < len(refreshed_sample_metadata):
+                sample_name = str(refreshed_sample_metadata[sample_index].get("sample_name", "") or "")
+                current_header = refreshed_headers[column_index]
+                if current_header.endswith(" corrected temperature_C"):
+                    refreshed_headers[column_index] = self.relabel_freeze_count_timeseries_header_sample_name(
+                        current_header,
+                        sample_name,
+                    )
+                    column_index += 1
+                    if column_index >= len(refreshed_headers):
+                        break
+
+                if (
+                    column_index + 2 < len(refreshed_headers)
+                    and refreshed_headers[column_index].endswith(" number total")
+                    and refreshed_headers[column_index + 1].endswith(" number frozen")
+                    and refreshed_headers[column_index + 2].endswith(" fraction frozen")
+                ):
+                    for offset in range(3):
+                        refreshed_headers[column_index + offset] = (
+                            self.relabel_freeze_count_timeseries_header_sample_name(
+                                refreshed_headers[column_index + offset],
+                                sample_name,
+                            )
+                        )
+                    column_index += 3
+                    sample_index += 1
+                    continue
+
+                column_index += 1
+            headers_changed = refreshed_headers != self.freeze_count_timeseries_headers
+
+        refreshed_sample_totals = []
+        matched_samples = []
+        matched_blank_samples = []
+        for sample_entry in list(summary.get("sample_total_cells") or []):
+            refreshed_entry = dict(sample_entry)
+            sample_id = str(refreshed_entry.get("sample_id", "") or "").strip()
+            if sample_id:
+                refreshed_name = self.sample_name_for_id(sample_id)
+                if refreshed_name:
+                    refreshed_entry["sample_name"] = refreshed_name
+            refreshed_sample_totals.append(refreshed_entry)
+            sample_name = str(refreshed_entry.get("sample_name", "") or "").strip()
+            if not sample_name:
+                continue
+            if str(refreshed_entry.get("role", "sample") or "sample") == "blank":
+                matched_blank_samples.append(sample_name)
+            else:
+                matched_samples.append(sample_name)
+        if refreshed_sample_totals:
+            summary["sample_total_cells"] = refreshed_sample_totals
+            summary["matched_samples"] = matched_samples
+            summary["matched_blank_samples"] = matched_blank_samples
+
+        self.freeze_count_timeseries_summary = summary
+        if headers_changed:
+            self.freeze_count_timeseries_headers = refreshed_headers
+            if hasattr(self, "freeze_count_timeseries_table"):
+                self.freeze_count_timeseries_table.setHorizontalHeaderLabels(refreshed_headers)
+        self.update_session_actions_state()
+        return True
+
+    def invalidate_freeze_count_timeseries_results(self, reason=None):
+        had_results = bool(self.freeze_count_timeseries_headers or self.freeze_count_timeseries_rows)
+        self.freeze_count_timeseries_headers = []
+        self.freeze_count_timeseries_rows = []
+        self.freeze_count_timeseries_summary = {}
         self.last_temperature_import_path = None
-        self.update_temperature_sync_table()
+        self.update_freeze_count_timeseries_table()
         self.update_session_actions_state()
         if had_results and reason:
-            self.log(f"Temperature sync cleared: {reason}. Re-import the temperature data file.")
+            self.log(f"Freeze Count Timeseries cleared: {reason}. Re-import the temperature data file.")
 
     def invalidate_analysis_results(self, reason=None):
         had_results = bool(
@@ -5282,7 +4989,7 @@ class IceScopy(QMainWindow):
         self.freeze_results_rows = []
         self.clear_cell_analysis()
         self.update_results_tables()
-        self.invalidate_temperature_sync_results("analysis results changed")
+        self.invalidate_freeze_count_timeseries_results("analysis results changed")
         if had_results and reason:
             self.log(f"Analysis cleared: {reason}. Run Analysis again.")
 
@@ -5310,7 +5017,7 @@ class IceScopy(QMainWindow):
             self.convolution_half_window_points,
             self.convolution_ramp_points,
             self.timeseries_palette,
-            self.timeseries_trace_line_width,
+            self.timeseries_line_width,
             self.timeseries_convolution_line_width,
             self.get_qcolor(self.timeseries_freeze_line_color).getRgb(),
             self.timeseries_freeze_line_width,
@@ -5365,6 +5072,17 @@ class IceScopy(QMainWindow):
             "sort_mode": self.sort_mode,
             "last_grayscale_output_path": self.last_grayscale_output_path,
             "last_freeze_output_path": self.last_freeze_output_path,
+            "last_temperature_import_path": self.last_temperature_import_path,
+            "last_temperature_calibration_path": self.last_temperature_calibration_path,
+            "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
+            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
+            "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
+            "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
+            "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
+            "last_standard_temperature_use_image_timestamp_style": self.last_standard_temperature_use_image_timestamp_style,
+            "last_standard_temperature_generated_start_text": self.last_standard_temperature_generated_start_text,
+            "last_standard_temperature_frame_interval_seconds": self.last_standard_temperature_frame_interval_seconds,
+            "last_standard_temperature_temperature_unit": self.last_standard_temperature_temperature_unit,
             "grayscale_results_headers": self.grayscale_results_headers.copy(),
             "grayscale_results_rows": copy.deepcopy(self.grayscale_results_rows),
             "freeze_results_headers": self.freeze_results_headers.copy(),
@@ -5387,9 +5105,17 @@ class IceScopy(QMainWindow):
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
-            "temperature_sync_headers": self.temperature_sync_headers.copy(),
-            "temperature_sync_rows": copy.deepcopy(self.temperature_sync_rows),
-            "temperature_sync_summary": dict(self.temperature_sync_summary),
+            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
+            "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
+            "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
+            "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
+            "last_standard_temperature_use_image_timestamp_style": self.last_standard_temperature_use_image_timestamp_style,
+            "last_standard_temperature_generated_start_text": self.last_standard_temperature_generated_start_text,
+            "last_standard_temperature_frame_interval_seconds": self.last_standard_temperature_frame_interval_seconds,
+            "last_standard_temperature_temperature_unit": self.last_standard_temperature_temperature_unit,
+            "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers.copy(),
+            "freeze_count_timeseries_rows": copy.deepcopy(self.freeze_count_timeseries_rows),
+            "freeze_count_timeseries_summary": dict(self.freeze_count_timeseries_summary),
         }
         if include_analysis:
             state.update({
@@ -5414,13 +5140,21 @@ class IceScopy(QMainWindow):
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
+            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
+            "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
+            "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
+            "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
+            "last_standard_temperature_use_image_timestamp_style": self.last_standard_temperature_use_image_timestamp_style,
+            "last_standard_temperature_generated_start_text": self.last_standard_temperature_generated_start_text,
+            "last_standard_temperature_frame_interval_seconds": self.last_standard_temperature_frame_interval_seconds,
+            "last_standard_temperature_temperature_unit": self.last_standard_temperature_temperature_unit,
             "grayscale_results_headers": self.grayscale_results_headers.copy(),
             "grayscale_results_rows": copy.deepcopy(self.grayscale_results_rows),
             "freeze_results_headers": self.freeze_results_headers.copy(),
             "freeze_results_rows": copy.deepcopy(self.freeze_results_rows),
-            "temperature_sync_headers": self.temperature_sync_headers.copy(),
-            "temperature_sync_rows": copy.deepcopy(self.temperature_sync_rows),
-            "temperature_sync_summary": dict(self.temperature_sync_summary),
+            "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers.copy(),
+            "freeze_count_timeseries_rows": copy.deepcopy(self.freeze_count_timeseries_rows),
+            "freeze_count_timeseries_summary": dict(self.freeze_count_timeseries_summary),
             "tool_mode": getattr(self, "tool_mode", "cursor"),
         }
 
@@ -5449,6 +5183,17 @@ class IceScopy(QMainWindow):
             "sort_mode": self.sort_mode,
             "last_grayscale_output_path": self.last_grayscale_output_path,
             "last_freeze_output_path": self.last_freeze_output_path,
+            "last_temperature_import_path": self.last_temperature_import_path,
+            "last_temperature_calibration_path": self.last_temperature_calibration_path,
+            "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
+            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
+            "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
+            "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
+            "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
+            "last_standard_temperature_use_image_timestamp_style": self.last_standard_temperature_use_image_timestamp_style,
+            "last_standard_temperature_generated_start_text": self.last_standard_temperature_generated_start_text,
+            "last_standard_temperature_frame_interval_seconds": self.last_standard_temperature_frame_interval_seconds,
+            "last_standard_temperature_temperature_unit": self.last_standard_temperature_temperature_unit,
             "grayscale_results_headers": self.grayscale_results_headers.copy(),
             "grayscale_results_rows": copy.deepcopy(self.grayscale_results_rows),
             "freeze_results_headers": self.freeze_results_headers.copy(),
@@ -5558,7 +5303,7 @@ class IceScopy(QMainWindow):
     def restore_image_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
-            self.invalidate_temperature_sync_results()
+            self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
@@ -5598,6 +5343,17 @@ class IceScopy(QMainWindow):
             )
             self.last_grayscale_output_path = state.get("last_grayscale_output_path")
             self.last_freeze_output_path = state.get("last_freeze_output_path")
+            self.last_temperature_import_path = state.get("last_temperature_import_path")
+            self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
+            self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
+            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
+            self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
+            self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_use_image_timestamp_style = state.get("last_standard_temperature_use_image_timestamp_style", True)
+            self.last_standard_temperature_generated_start_text = state.get("last_standard_temperature_generated_start_text", "")
+            self.last_standard_temperature_frame_interval_seconds = state.get("last_standard_temperature_frame_interval_seconds", 1.0)
+            self.last_standard_temperature_temperature_unit = state.get("last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS)
             self.grayscale_results_headers = state.get("grayscale_results_headers", []).copy()
             self.grayscale_results_rows = copy.deepcopy(state.get("grayscale_results_rows", []))
             self.freeze_results_headers = state.get("freeze_results_headers", []).copy()
@@ -5680,7 +5436,7 @@ class IceScopy(QMainWindow):
     def restore_loaded_images_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
-            self.invalidate_temperature_sync_results()
+            self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
@@ -5797,7 +5553,7 @@ class IceScopy(QMainWindow):
     def restore_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
-            self.invalidate_temperature_sync_results()
+            self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             self.session_active = True
@@ -5845,19 +5601,27 @@ class IceScopy(QMainWindow):
             self.last_temperature_import_path = state.get("last_temperature_import_path")
             self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
             self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
+            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
+            self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
+            self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_use_image_timestamp_style = state.get("last_standard_temperature_use_image_timestamp_style", True)
+            self.last_standard_temperature_generated_start_text = state.get("last_standard_temperature_generated_start_text", "")
+            self.last_standard_temperature_frame_interval_seconds = state.get("last_standard_temperature_frame_interval_seconds", 1.0)
+            self.last_standard_temperature_temperature_unit = state.get("last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS)
             self.grayscale_results_headers = state["grayscale_results_headers"].copy()
             self.grayscale_results_rows = copy.deepcopy(state["grayscale_results_rows"])
             self.freeze_results_headers = state["freeze_results_headers"].copy()
             self.freeze_results_rows = copy.deepcopy(state["freeze_results_rows"])
-            self.temperature_sync_headers = state.get("temperature_sync_headers", []).copy()
-            self.temperature_sync_rows = copy.deepcopy(state.get("temperature_sync_rows", []))
-            self.temperature_sync_summary = dict(state.get("temperature_sync_summary", {}))
+            self.freeze_count_timeseries_headers = state.get("freeze_count_timeseries_headers", []).copy()
+            self.freeze_count_timeseries_rows = copy.deepcopy(state.get("freeze_count_timeseries_rows", []))
+            self.freeze_count_timeseries_summary = dict(state.get("freeze_count_timeseries_summary", {}))
             self.ensure_cell_registry_matches_scene_cells()
             self.recompute_next_cell_id(preserve_if_larger=True)
             self.ensure_sample_catalog_matches_cell_records()
 
             self.update_results_tables()
-            self.update_temperature_sync_table()
+            self.update_freeze_count_timeseries_table()
             self.refresh_sample_catalog_table(preserve_selection=False)
 
             image_set_changed = (
@@ -5917,7 +5681,7 @@ class IceScopy(QMainWindow):
             self.zoom_slider_set_maximum()
             self.update_toggle_keyframe_button_icon()
             self.update_toggle_flagging_button_icon()
-            if self.temperature_sync_headers:
+            if self.freeze_count_timeseries_headers:
                 if hasattr(self, "results_table_tabs"):
                     self.results_table_tabs.setCurrentIndex(2)
                 self.show_dock_widget(self.results_tables_dock)
@@ -6001,15 +5765,23 @@ class IceScopy(QMainWindow):
                     "freeze_results_rows",
                 )
             )
-            has_temperature_sync_payload = any(
+            has_freeze_count_timeseries_payload = any(
                 key in state
                 for key in (
                     "last_temperature_import_path",
                     "last_temperature_calibration_path",
                     "last_temperature_reset_temperature",
-                    "temperature_sync_headers",
-                    "temperature_sync_rows",
-                    "temperature_sync_summary",
+                    "last_temperature_blank_sample_names",
+                    "last_standard_temperature_image_timestamp_source",
+                    "last_standard_temperature_image_timestamp_style",
+                    "last_standard_temperature_temperature_timestamp_style",
+                    "last_standard_temperature_use_image_timestamp_style",
+                    "last_standard_temperature_generated_start_text",
+                    "last_standard_temperature_frame_interval_seconds",
+                    "last_standard_temperature_temperature_unit",
+                    "freeze_count_timeseries_headers",
+                    "freeze_count_timeseries_rows",
+                    "freeze_count_timeseries_summary",
                 )
             )
             if has_analysis_payload:
@@ -6019,20 +5791,28 @@ class IceScopy(QMainWindow):
                 self.grayscale_results_rows = copy.deepcopy(state.get("grayscale_results_rows", self.grayscale_results_rows))
                 self.freeze_results_headers = state.get("freeze_results_headers", self.freeze_results_headers).copy()
                 self.freeze_results_rows = copy.deepcopy(state.get("freeze_results_rows", self.freeze_results_rows))
-            if has_temperature_sync_payload:
+            if has_freeze_count_timeseries_payload:
                 self.last_temperature_import_path = state.get("last_temperature_import_path")
                 self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
                 self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
-                self.temperature_sync_headers = state.get("temperature_sync_headers", []).copy()
-                self.temperature_sync_rows = copy.deepcopy(state.get("temperature_sync_rows", []))
-                self.temperature_sync_summary = dict(state.get("temperature_sync_summary", {}))
+                self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
+                self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
+                self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
+                self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
+                self.last_standard_temperature_use_image_timestamp_style = state.get("last_standard_temperature_use_image_timestamp_style", True)
+                self.last_standard_temperature_generated_start_text = state.get("last_standard_temperature_generated_start_text", "")
+                self.last_standard_temperature_frame_interval_seconds = state.get("last_standard_temperature_frame_interval_seconds", 1.0)
+                self.last_standard_temperature_temperature_unit = state.get("last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS)
+                self.freeze_count_timeseries_headers = state.get("freeze_count_timeseries_headers", []).copy()
+                self.freeze_count_timeseries_rows = copy.deepcopy(state.get("freeze_count_timeseries_rows", []))
+                self.freeze_count_timeseries_summary = dict(state.get("freeze_count_timeseries_summary", {}))
             self.ensure_cell_registry_matches_scene_cells()
             self.recompute_next_cell_id(preserve_if_larger=True)
             self.ensure_sample_catalog_matches_cell_records()
             if has_analysis_payload:
                 self.update_results_tables()
-            if has_temperature_sync_payload:
-                self.update_temperature_sync_table()
+            if has_freeze_count_timeseries_payload:
+                self.update_freeze_count_timeseries_table()
 
             target_index = state.get("image_index", self.image_index)
             if not isinstance(target_index, int):
@@ -6140,13 +5920,21 @@ class IceScopy(QMainWindow):
             self.last_temperature_import_path = state.get("last_temperature_import_path")
             self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
             self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
+            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
+            self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
+            self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
+            self.last_standard_temperature_use_image_timestamp_style = state.get("last_standard_temperature_use_image_timestamp_style", True)
+            self.last_standard_temperature_generated_start_text = state.get("last_standard_temperature_generated_start_text", "")
+            self.last_standard_temperature_frame_interval_seconds = state.get("last_standard_temperature_frame_interval_seconds", 1.0)
+            self.last_standard_temperature_temperature_unit = state.get("last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS)
             self.grayscale_results_headers = state.get("grayscale_results_headers", []).copy()
             self.grayscale_results_rows = copy.deepcopy(state.get("grayscale_results_rows", []))
             self.freeze_results_headers = state.get("freeze_results_headers", []).copy()
             self.freeze_results_rows = copy.deepcopy(state.get("freeze_results_rows", []))
-            self.temperature_sync_headers = state.get("temperature_sync_headers", []).copy()
-            self.temperature_sync_rows = copy.deepcopy(state.get("temperature_sync_rows", []))
-            self.temperature_sync_summary = dict(state.get("temperature_sync_summary", {}))
+            self.freeze_count_timeseries_headers = state.get("freeze_count_timeseries_headers", []).copy()
+            self.freeze_count_timeseries_rows = copy.deepcopy(state.get("freeze_count_timeseries_rows", []))
+            self.freeze_count_timeseries_summary = dict(state.get("freeze_count_timeseries_summary", {}))
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", self.serialize_cell_records()))
             self.sample_catalog = self.deserialize_sample_catalog(
@@ -6160,7 +5948,7 @@ class IceScopy(QMainWindow):
             self.recompute_next_cell_id(preserve_if_larger=True)
             self.ensure_sample_catalog_matches_cell_records()
             self.update_results_tables()
-            self.update_temperature_sync_table()
+            self.update_freeze_count_timeseries_table()
             self.refresh_sample_catalog_table(preserve_selection=False)
             self.update_session_actions_state()
             self.restore_tool_mode_ui(restore_tool_mode)
@@ -6389,7 +6177,7 @@ class IceScopy(QMainWindow):
         has_results = session_active and bool(
             self.grayscale_results_headers
             or self.freeze_results_headers
-            or self.temperature_sync_headers
+            or self.freeze_count_timeseries_headers
         )
         interactive = session_active and (not self.output_state)
 
@@ -6404,10 +6192,12 @@ class IceScopy(QMainWindow):
         self.open_session_action.setEnabled(not self.output_state)
         self.save_session_action.setEnabled(session_active and not self.output_state)
         self.save_session_as_action.setEnabled(session_active and not self.output_state)
+        self.edit_session_metadata_action.setEnabled(session_active and not self.output_state)
         self.run_analysis_action.setEnabled(has_images and not self.output_state)
         self.output_results_action.setEnabled(has_results and not self.output_state)
         self.import_csu_is_dat_action.setEnabled(has_images and not self.output_state)
         self.import_tamu_linkam_xlsx_action.setEnabled(has_images and not self.output_state)
+        self.import_temperature_csv_action.setEnabled(has_images and not self.output_state)
         self.viewer_single_action.setEnabled(interactive)
         self.viewer_double_action.setEnabled(interactive)
         self.viewer_triple_action.setEnabled(interactive)
@@ -6554,9 +6344,9 @@ class IceScopy(QMainWindow):
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(1)
             self.show_dock_widget(self.results_tables_dock)
-        self.invalidate_temperature_sync_results("freeze results changed")
+        self.invalidate_freeze_count_timeseries_results("freeze results changed")
 
-    def build_temperature_sync_sample_groups(self, grouping_mode="samples"):
+    def build_freeze_count_timeseries_sample_groups(self, grouping_mode="samples"):
         self.ensure_cell_registry_matches_scene_cells()
         grouping_mode = str(grouping_mode or "samples").strip().casefold()
         if grouping_mode == "all_cells":
@@ -6568,8 +6358,15 @@ class IceScopy(QMainWindow):
             if not all_cell_ids:
                 return {}
             return {
-                normalize_sample_name("All Cells"): {
+                "__all_cells__": {
+                    "group_key": "__all_cells__",
+                    "sample_id": "",
                     "sample_name": "All Cells",
+                    **{
+                        field_name: ""
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
                     "cell_ids": all_cell_ids,
                     "total_cells": len(all_cell_ids),
                 }
@@ -6583,16 +6380,21 @@ class IceScopy(QMainWindow):
             sample_id = str(getattr(record, "sample_id", "")).strip()
             if not sample_id:
                 continue
-            sample_name = str(self.sample_name_for_id(sample_id)).strip()
+            sample_record = self.sample_record_for_id(sample_id)
+            sample_name = str(sample_record.get("sample_name", "")).strip()
             if not sample_name:
                 continue
-            normalized_name = normalize_sample_name(sample_name)
-            if not normalized_name:
-                continue
             group = groups.setdefault(
-                normalized_name,
+                sample_id,
                 {
+                    "group_key": sample_id,
+                    "sample_id": sample_id,
                     "sample_name": sample_name,
+                    **{
+                        field_name: str(sample_record.get(field_name, "") or "")
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
                     "cell_ids": [],
                     "total_cells": 0,
                 },
@@ -6601,10 +6403,10 @@ class IceScopy(QMainWindow):
             group["total_cells"] += 1
         return groups
 
-    def build_temperature_sync_image_counts(self, sample_groups, count_mode="cumulative"):
+    def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
         count_mode = str(count_mode or "cumulative").strip().casefold()
         image_counts_by_sample = {}
-        for normalized_name, group in sample_groups.items():
+        for group_key, group in sample_groups.items():
             if count_mode == "state":
                 state_counts = {}
                 per_cell_events = []
@@ -6632,7 +6434,7 @@ class IceScopy(QMainWindow):
                             event_pointers[cell_position] += 1
                         frozen_count += cell_states[cell_position]
                     state_counts[image_index] = int(frozen_count)
-                image_counts_by_sample[normalized_name] = state_counts
+                image_counts_by_sample[group_key] = state_counts
                 continue
 
             freeze_frames = []
@@ -6655,17 +6457,58 @@ class IceScopy(QMainWindow):
                 while freeze_pointer < len(freeze_frames) and freeze_frames[freeze_pointer] <= image_index:
                     freeze_pointer += 1
                 cumulative_counts[image_index] = int(freeze_pointer)
-            image_counts_by_sample[normalized_name] = cumulative_counts
+            image_counts_by_sample[group_key] = cumulative_counts
         return image_counts_by_sample
 
-    def build_tamu_temperature_sync_sample_groups(self):
-        sample_groups = self.build_temperature_sync_sample_groups(grouping_mode="samples")
+    def build_tamu_freeze_count_timeseries_sample_groups(self):
+        sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="samples")
         if sample_groups:
             return sample_groups, "samples"
-        sample_groups = self.build_temperature_sync_sample_groups(grouping_mode="all_cells")
+        sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="all_cells")
         if sample_groups:
             return sample_groups, "all_cells"
         return {}, "samples"
+
+    def build_freeze_count_timeseries_blank_selection(self, sample_groups, blank_sample_names=None):
+        blank_name_set = {
+            normalize_sample_name(sample_name)
+            for sample_name in (blank_sample_names or [])
+            if str(sample_name or "").strip()
+        }
+        matched_samples = []
+        for group_key, group in sample_groups.items():
+            normalized_name = normalize_sample_name(group.get("sample_name", ""))
+            matched_samples.append(
+                {
+                    "group_key": str(group_key),
+                    "sample_id": str(group.get("sample_id", "") or ""),
+                    "normalized_name": normalized_name,
+                    "sample_name": str(group.get("sample_name", "")),
+                    **{
+                        field_name: str(group.get(field_name, "") or "")
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
+                    "total_cells": int(group.get("total_cells", 0)),
+                    "cell_ids": list(group.get("cell_ids", [])),
+                    "is_blank": normalized_name in blank_name_set,
+                }
+            )
+        matched_samples.sort(
+            key=lambda sample: (
+                str(sample["sample_name"]).casefold(),
+                str(sample.get("sample_id", "") or ""),
+            )
+        )
+        blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
+        output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
+        matched_names = {sample["normalized_name"] for sample in matched_samples}
+        unmatched_blank_samples = sorted(
+            sample_name
+            for sample_name in (blank_sample_names or [])
+            if normalize_sample_name(sample_name) not in matched_names
+        )
+        return matched_samples, blank_samples, output_samples, unmatched_blank_samples
 
     def normalize_temperature_reset_threshold(self, reset_temperature):
         return normalize_temperature_reset_threshold_value(reset_temperature)
@@ -6686,19 +6529,19 @@ class IceScopy(QMainWindow):
         index = int(np.searchsorted(np.asarray(cycle_start_positions, dtype=float), float(position_value), side="right") - 1)
         return max(0, index)
 
-    def build_tamu_image_timing_context(self, parsed_trace, reset_temperature=None):
-        trace_seconds = np.asarray(getattr(parsed_trace, "trace_seconds", []), dtype=float)
-        trace_temperatures = np.asarray(getattr(parsed_trace, "trace_temperatures", []), dtype=float)
+    def build_tamu_image_timing_context(self, parsed_timeseries, reset_temperature=None):
+        timeseries_seconds = np.asarray(getattr(parsed_timeseries, "timeseries_seconds", []), dtype=float)
+        temperature_values = np.asarray(getattr(parsed_timeseries, "temperature_values", []), dtype=float)
         cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
-            trace_temperatures,
+            temperature_values,
             reset_temperature,
         )
         cycle_start_seconds = [
-            float(trace_seconds[index])
+            float(timeseries_seconds[index])
             for index in cycle_start_indexes
-            if 0 <= int(index) < len(trace_seconds)
+            if 0 <= int(index) < len(timeseries_seconds)
         ] or [0.0]
-        start_timestamp = getattr(parsed_trace, "start_timestamp", None)
+        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
         image_elapsed_seconds = []
         image_cycle_ids = []
         parsed_image_count = 0
@@ -6728,7 +6571,7 @@ class IceScopy(QMainWindow):
     def build_tamu_cycle_reset_image_counts(self, sample_groups, image_cycle_ids):
         image_counts_by_sample = {}
         total_image_count = len(self.imageNames)
-        for normalized_name, group in sample_groups.items():
+        for group_key, group in sample_groups.items():
             first_freeze_frame_by_cell_cycle = {}
             for cell_id in group["cell_ids"]:
                 record = self.ensure_cell_record(cell_id)
@@ -6759,7 +6602,7 @@ class IceScopy(QMainWindow):
                     if first_frame is not None and first_frame <= image_index:
                         frozen_count += 1
                 cycle_counts[image_index] = int(frozen_count)
-            image_counts_by_sample[normalized_name] = cycle_counts
+            image_counts_by_sample[group_key] = cycle_counts
         return image_counts_by_sample
 
     def reconcile_counts_by_cycle(self, raw_counts, anchor_counts, maximum_count, cycle_ids):
@@ -6805,13 +6648,251 @@ class IceScopy(QMainWindow):
             return None
         return float(np.mean(corrected_values))
 
-    def build_csu_temperature_sync_results(self, parsed_data, blank_sample_names=None, reset_temperature=None):
-        sample_groups = self.build_temperature_sync_sample_groups()
+    def build_standard_image_timing_context(
+        self,
+        parsed_timeseries,
+        image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
+        image_timestamp_style=TIMESTAMP_STYLE_AUTO,
+        generated_start_text="",
+        frame_interval_seconds=None,
+        reset_temperature=None,
+    ):
+        timeseries_datetimes = list(getattr(parsed_timeseries, "timeseries_datetimes", []))
+        temperature_values = np.asarray(
+            list(getattr(parsed_timeseries, "temperature_values", [])),
+            dtype=float,
+        )
+        if len(timeseries_datetimes) < 2 or len(timeseries_datetimes) != len(temperature_values):
+            raise TemperatureImportError("The standard temperature CSV does not contain enough aligned datetime and temperature rows.")
+
+        timeseries_origin = timeseries_datetimes[0]
+        timeseries_seconds = np.asarray(
+            [
+                float((timestamp - timeseries_origin).total_seconds())
+                for timestamp in timeseries_datetimes
+            ],
+            dtype=float,
+        )
+        cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
+            temperature_values,
+            reset_temperature,
+        )
+        cycle_start_seconds = [
+            float(timeseries_seconds[index])
+            for index in cycle_start_indexes
+            if 0 <= int(index) < len(timeseries_seconds)
+        ] or [0.0]
+
+        resolved_timestamps = resolve_image_timestamps(
+            self.imagePaths,
+            self.imageNames,
+            source=image_timestamp_source,
+            timestamp_style=image_timestamp_style,
+            generated_start_text=generated_start_text,
+            frame_interval_seconds=frame_interval_seconds,
+        )
+        image_elapsed_seconds = []
+        image_cycle_ids = []
+        parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
+        for image_timestamp in parsed_image_timestamps:
+            if image_timestamp is None:
+                image_elapsed_seconds.append(None)
+                image_cycle_ids.append(None)
+                continue
+            elapsed_seconds = float((image_timestamp - timeseries_origin).total_seconds())
+            image_elapsed_seconds.append(elapsed_seconds)
+            image_cycle_ids.append(
+                self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds)
+            )
+
+        return {
+            "timeseries_origin": timeseries_origin,
+            "timeseries_seconds": timeseries_seconds,
+            "cycle_start_indexes": cycle_start_indexes,
+            "cycle_start_seconds": cycle_start_seconds,
+            "image_elapsed_seconds": image_elapsed_seconds,
+            "image_cycle_ids": image_cycle_ids,
+            "parsed_image_count": int(resolved_timestamps.parsed_count),
+            "unparsed_images": list(resolved_timestamps.unparsed_images),
+            "parsed_image_timestamps": parsed_image_timestamps,
+        }
+
+    def build_standard_freeze_count_timeseries_results(
+        self,
+        parsed_timeseries,
+        blank_sample_names=None,
+        image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
+        image_timestamp_style=TIMESTAMP_STYLE_AUTO,
+        generated_start_text="",
+        frame_interval_seconds=None,
+        temperature_timestamp_style=TIMESTAMP_STYLE_AUTO,
+        temperature_unit=TEMPERATURE_UNIT_CELSIUS,
+        reset_temperature=None,
+    ):
+        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
+        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
+            self.build_freeze_count_timeseries_blank_selection(
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        timing_context = self.build_standard_image_timing_context(
+            parsed_timeseries,
+            image_timestamp_source=image_timestamp_source,
+            image_timestamp_style=image_timestamp_style,
+            generated_start_text=generated_start_text,
+            frame_interval_seconds=frame_interval_seconds,
+            reset_temperature=reset_temperature,
+        )
+        if int(timing_context["parsed_image_count"]) <= 0:
+            raise TemperatureImportError(
+                "No loaded images produced a parseable timestamp for standard freeze count timeseries."
+            )
+
+        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
+        image_cycle_ids = timing_context["image_cycle_ids"]
+        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(
+            sample_groups,
+            image_cycle_ids,
+        )
+        blank_correction_by_image = compute_blank_correction_by_index(
+            [sample["group_key"] for sample in blank_samples],
+            image_counts_by_sample,
+            len(self.imageNames),
+        )
+
+        timeseries_seconds = np.asarray(
+            list(timing_context["timeseries_seconds"]),
+            dtype=float,
+        )
+        temperature_values = np.asarray(
+            list(getattr(parsed_timeseries, "temperature_values", [])),
+            dtype=float,
+        )
+        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
+
+        headers = ["timestamp", "temperature_C", "cycle", "image_name", "blank correction count"]
+        sample_column_metadata = []
+        for sample in output_samples:
+            sample_name = str(sample.get("sample_name", ""))
+            total_cells = int(sample.get("total_cells", 0))
+            triplet_start = len(headers)
+            headers.append(f"{sample_name} (n={total_cells}) number total")
+            headers.append(f"{sample_name} (n={total_cells}) number frozen")
+            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+            sample_column_metadata.append(
+                self.build_freeze_count_timeseries_sample_column_metadata(sample)
+            )
+
+        rows = []
+        in_range_image_count = 0
+        out_of_range_image_count = 0
+        for image_index, image_name in enumerate(self.imageNames):
+            basename = os.path.basename(str(image_name or ""))
+            image_timestamp = parsed_image_timestamps[image_index]
+            raw_temperature = None
+            elapsed_seconds = (
+                image_elapsed_seconds[image_index]
+                if image_index < len(image_elapsed_seconds)
+                else None
+            )
+            if image_timestamp is not None and elapsed_seconds is not None:
+                interpolated_temperature = np.interp(
+                    elapsed_seconds,
+                    timeseries_seconds,
+                    temperature_values,
+                    left=np.nan,
+                    right=np.nan,
+                )
+                if np.isnan(interpolated_temperature):
+                    out_of_range_image_count += 1
+                else:
+                    in_range_image_count += 1
+                    raw_temperature = float(interpolated_temperature)
+
+            output_row = [
+                image_timestamp.isoformat(timespec="milliseconds")
+                if image_timestamp is not None
+                else "",
+                "" if raw_temperature is None else f"{raw_temperature:.3f}",
+                ""
+                if image_cycle_ids[image_index] is None
+                else str(int(image_cycle_ids[image_index])),
+                basename,
+                "nan"
+                if blank_correction_by_image[image_index] is None
+                else str(int(blank_correction_by_image[image_index])),
+            ]
+            for sample in output_samples:
+                group_key = sample["group_key"]
+                total_cells = int(sample.get("total_cells", 0))
+                frozen_count = image_counts_by_sample.get(group_key, {}).get(
+                    image_index,
+                    0,
+                )
+                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                    total_cells,
+                    frozen_count,
+                    blank_correction_by_image[image_index],
+                )
+                output_row.append(str(int(adjusted_total)))
+                output_row.append(str(int(adjusted_frozen)))
+                output_row.append(
+                    "" if fraction_frozen is None else f"{fraction_frozen:.6f}"
+                )
+            rows.append(output_row)
+
+        timeseries_timestamp_texts = list(getattr(parsed_timeseries, "timeseries_timestamp_texts", []))
+        summary = {
+            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
+            "source_type": "standard_csv",
+            "matched_samples": [sample["sample_name"] for sample in output_samples],
+            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "sample_total_cells": [
+                {
+                    "sample_id": str(sample.get("sample_id", "") or ""),
+                    "sample_name": str(sample.get("sample_name", "")),
+                    "total_cells": int(sample.get("total_cells", 0)),
+                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
+                }
+                for sample in matched_samples
+            ],
+            "sample_column_metadata": sample_column_metadata,
+            "grouping_mode": str(grouping_mode),
+            "count_mode": "cycle_reset",
+            "timeseries_start_timestamp": (
+                timeseries_timestamp_texts[0]
+                if timeseries_timestamp_texts
+                else timing_context["timeseries_origin"].isoformat(timespec="milliseconds")
+            ),
+            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
+            "cycle_count": int(len(timing_context["cycle_start_seconds"])),
+            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
+            "total_images": int(len(self.imageNames)),
+            "parsed_image_count": int(timing_context["parsed_image_count"]),
+            "in_range_image_count": int(in_range_image_count),
+            "out_of_range_image_count": int(out_of_range_image_count),
+            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
+            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+            "unmatched_blank_samples": unmatched_blank_samples,
+            "image_timestamp_source": str(image_timestamp_source),
+            "image_timestamp_style": str(image_timestamp_style),
+            "temperature_timestamp_style": str(temperature_timestamp_style),
+            "temperature_unit": str(temperature_unit),
+        }
+        return headers, rows, summary
+
+    def build_csu_freeze_count_timeseries_results(self, parsed_data, blank_sample_names=None, reset_temperature=None):
+        sample_groups = self.build_freeze_count_timeseries_sample_groups()
         dat_sample_columns = list(parsed_data.get("sample_columns", []))
         dat_columns_by_name = {
             normalize_sample_name(column_name): column_name
             for column_name in dat_sample_columns
         }
+        groups_by_normalized_name = {}
+        for group in sample_groups.values():
+            normalized_name = normalize_sample_name(group.get("sample_name", ""))
+            groups_by_normalized_name.setdefault(normalized_name, []).append(group)
         blank_name_set = {
             normalize_sample_name(sample_name)
             for sample_name in (blank_sample_names or [])
@@ -6821,26 +6902,46 @@ class IceScopy(QMainWindow):
         matched_samples = []
         for dat_column in dat_sample_columns:
             normalized_name = normalize_sample_name(dat_column)
-            group = sample_groups.get(normalized_name)
-            if group is None:
+            matching_groups = groups_by_normalized_name.get(normalized_name, [])
+            if not matching_groups:
                 continue
-            matched_samples.append({
-                "normalized_name": normalized_name,
-                "sample_name": group["sample_name"],
-                "dat_column": dat_column,
-                "total_cells": int(group["total_cells"]),
-                "is_blank": normalized_name in blank_name_set,
-            })
+            if len(matching_groups) > 1:
+                duplicate_ids = ", ".join(
+                    str(group.get("sample_id", "") or "")
+                    for group in matching_groups
+                )
+                raise TemperatureImportError(
+                    f"CSU .dat import cannot disambiguate duplicate app sample names for '{dat_column}'. "
+                    f"Rename one of the duplicate samples in Sample Catalog. Sample IDs: {duplicate_ids}."
+                )
+            group = matching_groups[0]
+            matched_samples.append(
+                {
+                    "group_key": str(group.get("group_key", "") or group.get("sample_id", "") or normalized_name),
+                    "sample_id": str(group.get("sample_id", "") or ""),
+                    "normalized_name": normalized_name,
+                    "sample_name": group["sample_name"],
+                    "dat_column": dat_column,
+                    **{
+                        field_name: str(group.get(field_name, "") or "")
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
+                    "total_cells": int(group["total_cells"]),
+                    "is_blank": normalized_name in blank_name_set,
+                }
+            )
 
         unmatched_app_samples = sorted(
             group["sample_name"]
-            for normalized_name, group in sample_groups.items()
+            for normalized_name, groups in groups_by_normalized_name.items()
+            for group in groups
             if normalized_name not in dat_columns_by_name
         )
         unmatched_dat_samples = sorted(
             column_name
             for normalized_name, column_name in dat_columns_by_name.items()
-            if normalized_name not in sample_groups
+            if normalized_name not in groups_by_normalized_name
         )
         unmatched_blank_samples = sorted(
             sample_name
@@ -6877,7 +6978,7 @@ class IceScopy(QMainWindow):
 
         corrected_counts_by_sample = {}
         for sample in matched_samples:
-            normalized_name = sample["normalized_name"]
+            group_key = sample["group_key"]
             dat_column = sample["dat_column"]
             total_cells = int(sample["total_cells"])
             raw_counts = [
@@ -6885,7 +6986,7 @@ class IceScopy(QMainWindow):
                 for row in parsed_rows
             ]
             anchor_counts = {}
-            image_counts = image_counts_by_sample.get(normalized_name, {})
+            image_counts = image_counts_by_sample.get(group_key, {})
             for row in parsed_rows:
                 picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
                 if not picture_name:
@@ -6894,7 +6995,7 @@ class IceScopy(QMainWindow):
                 if image_index is None:
                     continue
                 anchor_counts[int(row.row_index)] = int(image_counts.get(image_index, 0))
-            corrected_counts_by_sample[normalized_name] = self.reconcile_counts_by_cycle(
+            corrected_counts_by_sample[group_key] = self.reconcile_counts_by_cycle(
                 raw_counts,
                 anchor_counts,
                 total_cells,
@@ -6903,27 +7004,24 @@ class IceScopy(QMainWindow):
 
         blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
         output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
-        blank_correction_enabled = bool(blank_samples)
-        blank_correction_by_row = []
-        for row in parsed_rows:
-            row_index = int(row.row_index)
-            if not blank_correction_enabled:
-                blank_correction_by_row.append(None)
-                continue
-            blank_correction = 0
-            for blank_sample in blank_samples:
-                counts = corrected_counts_by_sample.get(blank_sample["normalized_name"], [])
-                if row_index < len(counts):
-                    blank_correction += int(counts[row_index])
-            blank_correction_by_row.append(int(blank_correction))
+        blank_correction_by_row = compute_blank_correction_by_index(
+            [sample["group_key"] for sample in blank_samples],
+            corrected_counts_by_sample,
+            len(parsed_rows),
+        )
 
         headers = ["timestamp", "temperature_C", "cycle", "picture", "blank correction count"]
+        sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample["sample_name"])
             total_cells = int(sample["total_cells"])
+            triplet_start = len(headers)
             headers.append(f"{sample_name} (n={total_cells}) number total")
             headers.append(f"{sample_name} (n={total_cells}) number frozen")
             headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+            sample_column_metadata.append(
+                self.build_freeze_count_timeseries_sample_column_metadata(sample)
+            )
 
         rows = []
         for row in parsed_rows:
@@ -6937,20 +7035,15 @@ class IceScopy(QMainWindow):
                 "nan" if blank_correction is None else str(int(blank_correction)),
             ]
             for sample in output_samples:
-                normalized_name = sample["normalized_name"]
+                group_key = sample["group_key"]
                 total_cells = int(sample["total_cells"])
-                sample_counts = corrected_counts_by_sample.get(normalized_name, [])
+                sample_counts = corrected_counts_by_sample.get(group_key, [])
                 frozen_value = sample_counts[row_index] if row_index < len(sample_counts) else 0
-                if blank_correction is None:
-                    adjusted_total = max(0, total_cells)
-                    adjusted_frozen = max(0, int(frozen_value))
-                else:
-                    adjusted_total = max(0, total_cells - int(blank_correction))
-                    adjusted_frozen = max(0, int(frozen_value) - int(blank_correction))
-                adjusted_frozen = min(adjusted_frozen, adjusted_total)
-                fraction_frozen = None
-                if adjusted_total > 0:
-                    fraction_frozen = adjusted_frozen / adjusted_total
+                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                    total_cells,
+                    frozen_value,
+                    blank_correction,
+                )
                 output_row.append(str(int(adjusted_total)))
                 output_row.append(str(int(adjusted_frozen)))
                 output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
@@ -6962,12 +7055,14 @@ class IceScopy(QMainWindow):
             "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
             "sample_total_cells": [
                 {
+                    "sample_id": str(sample["sample_id"] or ""),
                     "sample_name": str(sample["sample_name"]),
                     "total_cells": int(sample["total_cells"]),
                     "role": "blank" if bool(sample["is_blank"]) else "sample",
                 }
                 for sample in matched_samples
             ],
+            "sample_column_metadata": sample_column_metadata,
             "unmatched_app_samples": unmatched_app_samples,
             "unmatched_dat_samples": unmatched_dat_samples,
             "unmatched_blank_samples": unmatched_blank_samples,
@@ -6979,39 +7074,57 @@ class IceScopy(QMainWindow):
         }
         return headers, rows, summary
 
-    def build_tamu_temperature_sync_results(self, parsed_trace, calibration_by_well=None, reset_temperature=None):
-        sample_groups, grouping_mode = self.build_tamu_temperature_sync_sample_groups()
-        timing_context = self.build_tamu_image_timing_context(parsed_trace, reset_temperature=reset_temperature)
+    def build_tamu_freeze_count_timeseries_results(
+        self,
+        parsed_timeseries,
+        calibration_by_well=None,
+        blank_sample_names=None,
+        reset_temperature=None,
+    ):
+        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
+        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
+            self.build_freeze_count_timeseries_blank_selection(
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        timing_context = self.build_tamu_image_timing_context(parsed_timeseries, reset_temperature=reset_temperature)
         cycle_start_seconds = timing_context["cycle_start_seconds"]
         image_elapsed_seconds = timing_context["image_elapsed_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-        output_samples = sorted(
-            sample_groups.items(),
-            key=lambda pair: str(pair[1].get("sample_name", "")).casefold(),
+        blank_correction_by_image = compute_blank_correction_by_index(
+            [sample["group_key"] for sample in blank_samples],
+            image_counts_by_sample,
+            len(self.imageNames),
         )
 
-        trace_seconds = np.asarray(list(getattr(parsed_trace, "trace_seconds", [])), dtype=float)
-        trace_temperatures = np.asarray(list(getattr(parsed_trace, "trace_temperatures", [])), dtype=float)
-        start_timestamp = getattr(parsed_trace, "start_timestamp", None)
+        timeseries_seconds = np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float)
+        temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
+        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
         include_corrected_temperature = bool(calibration_by_well)
 
         calibrated_cell_ids = set()
         if calibration_by_well:
-            for _, group in output_samples:
+            for group in output_samples:
                 for cell_id in group.get("cell_ids", []):
                     if int(cell_id) in calibration_by_well:
                         calibrated_cell_ids.add(int(cell_id))
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
-        for _, group in output_samples:
-            sample_name = str(group.get("sample_name", ""))
-            total_cells = int(group.get("total_cells", 0))
+        headers = ["timestamp", "temperature_C", "cycle", "image_name", "blank correction count"]
+        sample_column_metadata = []
+        for sample in output_samples:
+            sample_name = str(sample.get("sample_name", ""))
+            total_cells = int(sample.get("total_cells", 0))
             if include_corrected_temperature:
                 headers.append(f"{sample_name} (n={total_cells}) corrected temperature_C")
+            triplet_start = len(headers)
             headers.append(f"{sample_name} (n={total_cells}) number total")
             headers.append(f"{sample_name} (n={total_cells}) number frozen")
             headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+            sample_column_metadata.append(
+                self.build_freeze_count_timeseries_sample_column_metadata(sample)
+            )
 
         rows = []
         in_range_image_count = 0
@@ -7024,8 +7137,8 @@ class IceScopy(QMainWindow):
             if image_timestamp is not None and elapsed_seconds is not None:
                 interpolated_temperature = np.interp(
                     elapsed_seconds,
-                    trace_seconds,
-                    trace_temperatures,
+                    timeseries_seconds,
+                    temperature_values,
                     left=np.nan,
                     right=np.nan,
                 )
@@ -7040,42 +7153,51 @@ class IceScopy(QMainWindow):
                 "" if raw_temperature is None else f"{raw_temperature:.3f}",
                 "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
                 basename,
+                "nan"
+                if blank_correction_by_image[image_index] is None
+                else str(int(blank_correction_by_image[image_index])),
             ]
-            for normalized_name, group in output_samples:
+            for sample in output_samples:
+                group_key = sample["group_key"]
                 if include_corrected_temperature:
                     corrected_temperature = self.corrected_temperature_for_group(
                         raw_temperature,
-                        group,
+                        sample,
                         calibration_by_well,
                     )
                     output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
-                total_cells = int(group.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(normalized_name, {}).get(image_index, 0)
-                fraction_frozen = None
-                if total_cells > 0:
-                    fraction_frozen = frozen_count / total_cells
-                output_row.append(str(int(total_cells)))
-                output_row.append(str(int(frozen_count)))
+                total_cells = int(sample.get("total_cells", 0))
+                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
+                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                    total_cells,
+                    frozen_count,
+                    blank_correction_by_image[image_index],
+                )
+                output_row.append(str(int(adjusted_total)))
+                output_row.append(str(int(adjusted_frozen)))
                 output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
             rows.append(output_row)
 
         summary = {
-            "source_path": str(getattr(parsed_trace, "file_path", "")),
+            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "tamu",
-            "matched_samples": [group["sample_name"] for _, group in output_samples],
+            "matched_samples": [sample["sample_name"] for sample in output_samples],
+            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
             "sample_total_cells": [
                 {
-                    "sample_name": str(group.get("sample_name", "")),
-                    "total_cells": int(group.get("total_cells", 0)),
-                    "role": "sample",
+                    "sample_id": str(sample.get("sample_id", "") or ""),
+                    "sample_name": str(sample.get("sample_name", "")),
+                    "total_cells": int(sample.get("total_cells", 0)),
+                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
                 }
-                for _, group in output_samples
+                for sample in matched_samples
             ],
+            "sample_column_metadata": sample_column_metadata,
             "grouping_mode": str(grouping_mode),
             "count_mode": "cycle_reset",
-            "trace_start_timestamp": str(getattr(parsed_trace, "start_timestamp_text", "") or ""),
-            "trace_row_count": int(getattr(parsed_trace, "trace_row_count", 0) or 0),
-            "sample_period_seconds": getattr(parsed_trace, "sample_period_seconds", None),
+            "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
+            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
+            "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
             "cycle_count": int(len(cycle_start_seconds)),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
             "total_images": int(len(self.imageNames)),
@@ -7086,19 +7208,179 @@ class IceScopy(QMainWindow):
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
+            "unmatched_blank_samples": unmatched_blank_samples,
         }
         return headers, rows, summary
+
+    def import_standard_temperature_csv(self, checked=False):
+        if not self.imagePaths:
+            QMessageBox.information(
+                self,
+                "Standard temperature CSV import",
+                "Load images before importing a temperature CSV.",
+            )
+            return
+
+        available_sample_names = self.available_sample_names()
+
+        dialog = StandardTemperatureImportDialog(
+            self,
+            self.last_temperature_import_path,
+            available_sample_names,
+            getattr(self, "last_temperature_reset_temperature", None),
+            getattr(self, "last_temperature_blank_sample_names", []),
+            getattr(self, "last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME),
+            getattr(self, "last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO),
+            getattr(self, "last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO),
+            getattr(self, "last_standard_temperature_use_image_timestamp_style", True),
+            getattr(self, "last_standard_temperature_generated_start_text", ""),
+            getattr(self, "last_standard_temperature_frame_interval_seconds", 1.0),
+            getattr(self, "last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS),
+            self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        dialog_values = dialog.get_values()
+        file_path = dialog_values["file_path"]
+        reset_temperature = dialog_values["reset_temperature"]
+        blank_sample_names = dialog_values["blank_sample_names"]
+        image_timestamp_source = dialog_values["image_timestamp_source"]
+        image_timestamp_style = dialog_values["image_timestamp_style"]
+        temperature_timestamp_style = dialog_values["temperature_timestamp_style"]
+        use_image_timestamp_style = dialog_values["use_image_timestamp_style"]
+        generated_start_text = dialog_values["generated_start_text"]
+        frame_interval_seconds = dialog_values["frame_interval_seconds"]
+        temperature_unit = dialog_values["temperature_unit"]
+
+        try:
+            parsed_timeseries = parse_standard_temperature_csv(
+                file_path,
+                timestamp_style=temperature_timestamp_style,
+                temperature_unit=temperature_unit,
+            )
+            headers, rows, summary = self.build_standard_freeze_count_timeseries_results(
+                parsed_timeseries,
+                blank_sample_names=blank_sample_names,
+                image_timestamp_source=image_timestamp_source,
+                image_timestamp_style=image_timestamp_style,
+                generated_start_text=generated_start_text,
+                frame_interval_seconds=frame_interval_seconds,
+                temperature_timestamp_style=temperature_timestamp_style,
+                temperature_unit=temperature_unit,
+                reset_temperature=reset_temperature,
+            )
+        except (OSError, TemperatureImportError) as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "Standard temperature CSV import failed",
+                "The standard temperature CSV import failed.",
+                err,
+                detail_text,
+            )
+            self.log(f"Standard temperature CSV import failed: {err}")
+            return
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "Standard temperature CSV import failed",
+                "The standard temperature CSV import failed due to an unexpected internal error.",
+                err,
+                detail_text,
+            )
+            self.log("Standard temperature CSV import failed with an unexpected internal error.")
+            self.log(detail_text.rstrip())
+            return
+
+        self.last_temperature_import_path = str(file_path)
+        self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(
+            reset_temperature
+        )
+        self.last_temperature_calibration_path = ""
+        self.last_temperature_blank_sample_names = list(blank_sample_names)
+        self.last_standard_temperature_image_timestamp_source = str(image_timestamp_source)
+        self.last_standard_temperature_image_timestamp_style = str(image_timestamp_style)
+        self.last_standard_temperature_temperature_timestamp_style = str(temperature_timestamp_style)
+        self.last_standard_temperature_use_image_timestamp_style = bool(use_image_timestamp_style)
+        self.last_standard_temperature_generated_start_text = str(generated_start_text)
+        self.last_standard_temperature_frame_interval_seconds = float(frame_interval_seconds)
+        self.last_standard_temperature_temperature_unit = str(temperature_unit)
+        self.set_freeze_count_timeseries_results(headers, rows, summary)
+
+        matched_samples = summary.get("matched_samples", [])
+        matched_blank_samples = summary.get("matched_blank_samples", [])
+        unmatched_blank = summary.get("unmatched_blank_samples", [])
+        parsed_image_count = int(summary.get("parsed_image_count", 0))
+        total_images = int(summary.get("total_images", 0))
+        in_range_image_count = int(summary.get("in_range_image_count", 0))
+        out_of_range_image_count = int(summary.get("out_of_range_image_count", 0))
+        unparsed_image_count = int(summary.get("unparsed_image_count", 0))
+        cycle_count = int(summary.get("cycle_count", 1))
+        reset_temperature = summary.get("reset_temperature")
+        grouping_mode = str(summary.get("grouping_mode", "samples"))
+        grouping_label = (
+            "Current sample setup"
+            if grouping_mode == "samples"
+            else "No sample (all cells as one sample)"
+        )
+
+        message_lines = [
+            f"Grouping: {grouping_label}",
+            f"Images with parsed timestamps: {parsed_image_count}/{total_images}",
+            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
+            f"Detected cooling cycles: {cycle_count}",
+            "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
+        ]
+        if reset_temperature is not None:
+            message_lines.append(
+                f"Reset threshold: {float(reset_temperature):.1f} °C"
+            )
+        message_lines.append("Image timestamp source: " + str(summary.get("image_timestamp_source", "")))
+        message_lines.append("Image timestamp style: " + str(summary.get("image_timestamp_style", "")))
+        message_lines.append("Temperature timestamp style: " + str(summary.get("temperature_timestamp_style", "")))
+        message_lines.append("Temperature column unit: " + str(summary.get("temperature_unit", "")))
+        if matched_samples:
+            message_lines.append("Output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            message_lines.append("Blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            message_lines.append("Selected blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
+        if out_of_range_image_count:
+            message_lines.append(
+                f"Images outside the timeseries range: {out_of_range_image_count}"
+            )
+        if unparsed_image_count:
+            preview = ", ".join(summary.get("unparsed_images_preview", []))
+            if preview:
+                message_lines.append(
+                    f"Images with unparseable timestamps: {unparsed_image_count} ({preview})"
+                )
+            else:
+                message_lines.append(
+                    f"Images with unparseable timestamps: {unparsed_image_count}"
+                )
+
+        self.show_detailed_information_dialog(
+            "Standard temperature CSV import",
+            "Standard temperature CSV import completed successfully.\n\n"
+            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed image timestamps.",
+            "\n".join(message_lines),
+        )
+        self.log(f"Imported standard temperature CSV: {file_path}")
+        self.log(f"Standard temperature grouping mode: {grouping_label}")
+        if matched_samples:
+            self.log("Standard temperature output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            self.log("Standard temperature blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            self.log("Standard temperature unmatched selected blank samples: " + ", ".join(unmatched_blank))
 
     def import_csu_is_dat(self, checked=False):
         if not self.imagePaths:
             QMessageBox.information(self, "CSU IS .dat import", "Load images before importing a CSU .dat file.")
             return
 
-        available_sample_names = [
-            str(sample_name)
-            for _, sample_name in sorted(self.sample_catalog.items(), key=lambda pair: int(pair[0]))
-            if str(sample_name).strip()
-        ]
+        available_sample_names = self.available_sample_names()
         dialog = CSUTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
@@ -7115,19 +7397,37 @@ class IceScopy(QMainWindow):
 
         try:
             parsed_data = parse_csu_is_dat(file_path)
-            headers, rows, summary = self.build_csu_temperature_sync_results(
+            headers, rows, summary = self.build_csu_freeze_count_timeseries_results(
                 parsed_data,
                 blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
             )
         except (OSError, TemperatureImportError) as err:
-            QMessageBox.critical(self, "CSU IS .dat import", str(err))
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "CSU IS .dat import failed",
+                "The CSU IS .dat import failed.",
+                err,
+                detail_text,
+            )
             self.log(f"CSU IS .dat import failed: {err}")
+            return
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "CSU IS .dat import failed",
+                "The CSU IS .dat import failed due to an unexpected internal error.",
+                err,
+                detail_text,
+            )
+            self.log("CSU IS .dat import failed with an unexpected internal error.")
+            self.log(detail_text.rstrip())
             return
 
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
-        self.set_temperature_sync_results(headers, rows, summary)
+        self.last_temperature_blank_sample_names = list(blank_sample_names)
+        self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
         matched_blank_samples = summary.get("matched_blank_samples", [])
@@ -7157,7 +7457,12 @@ class IceScopy(QMainWindow):
         if unmatched_blank:
             message_lines.append("Selected blank sample(s) not matched to CSU columns: " + ", ".join(unmatched_blank))
 
-        QMessageBox.information(self, "CSU IS .dat import", "\n".join(message_lines))
+        self.show_detailed_information_dialog(
+            "CSU IS .dat import",
+            "CSU IS .dat import completed successfully.\n\n"
+            f"Matched {len(matched_samples)} sample(s) across {matched_picture_rows}/{total_picture_rows} picture rows.",
+            "\n".join(message_lines),
+        )
         self.log(f"Imported CSU IS .dat file: {file_path}")
         if matched_samples:
             self.log("CSU matched samples: " + ", ".join(matched_samples))
@@ -7175,11 +7480,15 @@ class IceScopy(QMainWindow):
             QMessageBox.information(self, "TAMU Linkam .xlsx import", "Load images before importing a TAMU workbook.")
             return
 
+        available_sample_names = self.available_sample_names()
+
         dialog = TAMUTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
+            available_sample_names,
             getattr(self, "last_temperature_calibration_path", ""),
             getattr(self, "last_temperature_reset_temperature", None),
+            getattr(self, "last_temperature_blank_sample_names", []),
             self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -7188,30 +7497,52 @@ class IceScopy(QMainWindow):
         file_path = dialog_values["file_path"]
         calibration_path = dialog_values["calibration_path"]
         reset_temperature = dialog_values["reset_temperature"]
+        blank_sample_names = dialog_values["blank_sample_names"]
 
         try:
-            parsed_trace = parse_tamu_linkam_xlsx(file_path)
-            if getattr(parsed_trace, "start_timestamp", None) is None:
+            parsed_timeseries = parse_tamu_linkam_xlsx(file_path)
+            if getattr(parsed_timeseries, "start_timestamp", None) is None:
                 raise TemperatureImportError("The selected TAMU workbook does not expose a usable absolute start timestamp.")
             calibration_by_well = None
             if calibration_path:
                 calibration_by_well = parse_ice_array_calibration_csv(calibration_path)
-            headers, rows, summary = self.build_tamu_temperature_sync_results(
-                parsed_trace,
+            headers, rows, summary = self.build_tamu_freeze_count_timeseries_results(
+                parsed_timeseries,
                 calibration_by_well=calibration_by_well,
+                blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
             )
         except (OSError, TemperatureImportError) as err:
-            QMessageBox.critical(self, "TAMU Linkam .xlsx import", str(err))
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "TAMU Linkam .xlsx import failed",
+                "The TAMU Linkam .xlsx import failed.",
+                err,
+                detail_text,
+            )
             self.log(f"TAMU Linkam .xlsx import failed: {err}")
+            return
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "TAMU Linkam .xlsx import failed",
+                "The TAMU Linkam .xlsx import failed due to an unexpected internal error.",
+                err,
+                detail_text,
+            )
+            self.log("TAMU Linkam .xlsx import failed with an unexpected internal error.")
+            self.log(detail_text.rstrip())
             return
 
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_calibration_path = str(calibration_path or "")
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
-        self.set_temperature_sync_results(headers, rows, summary)
+        self.last_temperature_blank_sample_names = list(blank_sample_names)
+        self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
+        matched_blank_samples = summary.get("matched_blank_samples", [])
+        unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
         in_range_image_count = int(summary.get("in_range_image_count", 0))
@@ -7226,8 +7557,8 @@ class IceScopy(QMainWindow):
         message_lines = [
             f"Grouping: {grouping_label}",
             f"Images with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"Images inside trace range: {in_range_image_count}/{total_images}",
-            f"Trace start: {summary.get('trace_start_timestamp', '')}",
+            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
         ]
@@ -7235,10 +7566,14 @@ class IceScopy(QMainWindow):
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            message_lines.append("Blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            message_lines.append("Selected blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             message_lines.append(f"Calibration applied to {calibrated_cell_count} cell(s).")
         if out_of_range_image_count:
-            message_lines.append(f"Images outside the trace range: {out_of_range_image_count}")
+            message_lines.append(f"Images outside the timeseries range: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
@@ -7246,11 +7581,20 @@ class IceScopy(QMainWindow):
             else:
                 message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
 
-        QMessageBox.information(self, "TAMU Linkam .xlsx import", "\n".join(message_lines))
+        self.show_detailed_information_dialog(
+            "TAMU Linkam .xlsx import",
+            "TAMU Linkam .xlsx import completed successfully.\n\n"
+            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed image timestamps.",
+            "\n".join(message_lines),
+        )
         self.log(f"Imported TAMU Linkam workbook: {file_path}")
         self.log(f"TAMU grouping mode: {grouping_label}")
         if matched_samples:
             self.log("TAMU output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            self.log("TAMU blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            self.log("TAMU unmatched selected blank samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             self.log(f"TAMU calibration applied to {calibrated_cell_count} cell(s): {calibration_path}")
 
@@ -7281,18 +7625,22 @@ class IceScopy(QMainWindow):
                 writer.writerow(headers)
             writer.writerows(rows)
 
-    def write_temperature_sync_csv(self, file_path):
+    def write_freeze_count_timeseries_csv(self, file_path):
         with open(file_path, "w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            if self.temperature_sync_headers:
-                writer.writerow(self.temperature_sync_headers)
-            writer.writerows(self.temperature_sync_rows)
+            handle.write(
+                build_freeze_count_timeseries_csv_text(
+                    self.freeze_count_timeseries_headers,
+                    self.freeze_count_timeseries_rows,
+                    session_metadata=self.serialize_session_metadata(),
+                    summary=self.freeze_count_timeseries_summary,
+                )
+            )
 
     def export_results_csv(self, checked=False):
         has_grayscale = bool(self.grayscale_results_headers)
         has_freeze = bool(self.freeze_results_headers)
-        has_temperature_sync = bool(self.temperature_sync_headers)
-        if not (has_grayscale or has_freeze or has_temperature_sync):
+        has_freeze_count_timeseries = bool(self.freeze_count_timeseries_headers)
+        if not (has_grayscale or has_freeze or has_freeze_count_timeseries):
             QMessageBox.information(self, "Output Results", "No results available to export.")
             return
 
@@ -7300,7 +7648,7 @@ class IceScopy(QMainWindow):
             self,
             include_grayscale=has_grayscale,
             include_freeze=has_freeze,
-            include_temperature=has_temperature_sync,
+            include_freeze_count_timeseries=has_freeze_count_timeseries,
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7352,12 +7700,12 @@ class IceScopy(QMainWindow):
                 "table",
             ),
             (
-                "temperature",
-                "Temperature Sync CSV",
-                "temperature_sync.csv",
-                self.temperature_sync_headers,
-                self.temperature_sync_rows,
-                "temperature",
+                "freeze_count_timeseries",
+                "Freeze Count Timeseries CSV",
+                "freeze_count_timeseries.csv",
+                self.freeze_count_timeseries_headers,
+                self.freeze_count_timeseries_rows,
+                "freeze_count_timeseries",
             ),
         ]
 
@@ -7367,8 +7715,12 @@ class IceScopy(QMainWindow):
         ]
         if not chosen_targets:
             return
+        includes_temperature_export = any(
+            writer_kind == "freeze_count_timeseries" for *_, writer_kind in chosen_targets
+        )
 
         try:
+            exported_freeze_count_timeseries_paths = []
             if len(chosen_targets) == 1:
                 _, export_title, default_name, headers, rows, writer_kind = chosen_targets[0]
                 path = choose_csv_path(f"Save {export_title}", default_name)
@@ -7377,8 +7729,10 @@ class IceScopy(QMainWindow):
                 if writer_kind == "table":
                     self.write_csv_table(path, headers, rows)
                 else:
-                    self.write_temperature_sync_csv(path)
+                    self.write_freeze_count_timeseries_csv(path)
+                    exported_freeze_count_timeseries_paths.append(path)
                 self.log(f"Saved {export_title.lower()} at {path}")
+                self.show_freeze_count_timeseries_export_notice(exported_freeze_count_timeseries_paths)
                 return
 
             output_directory = choose_output_directory()
@@ -7390,10 +7744,37 @@ class IceScopy(QMainWindow):
                 if writer_kind == "table":
                     self.write_csv_table(path, headers, rows)
                 else:
-                    self.write_temperature_sync_csv(path)
+                    self.write_freeze_count_timeseries_csv(path)
+                    exported_freeze_count_timeseries_paths.append(path)
                 self.log(f"Saved {export_title.lower()} at {path}")
+            self.show_freeze_count_timeseries_export_notice(exported_freeze_count_timeseries_paths)
+        except ValueError as err:
+            detail_text = traceback.format_exc()
+            title = "Freeze Count Timeseries CSV export failed" if includes_temperature_export else "Output Results failed"
+            summary = (
+                "The Freeze Count Timeseries CSV export failed."
+                if includes_temperature_export
+                else "The results export failed."
+            )
+            self.show_detailed_error_dialog(title, summary, err, detail_text)
         except OSError as err:
-            QMessageBox.critical(self, "Output Results", f"Failed to save CSV: {err}")
+            detail_text = traceback.format_exc()
+            title = "Freeze Count Timeseries CSV export failed" if includes_temperature_export else "Output Results failed"
+            summary = (
+                "The Freeze Count Timeseries CSV export failed while writing the output file."
+                if includes_temperature_export
+                else "The results export failed while writing the output file."
+            )
+            self.show_detailed_error_dialog(title, summary, err, detail_text)
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            title = "Freeze Count Timeseries CSV export failed" if includes_temperature_export else "Output Results failed"
+            summary = (
+                "The Freeze Count Timeseries CSV export failed due to an unexpected internal error."
+                if includes_temperature_export
+                else "The results export failed due to an unexpected internal error."
+            )
+            self.show_detailed_error_dialog(title, summary, err, detail_text)
 
     def update_keyframe_list(self, is_adding):
         # function is called when toggling the keyframe button, connected to the keyframe clicked signal
@@ -7607,6 +7988,30 @@ class IceScopy(QMainWindow):
     def log(self, message):
         # Function to append messages to the terminal
         self.terminal.append(f"> {message}")
+
+    def show_detailed_error_dialog(self, title, summary_text, err, detail_text=""):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setIcon(QMessageBox.Critical)
+        dialog.setTextFormat(Qt.PlainText)
+        dialog.setText("")
+        dialog.setInformativeText(f"{summary_text}\n\n{err}")
+        if detail_text:
+            dialog.setDetailedText(str(detail_text).rstrip())
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec()
+
+    def show_detailed_information_dialog(self, title, summary_text, detail_text=""):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setTextFormat(Qt.PlainText)
+        dialog.setText("")
+        dialog.setInformativeText(str(summary_text).rstrip())
+        if detail_text:
+            dialog.setDetailedText(str(detail_text).rstrip())
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec()
 
     def file_dialog_options(self):
         return QFileDialog.Options()
@@ -8045,13 +8450,13 @@ class IceScopy(QMainWindow):
             return
 
         try:
-            payload, grayscale_table, freeze_table, temperature_sync_table = load_session_bundle(file_path)
+            payload, grayscale_table, freeze_table, freeze_count_timeseries_table = load_session_bundle(file_path)
             state = build_restore_state(
                 self,
                 payload,
                 grayscale_table,
                 freeze_table,
-                temperature_sync_table,
+                freeze_count_timeseries_table,
             )
             self.session_active = True
             self.current_session_file_path = file_path
@@ -8286,8 +8691,8 @@ class IceScopy(QMainWindow):
                 self.grayscale_results_rows,
                 self.freeze_results_headers,
                 self.freeze_results_rows,
-                self.temperature_sync_headers,
-                self.temperature_sync_rows,
+                self.freeze_count_timeseries_headers,
+                self.freeze_count_timeseries_rows,
             )
             self.current_session_file_path = file_path
             self.log(f"Saved session at {file_path}")
@@ -8573,7 +8978,7 @@ class IceScopy(QMainWindow):
         has_results = bool(
             self.grayscale_results_headers
             or self.freeze_results_headers
-            or self.temperature_sync_headers
+            or self.freeze_count_timeseries_headers
         )
         if confirm and (self.imagePaths or has_results):
             reply = QMessageBox.question(
@@ -8617,7 +9022,7 @@ class IceScopy(QMainWindow):
         self.update_session_actions_state()
         self.updateButtonStates()
         self.update_results_tables()
-        self.update_temperature_sync_table()
+        self.update_freeze_count_timeseries_table()
         self.refresh_sample_catalog_table(preserve_selection=False)
         self.populate_image_list()
         self.reset_cursor_action.trigger()
@@ -9406,7 +9811,7 @@ class IceScopy(QMainWindow):
         self.grayscale_results_rows = getattr(worker, 'grayscale_result_rows', [])
         self.freeze_results_headers = getattr(worker, 'freeze_result_headers', [])
         self.freeze_results_rows = getattr(worker, 'freeze_result_rows', [])
-        self.invalidate_temperature_sync_results("analysis results changed")
+        self.invalidate_freeze_count_timeseries_results("analysis results changed")
         self.update_results_tables()
         if self.grayscale_results_headers or self.freeze_results_headers:
             if hasattr(self, "results_table_tabs"):
@@ -9648,9 +10053,6 @@ class IceScopy(QMainWindow):
     def unselect_all_cell_items(self):
         self.cell_controller.clear_scene_selection()
     
-    def update_cell_items_cell_ids(self): # update items in the data list, called by the self.displayMarkedRegions()
-        self.cell_controller.renumber_cell_items()
-    
     def reset_cell_items_edit_chosen(self): # update items in the data list, called by the self.displayMarkedRegions()
         self.cell_controller.reset_edit_chosen()
         self.refresh_grayscale_plot()
@@ -9801,9 +10203,9 @@ class IceScopy(QMainWindow):
         if timeseries_palette_element is not None and timeseries_palette_element.text is not None:
             preferences['TimeseriesPalette'] = timeseries_palette_element.text
 
-        timeseries_trace_line_width_element = root.find('TimeseriesTraceLineWidth')
-        if timeseries_trace_line_width_element is not None and timeseries_trace_line_width_element.text is not None:
-            preferences['TimeseriesTraceLineWidth'] = float(timeseries_trace_line_width_element.text)
+        timeseries_line_width_element = root.find('TimeseriesLineWidth')
+        if timeseries_line_width_element is not None and timeseries_line_width_element.text is not None:
+            preferences['TimeseriesLineWidth'] = float(timeseries_line_width_element.text)
 
         timeseries_convolution_line_width_element = root.find('TimeseriesConvolutionLineWidth')
         if (

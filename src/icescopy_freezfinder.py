@@ -105,7 +105,7 @@ def compute_freeze_result_rows(
             else int(cell_index)
         )
         extend_count = int(max(0, tail_extend_points))
-        _, g_array_step = compute_convolution_trace(
+        _, g_array_step = compute_convolution_timeseries(
             raw_grayscale,
             tail_extend_points=tail_extend_points,
             convolution_half_window_points=convolution_half_window_points,
@@ -128,7 +128,7 @@ def compute_freeze_result_rows(
         max_frame_index = len(filename_array) - 1
         for peak_index, left_ip, right_ip in zip(peaks, left_ips, right_ips):
             event_indexes.append(
-                refine_event_index_from_raw_trace(
+                refine_event_index_from_raw_timeseries(
                     raw_grayscale,
                     peak_index,
                     left_ip,
@@ -154,7 +154,7 @@ def compute_freeze_result_rows(
     return freeze_result_rows, peak_indexes_by_cell
 
 
-def refine_event_index_from_raw_trace(
+def refine_event_index_from_raw_timeseries(
     raw_grayscale,
     peak_index,
     left_ip,
@@ -269,7 +269,7 @@ def compute_convolution_center_offset(
     return 0.5 * (len(kernel) - 1)
 
 
-def compute_convolution_trace(
+def compute_convolution_timeseries(
     grayscale_values,
     tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,

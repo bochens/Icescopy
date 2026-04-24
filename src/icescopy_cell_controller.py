@@ -110,11 +110,6 @@ class CellEditController:
             if isinstance(item, CellCircle):
                 item.setSelected(False)
 
-    def renumber_cell_items(self):
-        # Cell IDs are persistent and must never be re-numbered.
-        # Keep this method as a compatibility no-op for older call sites.
-        return
-
     def reset_edit_chosen(self):
         for item in self.main_window.cell_items:
             item.edit_chosen = False
@@ -232,14 +227,6 @@ class CellEditController:
             for item in getattr(self.main_window, "rendered_cell_items", [])
             if isinstance(item, CellCircle) and item.scene() is self.main_window.scene
         ]
-        if (not tracked_scene_items) and self.main_window.cell_items:
-            # One-time migration fallback for sessions that predate
-            # rendered_cell_items tracking.
-            tracked_scene_items = [
-                item
-                for item in self.main_window.cell_items
-                if isinstance(item, CellCircle) and item.scene() is self.main_window.scene
-            ]
         requires_recovery_scan = bool(force_scene_scan)
         existing_scene_items = list(tracked_scene_items)
         if requires_recovery_scan:

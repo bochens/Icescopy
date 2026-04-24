@@ -104,7 +104,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "FreezeFinderDetectBrightening": DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
     "TemperatureCycleWarmupHysteresisC": 0.02,
     "TimeseriesPalette": "bright",
-    "TimeseriesTraceLineWidth": 2.0,
+    "TimeseriesLineWidth": 2.0,
     "TimeseriesConvolutionLineWidth": 1.0,
     "TimeseriesFreezeLineColor": "220,20,60,180",
     "TimeseriesFreezeLineWidth": 1.0,
@@ -792,7 +792,7 @@ class PreferencesDialog(QDialog):
         self.timeseries_palette_field.setCurrentIndex(
             max(0, self.timeseries_palette_field.findData(self.pref_value("TimeseriesPalette")))
         )
-        self.timeseries_trace_line_width_field = self.make_double_spinbox(0.1, 20.0, self.pref_value("TimeseriesTraceLineWidth"), 1)
+        self.timeseries_line_width_field = self.make_double_spinbox(0.1, 20.0, self.pref_value("TimeseriesLineWidth"), 1)
         self.timeseries_convolution_line_width_field = self.make_double_spinbox(0.1, 20.0, self.pref_value("TimeseriesConvolutionLineWidth"), 1)
         self.timeseries_freeze_line_color_field = ColorPreferenceButton(self.pref_value("TimeseriesFreezeLineColor"), self)
         self.timeseries_freeze_line_width_field = self.make_double_spinbox(0.1, 20.0, self.pref_value("TimeseriesFreezeLineWidth"), 1)
@@ -836,7 +836,7 @@ class PreferencesDialog(QDialog):
             self.freeze_finder_detect_brightening_field,
             self.temperature_cycle_warmup_hysteresis_c_field,
             self.timeseries_palette_field,
-            self.timeseries_trace_line_width_field,
+            self.timeseries_line_width_field,
             self.timeseries_convolution_line_width_field,
             self.timeseries_freeze_line_color_field,
             self.timeseries_freeze_line_width_field,
@@ -1137,7 +1137,7 @@ class PreferencesDialog(QDialog):
                 "Grayscale",
                 [
                     "Mean grayscale is measured inside each selected circle for every frame.",
-                    "The solid trace shows the raw mean grayscale signal. The dashed convolution trace is the edge-enhanced signal used to detect sudden freezing steps, whether they appear as darkening or brightening depending on the selected polarity.",
+                    "The solid grayscale timeseries shows the raw mean grayscale signal. The dashed convolution timeseries is the edge-enhanced signal used to detect sudden freezing steps, whether they appear as darkening or brightening depending on the selected polarity.",
                 ],
             ),
         )
@@ -1171,7 +1171,7 @@ class PreferencesDialog(QDialog):
                         "Convolution Half Window Points",
                         self.build_field_with_help(
                             self.convolution_half_window_points_field,
-                            "This is the kernel N: the number of positive points on the left and negative points on the right. Set 0 to keep the original whole-trace window.",
+                            "This is the kernel N: the number of positive points on the left and negative points on the right. Set 0 to keep the original whole-timeseries window.",
                         ),
                     ),
                     (
@@ -1203,11 +1203,11 @@ class PreferencesDialog(QDialog):
     def build_timeseries_page(self):
         return self.build_preferences_page(
             "Timeseries",
-            "Tune the grayscale timeseries panel appearance, including trace palette and reference-line styling.",
+            "Tune the grayscale timeseries panel appearance, including timeseries palette and reference-line styling.",
             [
-                ("Trace Appearance", [
-                    ("Trace Palette", self.timeseries_palette_field),
-                    ("Trace Line Width", self.timeseries_trace_line_width_field),
+                ("Timeseries Appearance", [
+                    ("Timeseries Palette", self.timeseries_palette_field),
+                    ("Timeseries Line Width", self.timeseries_line_width_field),
                     ("Convolution Line Width", self.timeseries_convolution_line_width_field),
                 ]),
                 ("Reference Lines", [
@@ -1251,7 +1251,7 @@ class PreferencesDialog(QDialog):
             self.temperature_cycle_warmup_hysteresis_c_field.value()
         )
         SubElement(root, "TimeseriesPalette").text = self.timeseries_palette_field.currentData()
-        SubElement(root, "TimeseriesTraceLineWidth").text = str(self.timeseries_trace_line_width_field.value())
+        SubElement(root, "TimeseriesLineWidth").text = str(self.timeseries_line_width_field.value())
         SubElement(root, "TimeseriesConvolutionLineWidth").text = str(self.timeseries_convolution_line_width_field.value())
         SubElement(root, "TimeseriesFreezeLineColor").text = self.timeseries_freeze_line_color_field.color_value()
         SubElement(root, "TimeseriesFreezeLineWidth").text = str(self.timeseries_freeze_line_width_field.value())

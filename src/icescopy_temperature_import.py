@@ -6,8 +6,10 @@ import os
 import re
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import xml.etree.ElementTree as ET
+
+from PIL import Image
 
 
 CSU_IS_TIMESTAMP_RE = re.compile(r":\.(\d+)$")
@@ -20,10 +22,140 @@ TAMU_LDF_TIMESTAMP_RE = re.compile(
     r"(?P<day>\d{2})-(?P<month>\d{2})-(?P<year>\d{2})\s+"
     r"(?P<hour>\d{2})-(?P<minute>\d{2})-(?P<second>\d{2})-(?P<centisecond>\d{2})"
 )
+GENERIC_FILENAME_TIMESTAMP_RE = re.compile(
+    r"(?P<year>\d{4})[-_/](?P<month>\d{2})[-_/](?P<day>\d{2})"
+    r"(?:[T _-]+(?P<hour>\d{2})[-:._](?P<minute>\d{2})"
+    r"(?:[-:._](?P<second>\d{2})(?:[.,_-](?P<fraction>\d{1,6}))?)?)"
+)
+COMPACT_FILENAME_TIMESTAMP_RE = re.compile(
+    r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})"
+    r"(?:[T _-]?(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})(?P<fraction>\d{1,6})?)"
+)
 XLSX_NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
+COMMON_DATETIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d %H:%M:%S.%f",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%Y_%m_%d %H_%M_%S_%f",
+    "%Y_%m_%d %H_%M_%S",
+    "%Y_%m_%d %H_%M",
+    "%Y%m%d %H%M%S",
+    "%Y%m%d_%H%M%S",
+    "%Y%m%dT%H%M%S",
+)
+YEAR4_DASH_DATETIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+)
+YEAR4_T_DATETIME_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M",
+)
+YEAR4_SLASH_DATETIME_FORMATS = (
+    "%Y/%m/%d %H:%M:%S.%f",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+)
+YEAR4_COMPACT_DATETIME_FORMATS = (
+    "%Y%m%d_%H%M%S",
+    "%Y%m%d %H%M%S",
+    "%Y%m%dT%H%M%S",
+    "%Y%m%d%H%M%S",
+)
+YEAR2_COMPACT_DATETIME_FORMATS = (
+    "%y%m%d_%H%M",
+    "%y%m%d %H%M",
+    "%y%m%d-%H%M",
+    "%y%m%dT%H%M",
+    "%y%m%d%H%M",
+    "%y%m%d_%H%M%S",
+    "%y%m%d %H%M%S",
+    "%y%m%d-%H%M%S",
+    "%y%m%dT%H%M%S",
+    "%y%m%d%H%M%S",
+)
+YEAR2_SLASH_DATETIME_FORMATS = (
+    "%y/%m/%d %H:%M:%S.%f",
+    "%y/%m/%d %H:%M:%S",
+    "%y/%m/%d %H:%M",
+)
+SLASH_DAY_MONTH_DATETIME_FORMATS = (
+    "%m/%d/%Y %H:%M:%S.%f",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%d/%m/%Y %H:%M:%S.%f",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%m/%d/%y %H:%M:%S.%f",
+    "%m/%d/%y %H:%M:%S",
+    "%m/%d/%y %H:%M",
+    "%d/%m/%y %H:%M:%S.%f",
+    "%d/%m/%y %H:%M:%S",
+    "%d/%m/%y %H:%M",
+)
+EXIF_DATETIME_FORMATS = (
+    "%Y:%m:%d %H:%M:%S.%f",
+    "%Y:%m:%d %H:%M:%S",
+)
+INLINE_EXIF_TIMESTAMP_RE = re.compile(
+    r"(?<!\d)(\d{4}:\d{2}:\d{2}[ T_-]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)(?!\d)"
+)
+EPOCH_TIMESTAMP_RE = re.compile(r"(?<!\d)(-?(?:\d{10}|\d{13}))(?!\d)")
+
+TIMESTAMP_STYLE_AUTO = "auto"
+TIMESTAMP_STYLE_COMMON = "common_datetime"
+TIMESTAMP_STYLE_YEAR4_DASH = "year4_dash_datetime"
+TIMESTAMP_STYLE_YEAR4_T = "year4_t_datetime"
+TIMESTAMP_STYLE_YEAR4_SLASH = "year4_slash_datetime"
+TIMESTAMP_STYLE_YEAR4_COMPACT = "year4_compact_datetime"
+TIMESTAMP_STYLE_YEAR2_COMPACT = "year2_compact_datetime"
+TIMESTAMP_STYLE_YEAR2_SLASH = "year2_slash_datetime"
+TIMESTAMP_STYLE_EXIF = "exif_datetime"
+TIMESTAMP_STYLE_EPOCH_SECONDS = "epoch_seconds"
+TIMESTAMP_STYLE_EPOCH_MILLISECONDS = "epoch_milliseconds"
+
+IMAGE_TIMESTAMP_SOURCE_FILENAME = "filename"
+IMAGE_TIMESTAMP_SOURCE_EXIF = "exif"
+IMAGE_TIMESTAMP_SOURCE_CREATED = "creation_time"
+IMAGE_TIMESTAMP_SOURCE_MODIFIED = "modified_time"
+IMAGE_TIMESTAMP_SOURCE_GENERATED = "generated_sequence"
+
+TEMPERATURE_UNIT_CELSIUS = "celsius"
+TEMPERATURE_UNIT_KELVIN = "kelvin"
+
+TIMESTAMP_STYLE_CHOICES = (
+    (TIMESTAMP_STYLE_AUTO, "Auto detect"),
+    (TIMESTAMP_STYLE_YEAR4_DASH, "YYYY-MM-DD HH:MM[:SS[.ffffff]]"),
+    (TIMESTAMP_STYLE_YEAR4_T, "YYYY-MM-DDTHH:MM[:SS[.ffffff]]"),
+    (TIMESTAMP_STYLE_YEAR4_SLASH, "YYYY/MM/DD HH:MM[:SS[.ffffff]]"),
+    (TIMESTAMP_STYLE_YEAR4_COMPACT, "YYYYMMDD_HHMMSS or YYYYMMDD HHMMSS"),
+    (TIMESTAMP_STYLE_YEAR2_COMPACT, "YYMMDD_HHMMSS, YYMMDD HHMMSS, YYMMDD HHMM, or YYMMDD-HHMMSS"),
+    (TIMESTAMP_STYLE_YEAR2_SLASH, "YY/MM/DD HH:MM[:SS[.ffffff]]"),
+    (TIMESTAMP_STYLE_EXIF, "EXIF text (YYYY:MM:DD HH:MM:SS)"),
+    (TIMESTAMP_STYLE_EPOCH_SECONDS, "Unix epoch seconds (10 digits; since 1970-01-01 00:00:00 UTC)"),
+    (TIMESTAMP_STYLE_EPOCH_MILLISECONDS, "Unix epoch milliseconds (13 digits; since 1970-01-01 00:00:00 UTC)"),
+)
+
+IMAGE_TIMESTAMP_SOURCE_CHOICES = (
+    (IMAGE_TIMESTAMP_SOURCE_FILENAME, "Filename"),
+    (IMAGE_TIMESTAMP_SOURCE_EXIF, "EXIF"),
+    (IMAGE_TIMESTAMP_SOURCE_CREATED, "Creation time"),
+    (IMAGE_TIMESTAMP_SOURCE_MODIFIED, "Modification time"),
+    (IMAGE_TIMESTAMP_SOURCE_GENERATED, "Generated from first timestamp"),
+)
+
+TEMPERATURE_UNIT_CHOICES = (
+    (TEMPERATURE_UNIT_CELSIUS, "Celsius"),
+    (TEMPERATURE_UNIT_KELVIN, "Kelvin"),
+)
 
 
 class TemperatureImportError(ValueError):
@@ -41,14 +173,30 @@ class CSUISDatRow:
 
 
 @dataclass
-class TAMULinkamTrace:
+class TAMULinkamTimeseries:
     file_path: str
     start_timestamp: datetime | None
     start_timestamp_text: str
-    trace_seconds: list[float]
-    trace_temperatures: list[float]
+    timeseries_seconds: list[float]
+    temperature_values: list[float]
     sample_period_seconds: float | None
-    trace_row_count: int
+    timeseries_row_count: int
+
+
+@dataclass
+class StandardTemperatureTimeseries:
+    file_path: str
+    timeseries_datetimes: list[datetime]
+    timeseries_timestamp_texts: list[str]
+    temperature_values: list[float]
+    timeseries_row_count: int
+
+
+@dataclass
+class ResolvedImageTimestamps:
+    image_timestamps: list[datetime | None]
+    parsed_count: int
+    unparsed_images: list[str]
 
 
 def normalize_sample_name(value):
@@ -86,6 +234,432 @@ def _safe_float(value):
         return float(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_parsed_datetime(value):
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return None
+    return value
+
+
+def _parse_datetime_with_formats(text, formats):
+    for fmt in formats:
+        try:
+            return _normalize_parsed_datetime(datetime.strptime(text, fmt))
+        except ValueError:
+            continue
+    return None
+
+
+def parse_flexible_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    if re.fullmatch(r"-?\d+", normalized):
+        return None
+
+    iso_candidate = normalized.replace("Z", "+00:00").replace("z", "+00:00")
+    try:
+        return _normalize_parsed_datetime(datetime.fromisoformat(iso_candidate))
+    except ValueError:
+        pass
+
+    direct_value = _parse_datetime_with_formats(normalized, COMMON_DATETIME_FORMATS)
+    if direct_value is not None:
+        return direct_value
+
+    slash_candidates = set()
+    for fmt in SLASH_DAY_MONTH_DATETIME_FORMATS:
+        try:
+            slash_candidates.add(
+                _normalize_parsed_datetime(datetime.strptime(normalized, fmt))
+            )
+        except ValueError:
+            continue
+    if len(slash_candidates) == 1:
+        return next(iter(slash_candidates))
+    return None
+
+
+def parse_exif_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, EXIF_DATETIME_FORMATS)
+
+
+def parse_year4_dash_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR4_DASH_DATETIME_FORMATS)
+
+
+def parse_year4_t_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR4_T_DATETIME_FORMATS)
+
+
+def parse_year4_slash_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR4_SLASH_DATETIME_FORMATS)
+
+
+def parse_year4_compact_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR4_COMPACT_DATETIME_FORMATS)
+
+
+def parse_year2_compact_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR2_COMPACT_DATETIME_FORMATS)
+
+
+def parse_year2_slash_datetime_text(text):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    return _parse_datetime_with_formats(normalized, YEAR2_SLASH_DATETIME_FORMATS)
+
+
+def parse_epoch_datetime_text(text, unit="auto"):
+    normalized = str(text or "").strip().strip("\"'").strip()
+    if not normalized:
+        return None
+    if re.fullmatch(r"-?\d+", normalized) is None:
+        return None
+    digit_count = len(normalized.lstrip("-"))
+    if unit == TIMESTAMP_STYLE_EPOCH_SECONDS:
+        if digit_count != 10:
+            return None
+        seconds_value = int(normalized)
+    elif unit == TIMESTAMP_STYLE_EPOCH_MILLISECONDS:
+        if digit_count != 13:
+            return None
+        seconds_value = int(normalized) / 1000.0
+    else:
+        if digit_count == 10:
+            seconds_value = int(normalized)
+        elif digit_count == 13:
+            seconds_value = int(normalized) / 1000.0
+        else:
+            return None
+
+    try:
+        return datetime.fromtimestamp(seconds_value, tz=timezone.utc).replace(tzinfo=None)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def parse_timestamp_text(text, style=TIMESTAMP_STYLE_AUTO):
+    normalized_style = str(style or TIMESTAMP_STYLE_AUTO).strip() or TIMESTAMP_STYLE_AUTO
+    normalized_text = str(text or "").strip().strip("\"'").strip()
+    if normalized_style == TIMESTAMP_STYLE_AUTO and re.fullmatch(r"-?\d+", normalized_text):
+        return None
+    if normalized_style == TIMESTAMP_STYLE_YEAR4_DASH:
+        return parse_year4_dash_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_YEAR4_T:
+        return parse_year4_t_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_YEAR4_SLASH:
+        return parse_year4_slash_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_YEAR4_COMPACT:
+        return parse_year4_compact_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_YEAR2_COMPACT:
+        return parse_year2_compact_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_YEAR2_SLASH:
+        return parse_year2_slash_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_COMMON:
+        return parse_flexible_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_EXIF:
+        return parse_exif_datetime_text(text)
+    if normalized_style == TIMESTAMP_STYLE_EPOCH_SECONDS:
+        return parse_epoch_datetime_text(text, TIMESTAMP_STYLE_EPOCH_SECONDS)
+    if normalized_style == TIMESTAMP_STYLE_EPOCH_MILLISECONDS:
+        return parse_epoch_datetime_text(text, TIMESTAMP_STYLE_EPOCH_MILLISECONDS)
+
+    for parser in (
+        parse_year4_dash_datetime_text,
+        parse_year4_t_datetime_text,
+        parse_year4_slash_datetime_text,
+        parse_year4_compact_datetime_text,
+        parse_year2_compact_datetime_text,
+        parse_year2_slash_datetime_text,
+        parse_exif_datetime_text,
+        parse_flexible_datetime_text,
+    ):
+        parsed_value = parser(text)
+        if parsed_value is not None:
+            return parsed_value
+    return None
+
+
+def _datetime_from_filename_match(match):
+    if match is None:
+        return None
+    try:
+        fraction_text = str(match.groupdict().get("fraction") or "")
+        microsecond = int(fraction_text.ljust(6, "0")[:6]) if fraction_text else 0
+        return datetime(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+            int(match.group("hour")),
+            int(match.group("minute")),
+            int(match.group("second") or 0),
+            microsecond,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_timestamp_candidates(candidates, style):
+    for candidate_text in candidates:
+        parsed = parse_timestamp_text(candidate_text, style)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _extract_filename_timestamp_candidates(stem):
+    candidates = []
+    seen = set()
+    for pattern in (GENERIC_FILENAME_TIMESTAMP_RE, COMPACT_FILENAME_TIMESTAMP_RE):
+        for match in pattern.finditer(stem):
+            parsed = _datetime_from_filename_match(match)
+            if parsed is None:
+                continue
+            candidate_text = parsed.isoformat(sep=" ", timespec="microseconds").rstrip("0").rstrip(".")
+            if candidate_text and candidate_text not in seen:
+                candidates.append(candidate_text)
+                seen.add(candidate_text)
+    for match in INLINE_EXIF_TIMESTAMP_RE.finditer(stem):
+        candidate_text = str(match.group(1)).strip()
+        if candidate_text and candidate_text not in seen:
+            candidates.append(candidate_text)
+            seen.add(candidate_text)
+    for match in EPOCH_TIMESTAMP_RE.finditer(stem):
+        candidate_text = str(match.group(1)).strip()
+        if candidate_text and candidate_text not in seen:
+            candidates.append(candidate_text)
+            seen.add(candidate_text)
+    normalized_stem = stem.replace("__", " ").replace("_", " ").strip()
+    if normalized_stem and normalized_stem not in seen:
+        candidates.append(normalized_stem)
+    return candidates
+
+
+def parse_generic_image_timestamp(image_name, timestamp_style=TIMESTAMP_STYLE_AUTO):
+    stem = os.path.splitext(os.path.basename(str(image_name or "")))[0]
+    return _parse_timestamp_candidates(
+        _extract_filename_timestamp_candidates(stem),
+        timestamp_style,
+    )
+
+
+def read_exif_timestamp_text(file_path):
+    try:
+        with Image.open(file_path) as image:
+            exif = image.getexif()
+            if not exif:
+                return None
+            for tag_code in (36867, 36868, 306):
+                value = exif.get(tag_code)
+                if value:
+                    return str(value).strip()
+    except Exception:
+        return None
+    return None
+
+
+def resolve_image_timestamp(
+    file_path,
+    image_name,
+    source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
+    timestamp_style=TIMESTAMP_STYLE_AUTO,
+    generated_start_text="",
+    frame_interval_seconds=None,
+    image_index=0,
+):
+    normalized_source = str(source or IMAGE_TIMESTAMP_SOURCE_FILENAME).strip() or IMAGE_TIMESTAMP_SOURCE_FILENAME
+    normalized_style = str(timestamp_style or TIMESTAMP_STYLE_AUTO).strip() or TIMESTAMP_STYLE_AUTO
+
+    if normalized_source == IMAGE_TIMESTAMP_SOURCE_FILENAME:
+        return parse_generic_image_timestamp(image_name, normalized_style)
+
+    if normalized_source == IMAGE_TIMESTAMP_SOURCE_EXIF:
+        exif_text = read_exif_timestamp_text(file_path)
+        if not exif_text:
+            return None
+        return parse_timestamp_text(exif_text, normalized_style)
+
+    if normalized_source == IMAGE_TIMESTAMP_SOURCE_CREATED:
+        try:
+            return datetime.fromtimestamp(os.stat(file_path).st_birthtime)
+        except (AttributeError, OSError, ValueError, TypeError):
+            return None
+
+    if normalized_source == IMAGE_TIMESTAMP_SOURCE_MODIFIED:
+        try:
+            return datetime.fromtimestamp(os.path.getmtime(file_path))
+        except (OSError, ValueError, TypeError):
+            return None
+
+    if normalized_source == IMAGE_TIMESTAMP_SOURCE_GENERATED:
+        start_timestamp = parse_timestamp_text(generated_start_text, normalized_style)
+        if start_timestamp is None:
+            return None
+        try:
+            interval_seconds = float(frame_interval_seconds)
+        except (TypeError, ValueError):
+            return None
+        if interval_seconds <= 0:
+            return None
+        return start_timestamp + timedelta(seconds=interval_seconds * int(image_index))
+
+    return None
+
+
+def resolve_image_timestamps(
+    image_paths,
+    image_names,
+    source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
+    timestamp_style=TIMESTAMP_STYLE_AUTO,
+    generated_start_text="",
+    frame_interval_seconds=None,
+):
+    resolved_timestamps = []
+    unparsed_images = []
+    parsed_count = 0
+    for image_index, image_path in enumerate(image_paths):
+        image_name = image_names[image_index] if image_index < len(image_names) else os.path.basename(str(image_path or ""))
+        resolved = resolve_image_timestamp(
+            image_path,
+            image_name,
+            source=source,
+            timestamp_style=timestamp_style,
+            generated_start_text=generated_start_text,
+            frame_interval_seconds=frame_interval_seconds,
+            image_index=image_index,
+        )
+        resolved_timestamps.append(resolved)
+        if resolved is None:
+            unparsed_images.append(os.path.basename(str(image_name or image_path or "")))
+        else:
+            parsed_count += 1
+    return ResolvedImageTimestamps(
+        image_timestamps=resolved_timestamps,
+        parsed_count=int(parsed_count),
+        unparsed_images=list(unparsed_images),
+    )
+
+
+def parse_standard_temperature_csv(
+    file_path,
+    timestamp_style=TIMESTAMP_STYLE_AUTO,
+    temperature_unit=TEMPERATURE_UNIT_CELSIUS,
+):
+    with open(file_path, "r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        reader = csv.reader(handle)
+        raw_rows = list(reader)
+
+    if not raw_rows:
+        raise TemperatureImportError("The selected temperature CSV is empty.")
+
+    parsed_rows = []
+    for row_number, raw_row in enumerate(raw_rows, start=1):
+        values = [str(value).strip() for value in raw_row]
+        if not values or not any(values):
+            continue
+        if len(values) < 2:
+            raise TemperatureImportError(
+                f"Temperature CSV row {row_number} must contain at least two columns: datetime and temperature_C."
+            )
+
+        timestamp_text = values[0]
+        temperature_text = values[1]
+        timestamp_value = parse_timestamp_text(timestamp_text, timestamp_style)
+        temperature_value = _safe_float(temperature_text)
+
+        if row_number == 1 and timestamp_value is None and temperature_value is None:
+            continue
+        if timestamp_value is None:
+            raise TemperatureImportError(
+                f"Temperature CSV row {row_number} has an unparseable datetime value: {timestamp_text!r}."
+            )
+        if temperature_value is None:
+            raise TemperatureImportError(
+                f"Temperature CSV row {row_number} has an unparseable temperature value: {temperature_text!r}."
+            )
+        if str(temperature_unit or TEMPERATURE_UNIT_CELSIUS) == TEMPERATURE_UNIT_KELVIN:
+            temperature_value = float(temperature_value) - 273.15
+        parsed_rows.append((timestamp_value, timestamp_text, float(temperature_value), row_number))
+
+    if len(parsed_rows) < 2:
+        raise TemperatureImportError(
+            "The selected temperature CSV does not contain enough valid data rows."
+        )
+
+    parsed_rows.sort(key=lambda row: row[0])
+    previous_timestamp = None
+    for timestamp_value, _, _, row_number in parsed_rows:
+        if previous_timestamp is not None and timestamp_value == previous_timestamp:
+            raise TemperatureImportError(
+                f"Temperature CSV row {row_number} repeats a timestamp already present in the file."
+            )
+        previous_timestamp = timestamp_value
+
+    return StandardTemperatureTimeseries(
+        file_path=str(file_path),
+        timeseries_datetimes=[row[0] for row in parsed_rows],
+        timeseries_timestamp_texts=[row[1] for row in parsed_rows],
+        temperature_values=[row[2] for row in parsed_rows],
+        timeseries_row_count=len(parsed_rows),
+    )
+
+
+def compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count):
+    normalized_blank_keys = [
+        str(key).strip()
+        for key in (blank_sample_keys or [])
+        if str(key).strip()
+    ]
+    if not normalized_blank_keys:
+        return [None] * int(max(0, int(total_count)))
+    blank_correction_values = []
+    for row_index in range(int(max(0, int(total_count)))):
+        blank_correction = 0
+        for blank_key in normalized_blank_keys:
+            sample_counts = corrected_counts_by_sample.get(blank_key, [])
+            if row_index < len(sample_counts):
+                blank_correction += int(sample_counts[row_index])
+        blank_correction_values.append(int(blank_correction))
+    return blank_correction_values
+
+
+def apply_blank_correction(total_cells, frozen_count, blank_correction):
+    total_cells = max(0, int(total_cells))
+    frozen_count = max(0, int(frozen_count))
+    if blank_correction is None:
+        adjusted_total = total_cells
+        adjusted_frozen = frozen_count
+    else:
+        adjusted_total = max(0, total_cells - int(blank_correction))
+        adjusted_frozen = max(0, frozen_count - int(blank_correction))
+    adjusted_frozen = min(adjusted_frozen, adjusted_total)
+    fraction_frozen = None
+    if adjusted_total > 0:
+        fraction_frozen = adjusted_frozen / adjusted_total
+    return adjusted_total, adjusted_frozen, fraction_frozen
 
 
 def parse_tamu_image_timestamp(image_name):
@@ -234,10 +808,10 @@ def parse_tamu_linkam_xlsx(file_path):
             header_row_number = row_number
             break
     if header_row_number is None:
-        raise TemperatureImportError("The selected TAMU workbook does not contain a Linkam temperature trace table.")
+        raise TemperatureImportError("The selected TAMU workbook does not contain a Linkam temperature timeseries table.")
 
-    trace_seconds = []
-    trace_temperatures = []
+    timeseries_seconds = []
+    temperature_values = []
     data_start_row = header_row_number + 2
     for row_number, values in rows:
         if row_number < data_start_row:
@@ -248,20 +822,20 @@ def parse_tamu_linkam_xlsx(file_path):
             continue
         if seconds_value is None or temperature_value is None:
             continue
-        trace_seconds.append(float(seconds_value))
-        trace_temperatures.append(float(temperature_value))
+        timeseries_seconds.append(float(seconds_value))
+        temperature_values.append(float(temperature_value))
 
-    if len(trace_seconds) < 2:
-        raise TemperatureImportError("The selected TAMU workbook does not contain enough temperature trace rows.")
+    if len(timeseries_seconds) < 2:
+        raise TemperatureImportError("The selected TAMU workbook does not contain enough temperature timeseries rows.")
 
-    return TAMULinkamTrace(
+    return TAMULinkamTimeseries(
         file_path=str(file_path),
         start_timestamp=start_timestamp,
         start_timestamp_text=start_timestamp_text,
-        trace_seconds=trace_seconds,
-        trace_temperatures=trace_temperatures,
+        timeseries_seconds=timeseries_seconds,
+        temperature_values=temperature_values,
         sample_period_seconds=sample_period_seconds,
-        trace_row_count=len(trace_seconds),
+        timeseries_row_count=len(timeseries_seconds),
     )
 
 

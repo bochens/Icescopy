@@ -2,11 +2,11 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 import numpy as np
 import pyqtgraph as pg
-from icescopy_freezfinder import compute_convolution_center_offset, compute_convolution_trace
+from icescopy_freezfinder import compute_convolution_center_offset, compute_convolution_timeseries
 
 
 class GrayscalePlotWidget(QWidget):
-    """Pyqtgraph-backed grayscale trace viewer for selected circles."""
+    """Pyqtgraph-backed grayscale timeseries viewer for selected circles."""
 
     LEGEND_CELL_LIMIT = 12
 
@@ -57,8 +57,8 @@ class GrayscalePlotWidget(QWidget):
         self.tail_extend_points = 0
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
-        self.trace_palette = "bright"
-        self.trace_line_width = 2.0
+        self.timeseries_palette = "bright"
+        self.timeseries_line_width = 2.0
         self.convolution_line_width = 1.0
         self.freeze_line_color = (220, 20, 60, 180)
         self.freeze_line_width = 1.0
@@ -130,8 +130,8 @@ class GrayscalePlotWidget(QWidget):
         tail_extend_points=0,
         convolution_half_window_points=0,
         convolution_ramp_points=0,
-        trace_palette="bright",
-        trace_line_width=2.0,
+        timeseries_palette="bright",
+        timeseries_line_width=2.0,
         convolution_line_width=1.0,
         freeze_line_color=(220, 20, 60, 180),
         freeze_line_width=1.0,
@@ -152,8 +152,8 @@ class GrayscalePlotWidget(QWidget):
             int(max(0, tail_extend_points)),
             int(max(0, convolution_half_window_points)),
             int(max(0, convolution_ramp_points)),
-            trace_palette,
-            float(trace_line_width),
+            timeseries_palette,
+            float(timeseries_line_width),
             float(convolution_line_width),
             tuple(freeze_line_color),
             float(freeze_line_width),
@@ -178,8 +178,8 @@ class GrayscalePlotWidget(QWidget):
         self.tail_extend_points = style_signature[0]
         self.convolution_half_window_points = style_signature[1]
         self.convolution_ramp_points = style_signature[2]
-        self.trace_palette = style_signature[3]
-        self.trace_line_width = style_signature[4]
+        self.timeseries_palette = style_signature[3]
+        self.timeseries_line_width = style_signature[4]
         self.convolution_line_width = style_signature[5]
         self.freeze_line_color = style_signature[6]
         self.freeze_line_width = style_signature[7]
@@ -203,12 +203,12 @@ class GrayscalePlotWidget(QWidget):
             self.current_frame_line.setPos(float(current_image_index))
 
     def _palette_colors(self):
-        return self.PALETTES.get(self.trace_palette, self.PALETTES["bright"])
+        return self.PALETTES.get(self.timeseries_palette, self.PALETTES["bright"])
 
-    def _trace_pen(self, series_index):
+    def _timeseries_pen(self, series_index):
         palette = self._palette_colors()
         red, green, blue = palette[series_index % len(palette)]
-        return pg.mkPen((red, green, blue), width=self.trace_line_width)
+        return pg.mkPen((red, green, blue), width=self.timeseries_line_width)
 
     def _convolution_pen(self, series_index):
         palette = self._palette_colors()
@@ -350,7 +350,7 @@ class GrayscalePlotWidget(QWidget):
         if cached is not None:
             return cached
 
-        _, convolved_values = compute_convolution_trace(
+        _, convolved_values = compute_convolution_timeseries(
             y_values,
             tail_extend_points=self.tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
@@ -425,7 +425,7 @@ class GrayscalePlotWidget(QWidget):
             unique_freeze_indices = set()
 
             for series_index, (cell_id, x_values, y_values) in enumerate(series):
-                pen = self._trace_pen(series_index)
+                pen = self._timeseries_pen(series_index)
                 self._configure_data_item(
                     self.plot_item.plot(
                         x_values,

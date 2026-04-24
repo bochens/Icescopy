@@ -1,0 +1,336 @@
+\documentclass[
+  9pt,
+  letterpaper,
+  oneside,
+  open=any,
+  DIV=15,
+  parskip=half-,
+  headings=big,
+  numbers=noenddot
+]{scrbook}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[final]{microtype}
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+\usepackage{graphicx}
+\usepackage{bookmark}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\usepackage{fvextra}
+\usepackage{scrlayer-scrpage}
+\usepackage{setspace}
+
+\definecolor{ManualInk}{HTML}{1C1E21}
+\definecolor{ManualMuted}{HTML}{596273}
+\definecolor{ManualBlue}{HTML}{2457D6}
+\definecolor{ManualBlueSoft}{HTML}{EEF3FF}
+\definecolor{ManualBorder}{HTML}{C9D5F2}
+\definecolor{ManualCodeBg}{HTML}{F6F8FB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=ManualBlue,
+  urlcolor=ManualBlue,
+  pdftitle={Edit Images},
+  pdfauthor={OpenAI Codex},
+  pdfsubject={Icescopy software manual}
+}
+
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+\setstretch{0.97}
+\setlength{\parskip}{0.18em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+\setlist[enumerate]{leftmargin=*, itemsep=0.08em, topsep=0.08em, parsep=0pt, partopsep=0pt}
+
+\addtokomafont{disposition}{\sffamily\bfseries\color{ManualInk}}
+\addtokomafont{chapter}{\fontsize{18}{20}\selectfont}
+\addtokomafont{section}{\fontsize{12.2}{14}\selectfont}
+\addtokomafont{subsection}{\fontsize{10.8}{12.2}\selectfont}
+\addtokomafont{pagehead}{\sffamily\small\color{ManualMuted}}
+\addtokomafont{pagenumber}{\sffamily\small\color{ManualMuted}}
+
+\renewcommand*{\chapterheadstartvskip}{\vspace*{-1.8\baselineskip}}
+\renewcommand*{\chapterheadendvskip}{\vspace{0.8\baselineskip}}
+
+\clearpairofpagestyles
+\automark[section]{chapter}
+\ihead{\headmark}
+\ohead{\pagemark}
+\KOMAoptions{headsepline=true}
+
+\newcommand{\manuallead}[1]{%
+  \vspace{0.15em}%
+  {\sffamily\bfseries\color{ManualBlue}#1}\par\nobreak\vspace{0.05em}%
+}
+
+\newenvironment{manualcode}
+  {\VerbatimEnvironment
+   \begin{tcolorbox}[
+     breakable,
+     enhanced,
+     sharp corners,
+     colback=ManualCodeBg,
+     colframe=ManualBorder,
+     boxrule=0.4pt,
+     left=0.9mm,
+     right=0.9mm,
+     top=0.5mm,
+     bottom=0.5mm,
+     arc=0.8mm
+   ]
+   \begin{Verbatim}[fontsize=\footnotesize,breaklines=true,breakanywhere=true]}
+  {\end{Verbatim}\end{tcolorbox}}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+  \vspace*{1.1cm}
+  \includegraphics[width=1.8cm]{IcescopyApp.png}\par
+  \vspace{0.75cm}
+  {\sffamily\bfseries\fontsize{24}{27}\selectfont Edit Images\par}
+  \vspace{0.25cm}
+  {\sffamily\normalsize\color{ManualMuted}Icescopy manual chapter\par}
+  \vspace{0.8cm}
+  \begin{tcolorbox}[
+    width=0.84\textwidth,
+    enhanced,
+    colback=ManualBlueSoft,
+    colframe=ManualBorder,
+    boxrule=0.5pt,
+    arc=1.4mm,
+    left=2.5mm,
+    right=2.5mm,
+    top=2mm,
+    bottom=2mm
+  ]
+    {\sffamily\bfseries\color{ManualInk}Product manual}\par
+    \vspace{0.1em}
+    {\color{ManualMuted}Current user documentation for the Icescopy desktop application.}
+  \end{tcolorbox}
+  \vfill
+  {\sffamily\small\color{ManualMuted}Generated 2026-04-20}
+\end{titlepage}
+
+\frontmatter
+
+
+
+
+\mainmatter
+\chapter{Edit Images}
+
+Use \texttt{Image Edit} to change the image data used for both display and analysis.
+
+
+These edits apply to the whole image, not to individual cells.
+
+
+\section{Available Controls}
+
+\texttt{Image Edit} includes:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item histogram
+\item exposure
+\item contrast
+\item crop
+\item uniform exposure
+\end{itemize}
+
+\section{Review The Histogram}
+
+Use the histogram to inspect grayscale distribution before or after editing.
+
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item the full-image histogram is shown in gray
+\item if cells are selected, their histogram is overlaid separately
+\item if no cells are selected, no red overlay is shown
+\end{itemize}
+
+The histogram is a review tool. It does not change the image by itself.
+
+
+\manuallead{Use it to answer}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item whether the full image is clipped too dark or too bright
+\item whether selected cells occupy a narrower grayscale range than the full image
+\item whether exposure or contrast changes are separating droplet signal from background
+\end{itemize}
+
+\section{Adjust Exposure}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Image Edit}.
+\item Move the \texttt{Exposure} slider or edit the numeric value.
+\end{enumerate}
+
+Use exposure when the full sequence is too dark or too bright.
+
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item exposure changes are applied to display and analysis
+\item each committed change is undoable
+\end{itemize}
+
+\section{Adjust Contrast}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Image Edit}.
+\item Move the \texttt{Contrast} slider or edit the numeric value.
+\end{enumerate}
+
+Use contrast when wells or droplets are difficult to distinguish.
+
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item contrast changes are applied to display and analysis
+\item each committed change is undoable
+\end{itemize}
+
+\section{Crop The Image}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Image Edit}.
+\item Click \texttt{Crop}.
+\item Adjust the crop box.
+\item Click \texttt{Apply} or press \texttt{Enter}.
+\end{enumerate}
+
+\manuallead{To discard the current crop draft}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Click \texttt{Cancel}.
+\end{enumerate}
+
+\manuallead{To remove the committed crop}
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Click \texttt{Reset}.
+\end{enumerate}
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item crop does not start automatically when you enter \texttt{Image Edit}
+\item crop is committed only when you apply it
+\item crop changes are logged individually for undo and redo
+\end{itemize}
+
+\section{Run Uniform Exposure}
+
+Use uniform exposure when brightness drifts from frame to frame.
+
+
+\begin{enumerate}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item Switch to \texttt{Image Edit}.
+\item Set the uniform-exposure area on a stable reference region.
+\item Run uniform exposure.
+\end{enumerate}
+
+\manuallead{Choose an area that is}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item stable across frames
+\item representative of the illumination you want to normalize
+\item not dominated by changing ice or fluid behavior
+\end{itemize}
+
+\manuallead{Behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item correction is per image
+\item correction affects display and grayscale analysis
+\item the current frame is used as the reference frame
+\item \texttt{Run} and \texttt{Reset} are both undoable
+\end{itemize}
+
+\manuallead{Use a control area that is}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item stable across the sequence
+\item representative of the illumination drift
+\item not dominated by changing freezing behavior
+\end{itemize}
+
+\section{Select Cells During Image Edit}
+
+You can still select cells while \texttt{Image Edit} is active.
+
+
+\manuallead{Use that when you want to}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item compare histograms for selected cells
+\item inspect a subset of the image while staying in image-edit mode
+\end{itemize}
+
+\manuallead{Exception}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item while you are actively manipulating a crop draft, crop takes priority and selection is suppressed
+\end{itemize}
+
+\section{What Image Edit Affects}
+
+\manuallead{Image-edit settings affect}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item image display
+\item grayscale analysis
+\item freeze count timeseries outputs that depend on the current freeze results
+\end{itemize}
+
+Image Edit does not move cells. Cell geometry still belongs to the annotation tools and keyframe workflow.
+
+
+\manuallead{Practical rule}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item use \texttt{Image Edit} to improve signal quality
+\item use annotation tools and keyframes to improve geometric tracking
+\item these are separate workflows and should stay separate
+\end{itemize}
+
+\section{Undo And Redo}
+
+These image-edit actions are tracked individually:
+
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item exposure changes
+\item contrast changes
+\item run uniform exposure
+\item crop apply
+\item crop reset
+\item uniform exposure reset
+\end{itemize}
+
+\manuallead{Current behavior}
+
+\begin{itemize}[leftmargin=*,itemsep=0.35em,topsep=0.4em]
+\item image-edit undo and redo preserve the existing results tables in the session state
+\item preserved tables are not automatically recomputed
+\item if the edits change the interpretation of freezing, run analysis again
+\end{itemize}
+
+\section{Next Step}
+
+After image edits are in place, continue with Run analysis, review the Grayscale Plot, and inspect results.
+
+\end{document}

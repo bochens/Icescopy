@@ -17,12 +17,12 @@ class CellRecord:
 
     cell_id: int
     sample_id: str = ""
-    grayscale_trace: list[float] = field(default_factory=list)
+    grayscale_timeseries: list[float] = field(default_factory=list)
     freeze_event_indices: list[int] = field(default_factory=list)
     freeze_rows: list[list[str]] = field(default_factory=list)
 
     def clear_analysis(self):
-        self.grayscale_trace = []
+        self.grayscale_timeseries = []
         self.freeze_event_indices = []
         self.freeze_rows = []
 
@@ -30,7 +30,7 @@ class CellRecord:
         return {
             "cell_id": int(self.cell_id),
             "sample_id": str(self.sample_id),
-            "grayscale_trace": [float(value) for value in self.grayscale_trace],
+            "grayscale_timeseries": [float(value) for value in self.grayscale_timeseries],
             "freeze_event_indices": [int(value) for value in self.freeze_event_indices],
             "freeze_rows": [list(row) for row in self.freeze_rows],
         }
@@ -41,7 +41,7 @@ class CellRecord:
             cell_id=int(payload.get("cell_id", 0)),
             sample_id=str(payload.get("sample_id", "")),
         )
-        record.grayscale_trace = [float(value) for value in payload.get("grayscale_trace", [])]
+        record.grayscale_timeseries = [float(value) for value in payload.get("grayscale_timeseries", [])]
         record.freeze_event_indices = [int(value) for value in payload.get("freeze_event_indices", [])]
         record.freeze_rows = [list(row) for row in payload.get("freeze_rows", [])]
         return record
@@ -327,19 +327,19 @@ class CellStateManager:
             return
 
         for cell_id in sorted(cell_ids):
-            grayscale_trace = []
+            grayscale_timeseries = []
             column_index = grayscale_col_by_id.get(cell_id)
             if column_index is not None:
                 for row in self.main_window.grayscale_results_rows:
                     try:
-                        grayscale_trace.append(float(row[column_index]))
+                        grayscale_timeseries.append(float(row[column_index]))
                     except (IndexError, TypeError, ValueError):
-                        grayscale_trace.append(float("nan"))
+                        grayscale_timeseries.append(float("nan"))
 
             record = self.ensure_cell_record(cell_id)
             if record is None:
                 continue
-            record.grayscale_trace = grayscale_trace
+            record.grayscale_timeseries = grayscale_timeseries
             record.freeze_event_indices = list(freeze_indices_by_cell.get(cell_id, []))
             record.freeze_rows = [list(row) for row in freeze_rows_by_cell.get(cell_id, [])]
 
