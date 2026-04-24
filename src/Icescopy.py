@@ -3758,7 +3758,7 @@ class IceScopy(QMainWindow):
         hint.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         layout.addWidget(hint)
 
-        self.refresh_sample_catalog_table(preserve_selection=False)
+        self.refresh_sample_catalog_tree(preserve_selection=False)
         return panel
 
     def selected_sample_catalog_id(self):
@@ -3841,7 +3841,7 @@ class IceScopy(QMainWindow):
                 return top_item
         return None
 
-    def refresh_sample_catalog_table(self, select_sample_id=None, preserve_selection=True):
+    def refresh_sample_catalog_tree(self, select_sample_id=None, preserve_selection=True):
         if not hasattr(self, "sample_catalog_tree"):
             return
 
@@ -3915,7 +3915,7 @@ class IceScopy(QMainWindow):
         sample_id = self.allocate_sample_id()
         self.sample_catalog[int(sample_id)] = self.default_sample_record(sample_id)
         self.recompute_next_sample_id(preserve_if_larger=True)
-        self.refresh_sample_catalog_table(select_sample_id=sample_id, preserve_selection=False)
+        self.refresh_sample_catalog_tree(select_sample_id=sample_id, preserve_selection=False)
         self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Add Sample", before_state)
         self.log(f"Add sample {sample_id}")
@@ -3948,7 +3948,7 @@ class IceScopy(QMainWindow):
         before_state = self.capture_data_state()
         self.sample_catalog.pop(sample_id, None)
         self.recompute_next_sample_id(preserve_if_larger=True)
-        self.refresh_sample_catalog_table(preserve_selection=False)
+        self.refresh_sample_catalog_tree(preserve_selection=False)
         self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Delete Sample", before_state)
         self.log(f"Delete sample {sample_id}")
@@ -4103,7 +4103,7 @@ class IceScopy(QMainWindow):
                 record.sample_id = str(sample_id)
 
         self.recompute_next_sample_id(preserve_if_larger=True)
-        self.refresh_sample_catalog_table(select_sample_id=sample_id, preserve_selection=False)
+        self.refresh_sample_catalog_tree(select_sample_id=sample_id, preserve_selection=False)
         if selected_items:
             self.invalidate_freeze_count_timeseries_results("sample assignments changed")
             self.push_data_history("Create and Assign Sample", before_state)
@@ -4637,7 +4637,7 @@ class IceScopy(QMainWindow):
     def show_sample_catalog_manager(self):
         if not hasattr(self, "sample_catalog_dock") or self.sample_catalog_dock is None:
             return
-        self.refresh_sample_catalog_table(preserve_selection=False)
+        self.refresh_sample_catalog_tree(preserve_selection=False)
         self.show_dock_widget(self.sample_catalog_dock)
 
     def zoom_window(self):
@@ -5363,7 +5363,7 @@ class IceScopy(QMainWindow):
             self.ensure_sample_catalog_matches_cell_records()
 
             self.update_results_tables()
-            self.refresh_sample_catalog_table(preserve_selection=False)
+            self.refresh_sample_catalog_tree(preserve_selection=False)
 
             image_set_changed = current_image_paths != self.imagePaths
             new_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
@@ -5481,7 +5481,7 @@ class IceScopy(QMainWindow):
             self.ensure_sample_catalog_matches_cell_records()
 
             self.update_results_tables()
-            self.refresh_sample_catalog_table(preserve_selection=False)
+            self.refresh_sample_catalog_tree(preserve_selection=False)
 
             image_set_changed = current_image_paths != self.imagePaths
             new_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
@@ -5622,7 +5622,7 @@ class IceScopy(QMainWindow):
 
             self.update_results_tables()
             self.update_freeze_count_timeseries_table()
-            self.refresh_sample_catalog_table(preserve_selection=False)
+            self.refresh_sample_catalog_tree(preserve_selection=False)
 
             image_set_changed = (
                 current_image_paths != self.imagePaths or
@@ -5720,7 +5720,7 @@ class IceScopy(QMainWindow):
                 self.keyframe_cell_items_dict = {}
                 self.recompute_next_cell_id(preserve_if_larger=True)
                 self.ensure_sample_catalog_matches_cell_records()
-                self.refresh_sample_catalog_table(preserve_selection=False)
+                self.refresh_sample_catalog_tree(preserve_selection=False)
                 self.restore_tool_mode_ui(restore_tool_mode)
                 return
 
@@ -5835,7 +5835,7 @@ class IceScopy(QMainWindow):
 
             if not has_analysis_payload:
                 self.refresh_grayscale_plot()
-            self.refresh_sample_catalog_table(preserve_selection=False)
+            self.refresh_sample_catalog_tree(preserve_selection=False)
             self.update_session_actions_state()
             self.updateButtonStates()
             self.restore_tool_mode_ui(restore_tool_mode)
@@ -5949,7 +5949,7 @@ class IceScopy(QMainWindow):
             self.ensure_sample_catalog_matches_cell_records()
             self.update_results_tables()
             self.update_freeze_count_timeseries_table()
-            self.refresh_sample_catalog_table(preserve_selection=False)
+            self.refresh_sample_catalog_tree(preserve_selection=False)
             self.update_session_actions_state()
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
@@ -9023,7 +9023,7 @@ class IceScopy(QMainWindow):
         self.updateButtonStates()
         self.update_results_tables()
         self.update_freeze_count_timeseries_table()
-        self.refresh_sample_catalog_table(preserve_selection=False)
+        self.refresh_sample_catalog_tree(preserve_selection=False)
         self.populate_image_list()
         self.reset_cursor_action.trigger()
         if hasattr(self, "terminal"):

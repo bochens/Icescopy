@@ -68,8 +68,8 @@ Dialog for editing persisted application preferences.
 | `timeseries_current_frame_line_width_field` | `__init__` | 800 | Stores timeseries current frame line width field. |
 | `timeseries_freeze_line_color_field` | `__init__` | 797 | Stores timeseries freeze line color field. |
 | `timeseries_freeze_line_width_field` | `__init__` | 798 | Stores timeseries freeze line width field. |
-| `timeseries_palette_field` | `__init__` | 789 | Stores timeseries palette field. |
 | `timeseries_line_width_field` | `__init__` | 795 | Stores timeseries line width field. |
+| `timeseries_palette_field` | `__init__` | 789 | Stores timeseries palette field. |
 | `undo_limit_field` | `__init__` | 747 | Stores undo limit field. |
 | `viewer_image_count_field` | `__init__` | 749 | Stores viewer image count field. |
 

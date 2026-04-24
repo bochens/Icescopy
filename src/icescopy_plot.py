@@ -73,7 +73,7 @@ class GrayscalePlotWidget(QWidget):
         self._convolution_cache = {}
 
         self.message_label = QLabel(
-            "Run analysis, then select one or more circles to plot grayscale traces."
+            "Run analysis, then select one or more circles to plot grayscale timeseries."
         )
         self.message_label.setAlignment(Qt.AlignCenter)
         self.message_label.setWordWrap(True)
@@ -398,18 +398,18 @@ class GrayscalePlotWidget(QWidget):
         try:
             if not self.grayscale_headers or not self.grayscale_rows:
                 self._clear_plot()
-                self._show_message("Run analysis to generate grayscale traces.")
+                self._show_message("Run analysis to generate grayscale timeseries.")
                 return
 
             if not self.cell_ids:
                 self._clear_plot()
-                self._show_message("Select one or more circles to plot grayscale traces.")
+                self._show_message("Select one or more circles to plot grayscale timeseries.")
                 return
 
             series = self._selected_series()
             if not series:
                 self._clear_plot()
-                self._show_message("No grayscale traces matched the currently selected cells.")
+                self._show_message("No grayscale timeseries matched the currently selected cells.")
                 return
 
             self._clear_plot()

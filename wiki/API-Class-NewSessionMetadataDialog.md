@@ -6,7 +6,7 @@ New Session Metadata Dialog class.
 
 - Module: [`icescopy_dialogs`](API-Module-icescopy-dialogs)
 - File: `src/icescopy_dialogs.py`
-- Line: `24`
+- Line: `72`
 
 ## Inheritance
 
@@ -20,10 +20,11 @@ New Session Metadata Dialog class.
 
 | Attribute | First assigned in | Line | Explanation |
 | --- | --- | --- | --- |
-| `date_edit` | `__init__` | 51 | Stores date edit. |
-| `institution_edit` | `__init__` | 50 | Stores institution edit. |
-| `project_name_edit` | `__init__` | 48 | Stores project name edit. |
-| `user_name_edit` | `__init__` | 49 | Stores user name edit. |
+| `date_edit` | `__init__` | 122 | Stores date edit. |
+| `institution_edit` | `__init__` | 98 | Stores institution edit. |
+| `project_name_edit` | `__init__` | 96 | Stores project name edit. |
+| `user_name_edit` | `__init__` | 97 | Stores user name edit. |
+| `well_volume_edit` | `__init__` | 99 | Stores well volume edit. |
 
 ## Methods
 
@@ -31,5 +32,6 @@ New Session Metadata Dialog class.
 
 | Method | Line | Explanation |
 | --- | --- | --- |
-| `__init__(parent=None, metadata=None)` | 25 | Initializes the instance. |
-| `get_metadata()` | 65 | Returns metadata. |
+| `__init__(parent=None, metadata=None, *, window_title='New Session')` | 73 | Initializes the instance. |
+| `accept()` | 139 | Accepts the dialog state and closes the widget. |
+| `get_metadata()` | 153 | Returns metadata. |

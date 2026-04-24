@@ -1128,7 +1128,7 @@ class PreferencesDialog(QDialog):
     def build_analysis_page(self):
         page = self.build_preferences_page(
             "Analysis",
-            "Control how grayscale traces are interpreted and how freezing events are reported.",
+            "Control how grayscale timeseries are interpreted and how freezing events are reported.",
             [],
         )
         page.content_layout.insertWidget(

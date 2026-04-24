@@ -6,7 +6,7 @@ Temperature Import Error class.
 
 - Module: [`icescopy_temperature_import`](API-Module-icescopy-temperature-import)
 - File: `src/icescopy_temperature_import.py`
-- Line: `29`
+- Line: `161`
 
 ## Inheritance
 
