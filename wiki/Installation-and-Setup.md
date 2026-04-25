@@ -26,8 +26,6 @@ The main project areas are:
   - icons, preferences, and bundled assets
 - `tests/`
   - non-GUI unit tests
-- `manual/`
-  - LaTeX source for the user manual
 - `wiki/`
   - GitHub wiki Markdown source
 
