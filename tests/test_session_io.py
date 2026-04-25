@@ -25,6 +25,44 @@ from icescopy_session_io import (  # noqa: E402
 
 
 class SessionIoTests(unittest.TestCase):
+    def bind_sample_allocator_methods(self, fake_window):
+        fake_window.used_sample_ids = lambda: IceScopy.used_sample_ids(fake_window)
+        fake_window.lowest_available_sample_id = lambda: IceScopy.lowest_available_sample_id(fake_window)
+        fake_window.recompute_next_sample_id = (
+            lambda preserve_if_larger=True: IceScopy.recompute_next_sample_id(
+                fake_window,
+                preserve_if_larger=preserve_if_larger,
+            )
+        )
+        fake_window.allocate_sample_id = lambda: IceScopy.allocate_sample_id(fake_window)
+
+    def test_sample_id_allocator_reuses_lowest_deleted_catalog_id(self):
+        fake_window = SimpleNamespace(
+            sample_catalog={1: {"sample_name": "Sample_1"}, 2: {"sample_name": "Sample_2"}},
+            cell_records_by_id={},
+            next_sample_id=99,
+        )
+        self.bind_sample_allocator_methods(fake_window)
+
+        sample_id = fake_window.allocate_sample_id()
+        self.assertEqual(sample_id, 0)
+
+        fake_window.sample_catalog[sample_id] = {"sample_name": "Sample_0"}
+        self.assertEqual(fake_window.recompute_next_sample_id(preserve_if_larger=False), 3)
+
+        fake_window.sample_catalog.pop(0)
+        self.assertEqual(fake_window.recompute_next_sample_id(preserve_if_larger=False), 0)
+
+    def test_sample_id_allocator_reserves_ids_assigned_to_cells(self):
+        fake_window = SimpleNamespace(
+            sample_catalog={1: {"sample_name": "Sample_1"}},
+            cell_records_by_id={10: SimpleNamespace(sample_id="0")},
+            next_sample_id=0,
+        )
+        self.bind_sample_allocator_methods(fake_window)
+
+        self.assertEqual(fake_window.allocate_sample_id(), 2)
+
     def test_refresh_freeze_count_timeseries_metadata_preserves_rows_and_relabels_headers(self):
         fake_window = SimpleNamespace(
             freeze_count_timeseries_headers=[

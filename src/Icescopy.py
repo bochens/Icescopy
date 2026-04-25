@@ -602,14 +602,34 @@ class IceScopy(QMainWindow):
     def deserialize_sample_catalog(self, payload):
         return deserialize_sample_catalog_payload(payload)
 
-    def recompute_next_sample_id(self, preserve_if_larger=True):
-        max_sample_id = -1
+    def used_sample_ids(self):
+        used_ids = set()
         for sample_id in getattr(self, "sample_catalog", {}).keys():
             try:
-                max_sample_id = max(max_sample_id, int(sample_id))
+                used_ids.add(int(sample_id))
             except (TypeError, ValueError):
                 continue
-        derived_next = max_sample_id + 1
+        for record in getattr(self, "cell_records_by_id", {}).values():
+            sample_value = str(getattr(record, "sample_id", "")).strip()
+            if not sample_value:
+                continue
+            try:
+                sample_id = int(sample_value)
+            except (TypeError, ValueError):
+                continue
+            if sample_id >= 0:
+                used_ids.add(sample_id)
+        return used_ids
+
+    def lowest_available_sample_id(self):
+        used_ids = self.used_sample_ids()
+        next_id = 0
+        while next_id in used_ids:
+            next_id += 1
+        return next_id
+
+    def recompute_next_sample_id(self, preserve_if_larger=True):
+        derived_next = self.lowest_available_sample_id()
         if preserve_if_larger:
             self.next_sample_id = max(int(getattr(self, "next_sample_id", 0)), derived_next)
         else:
@@ -619,9 +639,7 @@ class IceScopy(QMainWindow):
         return self.next_sample_id
 
     def allocate_sample_id(self):
-        self.recompute_next_sample_id(preserve_if_larger=True)
-        sample_id = int(self.next_sample_id)
-        self.next_sample_id = sample_id + 1
+        sample_id = int(self.recompute_next_sample_id(preserve_if_larger=False))
         return sample_id
 
     def default_sample_name(self, sample_id):
@@ -779,7 +797,7 @@ class IceScopy(QMainWindow):
                 continue
             if sample_id not in self.sample_catalog:
                 self.sample_catalog[sample_id] = self.default_sample_record(sample_id)
-        self.recompute_next_sample_id(preserve_if_larger=True)
+        self.recompute_next_sample_id(preserve_if_larger=False)
 
     def cursor_sample_catalog_signature(self):
         return tuple(
@@ -3921,7 +3939,7 @@ class IceScopy(QMainWindow):
         before_state = self.capture_data_state()
         sample_id = self.allocate_sample_id()
         self.sample_catalog[int(sample_id)] = self.default_sample_record(sample_id)
-        self.recompute_next_sample_id(preserve_if_larger=True)
+        self.recompute_next_sample_id(preserve_if_larger=False)
         self.refresh_sample_catalog_tree(select_sample_id=sample_id, preserve_selection=False)
         self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Add Sample", before_state)
@@ -3954,7 +3972,7 @@ class IceScopy(QMainWindow):
 
         before_state = self.capture_data_state()
         self.sample_catalog.pop(sample_id, None)
-        self.recompute_next_sample_id(preserve_if_larger=True)
+        self.recompute_next_sample_id(preserve_if_larger=False)
         self.refresh_sample_catalog_tree(preserve_selection=False)
         self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
         self.push_data_history("Delete Sample", before_state)
@@ -4109,7 +4127,7 @@ class IceScopy(QMainWindow):
             if record is not None:
                 record.sample_id = str(sample_id)
 
-        self.recompute_next_sample_id(preserve_if_larger=True)
+        self.recompute_next_sample_id(preserve_if_larger=False)
         self.refresh_sample_catalog_tree(select_sample_id=sample_id, preserve_selection=False)
         if selected_items:
             self.invalidate_freeze_count_timeseries_results("sample assignments changed")
