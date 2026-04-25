@@ -74,7 +74,6 @@ class GrayscalePlotWidget(QWidget):
         self._freeze_map_cache = None
         self._series_cache_by_cell = {}
         self._convolution_cache = {}
-        self._preserve_view_range_on_next_refresh = False
 
         self.message_label = QLabel(
             "Run analysis, then select one or more circles to plot grayscale timeseries."
@@ -199,10 +198,6 @@ class GrayscalePlotWidget(QWidget):
 
         self.current_image_index = current_image_index
         self.current_image_name = current_image_name
-        self._preserve_view_range_on_next_refresh = (
-            not data_changed
-            and self.stack.currentWidget() is self.plot_widget
-        )
         self._render_signature = render_signature
         self.refresh_plot()
 
@@ -328,50 +323,6 @@ class GrayscalePlotWidget(QWidget):
         if not (0 <= current_image_index < len(self.grayscale_rows)):
             return None
         return float(current_image_index)
-
-    def _finite_range(self, range_values):
-        if not isinstance(range_values, (list, tuple)) or len(range_values) != 2:
-            return None
-        try:
-            lower = float(range_values[0])
-            upper = float(range_values[1])
-        except (TypeError, ValueError):
-            return None
-        if not (np.isfinite(lower) and np.isfinite(upper)) or lower == upper:
-            return None
-        return (lower, upper)
-
-    def _capture_view_ranges(self):
-        primary_ranges = self.plot_item.vb.viewRange()
-        convolution_ranges = self.convolution_view_box.viewRange()
-        if len(primary_ranges) < 2 or len(convolution_ranges) < 2:
-            return None
-        x_range = self._finite_range(primary_ranges[0])
-        y_range = self._finite_range(primary_ranges[1])
-        convolution_y_range = self._finite_range(convolution_ranges[1])
-        if x_range is None or y_range is None:
-            return None
-        return {
-            "x_range": x_range,
-            "y_range": y_range,
-            "convolution_y_range": convolution_y_range,
-        }
-
-    def _restore_view_ranges(self, ranges):
-        if not ranges:
-            return False
-        self.plot_item.setRange(
-            xRange=ranges["x_range"],
-            yRange=ranges["y_range"],
-            padding=0,
-        )
-        if ranges.get("convolution_y_range") is not None:
-            self.convolution_view_box.setYRange(
-                ranges["convolution_y_range"][0],
-                ranges["convolution_y_range"][1],
-                padding=0,
-            )
-        return True
 
     def _invalidate_data_caches(self):
         self._column_map_cache = None
@@ -535,13 +486,6 @@ class GrayscalePlotWidget(QWidget):
     def refresh_plot(self):
         self.plot_widget.setUpdatesEnabled(False)
         try:
-            preserved_view_ranges = (
-                self._capture_view_ranges()
-                if self._preserve_view_range_on_next_refresh
-                else None
-            )
-            self._preserve_view_range_on_next_refresh = False
-
             if not self.grayscale_headers or not self.grayscale_rows:
                 self._clear_plot()
                 self._show_message("Run analysis to generate grayscale timeseries.")
@@ -649,15 +593,12 @@ class GrayscalePlotWidget(QWidget):
             if current_frame_x is not None:
                 self._add_current_frame_line(current_frame_x, include_legend=show_legend)
 
-            if preserved_view_ranges and self._restore_view_ranges(preserved_view_ranges):
-                pass
-            elif grayscale_y_min is not None and grayscale_y_max is not None:
+            if grayscale_y_min is not None and grayscale_y_max is not None:
                 padding = max((grayscale_y_max - grayscale_y_min) * 0.08, 1.0)
                 self.plot_item.setYRange(grayscale_y_min - padding, grayscale_y_max + padding, padding=0)
 
             if (
-                not preserved_view_ranges
-                and convolution_y_min is not None
+                convolution_y_min is not None
                 and convolution_y_max is not None
             ):
                 conv_padding = max((convolution_y_max - convolution_y_min) * 0.08, 1.0)
@@ -667,8 +608,7 @@ class GrayscalePlotWidget(QWidget):
                     padding=0,
                 )
 
-            if not preserved_view_ranges:
-                self.plot_item.enableAutoRange(axis="x")
+            self.plot_item.enableAutoRange(axis="x")
             self.update_convolution_view_geometry()
             self._show_plot()
         finally:

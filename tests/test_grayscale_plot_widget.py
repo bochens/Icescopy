@@ -68,24 +68,18 @@ class GrayscalePlotWidgetTests(unittest.TestCase):
         self.assertIsNotNone(widget.current_frame_line)
         self.assertAlmostEqual(float(widget.current_frame_line.value()), 7.0)
 
-    def test_cell_switch_preserves_visible_plot_ranges(self):
+    def test_cell_switch_autoscales_visible_plot_ranges(self):
         headers, rows = self.sample_plot_data()
         widget = self.make_widget()
 
         widget.update_plot_data(headers, rows, [], [1], current_image_index=4)
         widget.plot_item.setRange(xRange=(2.0, 5.0), yRange=(95.0, 112.0), padding=0)
-        widget.convolution_view_box.setYRange(-4.0, 4.0, padding=0)
 
         widget.update_plot_data(headers, rows, [], [2], current_image_index=4)
 
-        x_range, y_range = widget.plot_item.vb.viewRange()
-        convolution_y_range = widget.convolution_view_box.viewRange()[1]
-        self.assertAlmostEqual(x_range[0], 2.0)
-        self.assertAlmostEqual(x_range[1], 5.0)
-        self.assertAlmostEqual(y_range[0], 95.0)
-        self.assertAlmostEqual(y_range[1], 112.0)
-        self.assertAlmostEqual(convolution_y_range[0], -4.0)
-        self.assertAlmostEqual(convolution_y_range[1], 4.0)
+        _x_range, y_range = widget.plot_item.vb.viewRange()
+        self.assertGreater(y_range[0], 150.0)
+        self.assertGreater(y_range[1], 210.0)
 
 
 if __name__ == "__main__":
