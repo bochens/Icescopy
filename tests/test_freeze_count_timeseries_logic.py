@@ -21,7 +21,7 @@ from icescopy_temperature_import import (  # noqa: E402
     TIMESTAMP_STYLE_EPOCH_SECONDS,
     TIMESTAMP_STYLE_EPOCH_MILLISECONDS,
     TIMESTAMP_STYLE_EXIF,
-    apply_blank_correction,
+    apply_blank_correction_counts,
     build_cycle_ids_from_start_indexes,
     compute_blank_correction_by_index,
     detect_cycle_start_indexes_from_temperatures,
@@ -274,14 +274,14 @@ class FreezeCountTimeseriesLogicTests(unittest.TestCase):
         )
         self.assertEqual(resolved.parsed_count, 3)
 
-    def test_blank_correction_helpers_adjust_totals_and_frozen_counts(self):
+    def test_blank_correction_helpers_adjust_counts(self):
         correction = compute_blank_correction_by_index(
             ["blank_a"],
             {"blank_a": [0, 1, 2], "sample_a": [0, 2, 3]},
             3,
         )
         self.assertEqual(correction, [0, 1, 2])
-        self.assertEqual(apply_blank_correction(4, 3, correction[2]), (2, 1, 0.5))
+        self.assertEqual(apply_blank_correction_counts(4, 3, correction[2]), (2, 1))
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ from icescopy_temperature_import import (
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
-    apply_blank_correction,
+    apply_blank_correction_counts,
     build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
     compute_blank_correction_by_index,
     detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
@@ -692,9 +692,22 @@ class IceScopy(QMainWindow):
         else:
             record = normalize_sample_catalog_record({})
             record["sample_name"] = str(sample.get("sample_name", "") or "")
+        sample_cell_count = None
+        if sample.get("total_cells", "") not in (None, ""):
+            sample_cell_count = max(0, int(sample.get("total_cells", 0)))
+        elif sample.get("cell_ids"):
+            sample_cell_count = len({int(cell_id) for cell_id in sample.get("cell_ids", [])})
+        elif sample_id:
+            sample_cell_count = sum(
+                1
+                for cell_record in getattr(self, "cell_records_by_id", {}).values()
+                if str(getattr(cell_record, "sample_id", "")).strip() == sample_id
+            )
+        cell_number = "" if sample_cell_count is None else str(int(sample_cell_count))
 
         return {
             "sample_id": sample_id,
+            "cell_number": cell_number,
             **{
                 field_name: str(record.get(field_name, "") or "")
                 for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
@@ -4893,7 +4906,11 @@ class IceScopy(QMainWindow):
         replacement_name = str(sample_name or "").strip()
         if not replacement_name:
             return current_header
-        for marker in (" corrected temperature_C", " (n="):
+        for marker in (
+            " corrected temperature_C",
+            " number total",
+            " number frozen",
+        ):
             marker_index = current_header.rfind(marker)
             if marker_index >= 0:
                 return f"{replacement_name}{current_header[marker_index:]}"
@@ -4938,19 +4955,18 @@ class IceScopy(QMainWindow):
                         break
 
                 if (
-                    column_index + 2 < len(refreshed_headers)
+                    column_index + 1 < len(refreshed_headers)
                     and refreshed_headers[column_index].endswith(" number total")
                     and refreshed_headers[column_index + 1].endswith(" number frozen")
-                    and refreshed_headers[column_index + 2].endswith(" fraction frozen")
                 ):
-                    for offset in range(3):
+                    for offset in range(2):
                         refreshed_headers[column_index + offset] = (
                             self.relabel_freeze_count_timeseries_header_sample_name(
                                 refreshed_headers[column_index + offset],
                                 sample_name,
                             )
                         )
-                    column_index += 3
+                    column_index += 2
                     sample_index += 1
                     continue
 
@@ -6812,11 +6828,8 @@ class IceScopy(QMainWindow):
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample.get("sample_name", ""))
-            total_cells = int(sample.get("total_cells", 0))
-            triplet_start = len(headers)
-            headers.append(f"{sample_name} (n={total_cells}) number total")
-            headers.append(f"{sample_name} (n={total_cells}) number frozen")
-            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+            headers.append(f"{sample_name} number total")
+            headers.append(f"{sample_name} number frozen")
             sample_column_metadata.append(
                 self.build_freeze_count_timeseries_sample_column_metadata(sample)
             )
@@ -6867,16 +6880,13 @@ class IceScopy(QMainWindow):
                     image_index,
                     0,
                 )
-                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
                     total_cells,
                     frozen_count,
                     blank_correction_by_image[image_index],
                 )
                 output_row.append(str(int(adjusted_total)))
                 output_row.append(str(int(adjusted_frozen)))
-                output_row.append(
-                    "" if fraction_frozen is None else f"{fraction_frozen:.6f}"
-                )
             rows.append(output_row)
 
         timeseries_timestamp_texts = list(getattr(parsed_timeseries, "timeseries_timestamp_texts", []))
@@ -6964,6 +6974,7 @@ class IceScopy(QMainWindow):
                         for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
                         if field_name != "sample_name"
                     },
+                    "cell_ids": list(group.get("cell_ids", [])),
                     "total_cells": int(group["total_cells"]),
                     "is_blank": normalized_name in blank_name_set,
                 }
@@ -7051,11 +7062,8 @@ class IceScopy(QMainWindow):
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample["sample_name"])
-            total_cells = int(sample["total_cells"])
-            triplet_start = len(headers)
-            headers.append(f"{sample_name} (n={total_cells}) number total")
-            headers.append(f"{sample_name} (n={total_cells}) number frozen")
-            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+            headers.append(f"{sample_name} number total")
+            headers.append(f"{sample_name} number frozen")
             sample_column_metadata.append(
                 self.build_freeze_count_timeseries_sample_column_metadata(sample)
             )
@@ -7076,14 +7084,13 @@ class IceScopy(QMainWindow):
                 total_cells = int(sample["total_cells"])
                 sample_counts = corrected_counts_by_sample.get(group_key, [])
                 frozen_value = sample_counts[row_index] if row_index < len(sample_counts) else 0
-                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
                     total_cells,
                     frozen_value,
                     blank_correction,
                 )
                 output_row.append(str(int(adjusted_total)))
                 output_row.append(str(int(adjusted_frozen)))
-                output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
             rows.append(output_row)
 
         summary = {
@@ -7152,13 +7159,10 @@ class IceScopy(QMainWindow):
         sample_column_metadata = []
         for sample in output_samples:
             sample_name = str(sample.get("sample_name", ""))
-            total_cells = int(sample.get("total_cells", 0))
             if include_corrected_temperature:
-                headers.append(f"{sample_name} (n={total_cells}) corrected temperature_C")
-            triplet_start = len(headers)
-            headers.append(f"{sample_name} (n={total_cells}) number total")
-            headers.append(f"{sample_name} (n={total_cells}) number frozen")
-            headers.append(f"{sample_name} (n={total_cells}) fraction frozen")
+                headers.append(f"{sample_name} corrected temperature_C")
+            headers.append(f"{sample_name} number total")
+            headers.append(f"{sample_name} number frozen")
             sample_column_metadata.append(
                 self.build_freeze_count_timeseries_sample_column_metadata(sample)
             )
@@ -7205,14 +7209,13 @@ class IceScopy(QMainWindow):
                     output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
                 total_cells = int(sample.get("total_cells", 0))
                 frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                adjusted_total, adjusted_frozen, fraction_frozen = apply_blank_correction(
+                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
                     total_cells,
                     frozen_count,
                     blank_correction_by_image[image_index],
                 )
                 output_row.append(str(int(adjusted_total)))
                 output_row.append(str(int(adjusted_frozen)))
-                output_row.append("" if fraction_frozen is None else f"{fraction_frozen:.6f}")
             rows.append(output_row)
 
         summary = {

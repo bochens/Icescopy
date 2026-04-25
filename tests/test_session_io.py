@@ -68,12 +68,11 @@ class SessionIoTests(unittest.TestCase):
             freeze_count_timeseries_headers=[
                 "timestamp",
                 "temperature_C",
-                "Sample_0 (n=2) number total",
-                "Sample_0 (n=2) number frozen",
-                "Sample_0 (n=2) fraction frozen",
+                "Sample_0 number total",
+                "Sample_0 number frozen",
             ],
             freeze_count_timeseries_rows=[
-                ["2026-04-22 12:00:00", "-12.3", "2", "1", "0.500000"]
+                ["2026-04-22 12:00:00", "-12.3", "2", "1"]
             ],
             freeze_count_timeseries_summary={
                 "sample_column_metadata": [
@@ -135,16 +134,15 @@ class SessionIoTests(unittest.TestCase):
 
         self.assertTrue(refreshed)
         self.assertEqual(
-            fake_window.freeze_count_timeseries_headers[2:5],
+            fake_window.freeze_count_timeseries_headers[2:4],
             [
-                "Marine Aerosol (n=2) number total",
-                "Marine Aerosol (n=2) number frozen",
-                "Marine Aerosol (n=2) fraction frozen",
+                "Marine Aerosol number total",
+                "Marine Aerosol number frozen",
             ],
         )
         self.assertEqual(
             fake_window.freeze_count_timeseries_rows,
-            [["2026-04-22 12:00:00", "-12.3", "2", "1", "0.500000"]],
+            [["2026-04-22 12:00:00", "-12.3", "2", "1"]],
         )
         self.assertEqual(
             fake_window.freeze_count_timeseries_summary["sample_column_metadata"][0]["sample_long_name"],
@@ -161,12 +159,11 @@ class SessionIoTests(unittest.TestCase):
             freeze_count_timeseries_headers=[
                 "timestamp",
                 "temperature_C",
-                "Sample_0 (n=2) number total",
-                "Sample_0 (n=2) number frozen",
-                "Sample_0 (n=2) fraction frozen",
+                "Sample_0 number total",
+                "Sample_0 number frozen",
             ],
             freeze_count_timeseries_rows=[
-                ["2026-04-22 12:00:00", "-12.3", "2", "1", "0.500000"]
+                ["2026-04-22 12:00:00", "-12.3", "2", "1"]
             ],
             freeze_count_timeseries_summary={
                 "sample_column_metadata": [
@@ -229,7 +226,7 @@ class SessionIoTests(unittest.TestCase):
         )
         self.assertEqual(
             fake_window.freeze_count_timeseries_headers[2],
-            "Sample_0 (n=2) number total",
+            "Sample_0 number total",
         )
 
     def test_freeze_count_timeseries_grouping_uses_sample_id_not_sample_name(self):
@@ -279,6 +276,12 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(groups["1"]["cell_ids"], [10])
         self.assertEqual(groups["2"]["cell_ids"], [11])
 
+        metadata = IceScopy.build_freeze_count_timeseries_sample_column_metadata(
+            fake_window,
+            groups["1"],
+        )
+        self.assertEqual(metadata["cell_number"], "1")
+
     def test_missing_metadata_report_lists_session_and_sample_gaps(self):
         fake_window = SimpleNamespace(
             serialize_session_metadata=lambda: {
@@ -302,7 +305,7 @@ class SessionIoTests(unittest.TestCase):
                         "filter_fraction_used": "0.5",
                         "suspension_volume_mL": "",
                         "dry_mass_g": "",
-                        "column_indices": [3, 4, 5],
+                        "column_indices": [3, 4],
                     }
                 ]
             },
@@ -328,11 +331,10 @@ class SessionIoTests(unittest.TestCase):
             "timestamp",
             "temperature_C",
             "cycle",
-            "Sample A (n=2) number total",
-            "Sample A (n=2) number frozen",
-            "Sample A (n=2) fraction frozen",
+            "Sample A number total",
+            "Sample A number frozen",
         ]
-        rows = [["2026-04-22T12:00:00.000", "-12.300", "0", "2", "1", "0.500000"]]
+        rows = [["2026-04-22T12:00:00.000", "-12.300", "0", "2", "1"]]
         csv_text = build_freeze_count_timeseries_csv_text(
             headers,
             rows,
@@ -359,7 +361,8 @@ class SessionIoTests(unittest.TestCase):
                         "suspension_volume_mL": "2",
                         "dry_mass_g": "",
                         "sample_note": "note",
-                        "column_indices": [3, 4, 5],
+                        "cell_number": "2",
+                        "column_indices": [3, 4],
                     }
                 ],
             },
@@ -374,6 +377,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertNotIn("# date:", csv_text)
         self.assertNotIn("# exported_at:", csv_text)
         self.assertIn("# sample_id,1\n", csv_text)
+        self.assertIn("# cell_number,2\n", csv_text)
         self.assertIn("# sample_name,Sample A\n", csv_text)
         self.assertIn("# collection_start,2026-04-22T12:00:00\n", csv_text)
         self.assertIn("# collection_end,2026-04-22T18:00:00\n", csv_text)
@@ -384,20 +388,19 @@ class SessionIoTests(unittest.TestCase):
         ]
         self.assertEqual(
             non_comment_lines[0],
-            "timestamp,temperature_C,cycle,Sample A (n=2) number total,Sample A (n=2) number frozen,Sample A (n=2) fraction frozen",
+            "timestamp,temperature_C,cycle,Sample A number total,Sample A number frozen",
         )
-        self.assertIn("2026-04-22T12:00:00.000,-12.300,0,2,1,0.500000", csv_text)
+        self.assertIn("2026-04-22T12:00:00.000,-12.300,0,2,1", csv_text)
 
     def test_build_freeze_count_timeseries_csv_text_uses_nan_for_missing_metadata_values(self):
         headers = [
             "timestamp",
             "temperature_C",
             "cycle",
-            "Sample A (n=1) number total",
-            "Sample A (n=1) number frozen",
-            "Sample A (n=1) fraction frozen",
+            "Sample A number total",
+            "Sample A number frozen",
         ]
-        rows = [["2026-04-22T12:00:00.000", "-12.300", "0", "1", "0", "0.000000"]]
+        rows = [["2026-04-22T12:00:00.000", "-12.300", "0", "1", "0"]]
         csv_text = build_freeze_count_timeseries_csv_text(
             headers,
             rows,
@@ -416,7 +419,7 @@ class SessionIoTests(unittest.TestCase):
                         "filter_fraction_used": "",
                         "suspension_volume_mL": "",
                         "dry_mass_g": "",
-                        "column_indices": [3, 4, 5],
+                        "column_indices": [3, 4],
                     }
                 ],
             },
@@ -427,6 +430,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("# well_volume_uL: nan\n", csv_text)
         self.assertIn("# reset_temperature_C: nan\n", csv_text)
         self.assertNotIn("# exported_at:", csv_text)
+        self.assertIn("# cell_number,nan\n", csv_text)
         self.assertIn("# sample_long_name,nan\n", csv_text)
         self.assertIn("# collection_start,nan\n", csv_text)
         self.assertIn("# collection_end,nan\n", csv_text)
@@ -475,7 +479,8 @@ class SessionIoTests(unittest.TestCase):
                         "suspension_volume_mL": "2",
                         "dry_mass_g": "",
                         "sample_note": "note",
-                        "column_indices": [2],
+                        "cell_number": "2",
+                        "column_indices": [2, 3],
                     }
                 ],
             },
@@ -485,8 +490,8 @@ class SessionIoTests(unittest.TestCase):
         grayscale_rows = [["frame_0001.png", "123.4"]]
         freeze_headers = ["cell", "image_index", "image_name"]
         freeze_rows = [["cell_0", "4", "frame_0005.png"]]
-        temperature_headers = ["timestamp", "temperature_C", "sample_A fraction frozen"]
-        temperature_rows = [["2026-04-22 12:00:00", "-12.3", "0.500000"]]
+        temperature_headers = ["timestamp", "temperature_C", "sample_A number total", "sample_A number frozen"]
+        temperature_rows = [["2026-04-22 12:00:00", "-12.3", "2", "1"]]
 
         with tempfile.TemporaryDirectory() as td:
             bundle_path = Path(td) / "session.icescopy"
@@ -530,8 +535,8 @@ class SessionIoTests(unittest.TestCase):
                 temperature_csv_text = archive.read(FREEZE_COUNT_TIMESERIES_CSV_FILENAME).decode("utf-8")
                 self.assertEqual(
                     temperature_csv_text,
-                    "timestamp,temperature_C,sample_A fraction frozen\n"
-                    "2026-04-22 12:00:00,-12.3,0.500000\n",
+                    "timestamp,temperature_C,sample_A number total,sample_A number frozen\n"
+                    "2026-04-22 12:00:00,-12.3,2,1\n",
                 )
 
             (

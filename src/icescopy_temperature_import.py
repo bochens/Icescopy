@@ -646,7 +646,7 @@ def compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sam
     return blank_correction_values
 
 
-def apply_blank_correction(total_cells, frozen_count, blank_correction):
+def apply_blank_correction_counts(total_cells, frozen_count, blank_correction):
     total_cells = max(0, int(total_cells))
     frozen_count = max(0, int(frozen_count))
     if blank_correction is None:
@@ -656,10 +656,7 @@ def apply_blank_correction(total_cells, frozen_count, blank_correction):
         adjusted_total = max(0, total_cells - int(blank_correction))
         adjusted_frozen = max(0, frozen_count - int(blank_correction))
     adjusted_frozen = min(adjusted_frozen, adjusted_total)
-    fraction_frozen = None
-    if adjusted_total > 0:
-        fraction_frozen = adjusted_frozen / adjusted_total
-    return adjusted_total, adjusted_frozen, fraction_frozen
+    return adjusted_total, adjusted_frozen
 
 
 def parse_tamu_image_timestamp(image_name):
