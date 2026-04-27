@@ -374,9 +374,13 @@ class TAMUTemperatureImportDialog(QDialog):
         calibration_row_widget.setLayout(calibration_row)
         form.addRow("Calibration CSV", calibration_row_widget)
 
+        if isinstance(initial_blank_sample_names, (str, bytes)):
+            blank_name_values = [initial_blank_sample_names]
+        else:
+            blank_name_values = list(initial_blank_sample_names or [])
         selected_blank_names = {
             str(sample_name).strip()
-            for sample_name in (initial_blank_sample_names or [])
+            for sample_name in blank_name_values
             if str(sample_name).strip()
         }
         self.blank_sample_list = QListWidget(self)
@@ -498,6 +502,164 @@ class TAMUTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "calibration_path": self.calibration_path_edit.text().strip(),
+            "reset_temperature": reset_temperature,
+            "blank_sample_names": [
+                str(item.text()) for item in self.blank_sample_list.selectedItems()
+            ],
+        }
+
+
+class PKUTemperatureImportDialog(QDialog):
+    def __init__(
+        self,
+        main_window,
+        initial_path,
+        sample_names,
+        initial_reset_temperature=None,
+        initial_blank_sample_names=None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.setWindowTitle("PKU Linksys32 .iml import")
+        layout, self.scroll_area, self.scroll_contents, scroll_layout = _setup_fixed_width_scrolling_dialog(
+            self,
+            width=640,
+            initial_height=420,
+            minimum_height=360,
+        )
+
+        intro_label = QLabel(
+            "Select the PKU Linksys32 .iml file. Loaded images are matched to the .iml image records by current image order. "
+            "You can also mark app samples that should be treated as water blank controls.",
+            self,
+        )
+        intro_label.setWordWrap(True)
+        scroll_layout.addWidget(intro_label)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
+        file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
+        file_row.setSpacing(8)
+        self.file_path_edit = QLineEdit(self)
+        self.file_path_edit.setText(str(initial_path or ""))
+        self.file_path_edit.setPlaceholderText("Choose a PKU Linksys32 .iml file")
+        browse_button = QPushButton("Browse", self)
+        browse_button.setAutoDefault(False)
+        browse_button.setDefault(False)
+        browse_button.setFixedWidth(96)
+        browse_button.clicked.connect(self.browse_file)
+        file_row.addWidget(self.file_path_edit, 1)
+        file_row.addWidget(browse_button, 0, Qt.AlignRight)
+        file_row_widget = QWidget(self)
+        file_row_widget.setLayout(file_row)
+        form.addRow("PKU .iml file", file_row_widget)
+
+        if isinstance(initial_blank_sample_names, (str, bytes)):
+            blank_name_values = [initial_blank_sample_names]
+        else:
+            blank_name_values = list(initial_blank_sample_names or [])
+        selected_blank_names = {
+            str(sample_name).strip()
+            for sample_name in blank_name_values
+            if str(sample_name).strip()
+        }
+        self.blank_sample_list = QListWidget(self)
+        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.blank_sample_list.setMinimumHeight(132)
+        for sample_name in sample_names:
+            sample_label = str(sample_name)
+            item = QListWidgetItem(sample_label, self.blank_sample_list)
+            if sample_label in selected_blank_names or (
+                not selected_blank_names and "blank" in sample_label.casefold()
+            ):
+                item.setSelected(True)
+        form.addRow("Water blank samples", self.blank_sample_list)
+
+        self.reset_temperature_spinbox = QDoubleSpinBox(self)
+        self.reset_temperature_spinbox.setRange(-999.0, 200.0)
+        self.reset_temperature_spinbox.setDecimals(1)
+        self.reset_temperature_spinbox.setSpecialValueText("Off")
+        self.reset_temperature_spinbox.setValue(
+            -999.0
+            if initial_reset_temperature is None
+            else float(initial_reset_temperature)
+        )
+        self.reset_temperature_spinbox.setFixedWidth(120)
+        reset_row = QHBoxLayout()
+        reset_row.setContentsMargins(0, 0, 0, 0)
+        reset_row.addWidget(self.reset_temperature_spinbox, 0, Qt.AlignLeft)
+        reset_row.addStretch(1)
+        reset_row_widget = QWidget(self)
+        reset_row_widget.setLayout(reset_row)
+        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
+
+        scroll_layout.addLayout(form)
+
+        hint_label = QLabel(
+            "The .iml image record count must match the loaded image count so image order can be used without guessing.",
+            self,
+        )
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: rgba(96, 96, 96, 255);")
+        hint_label.setContentsMargins(2, 2, 2, 0)
+        scroll_layout.addWidget(hint_label)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def browse_file(self):
+        initial_dir = ""
+        existing_path = self.file_path_edit.text().strip()
+        if existing_path:
+            initial_dir = os.path.dirname(existing_path)
+        elif getattr(self.main_window, "last_temperature_import_path", None):
+            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
+        elif getattr(self.main_window, "imagePaths", None):
+            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import PKU Linksys32 .iml file",
+            initial_dir,
+            "Linksys32 Data Files (*.iml);;All Files (*)",
+            options=self.main_window.file_dialog_options(),
+        )
+        if file_path:
+            self.file_path_edit.setText(file_path)
+
+    def accept(self):
+        file_path = self.file_path_edit.text().strip()
+        if not file_path:
+            QMessageBox.warning(
+                self,
+                "PKU Linksys32 .iml import",
+                "Choose a PKU Linksys32 .iml file before importing.",
+            )
+            return
+        if not os.path.isfile(file_path):
+            QMessageBox.warning(
+                self,
+                "PKU Linksys32 .iml import",
+                "The selected PKU Linksys32 .iml file does not exist.",
+            )
+            return
+        super().accept()
+
+    def get_values(self):
+        reset_temperature = float(self.reset_temperature_spinbox.value())
+        if reset_temperature <= -999.0:
+            reset_temperature = None
+        return {
+            "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
             "blank_sample_names": [
                 str(item.text()) for item in self.blank_sample_list.selectedItems()

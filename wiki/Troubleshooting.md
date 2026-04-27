@@ -50,6 +50,16 @@ Check:
 - reset threshold
 - whether freeze results are stale and need rerunning
 
+For standard temperature CSV import, also check:
+
+- the CSV really has timestamp in column 1 and temperature in column 2
+- the selected image timestamp source can resolve the loaded images
+- the selected timestamp style matches the text in the image names or CSV
+- epoch values use the explicit epoch seconds or epoch milliseconds option
+- the temperature unit is set correctly
+
+If no image timestamp falls inside the temperature timeseries range, the import should be treated as unsuccessful.
+
 ## A new cycle appears at the wrong time
 
 Check:
@@ -69,6 +79,26 @@ Check whether you changed any analysis inputs after the last run:
 - analysis settings
 
 If so, rerun analysis.
+
+If only sample metadata changed, rerunning image analysis is not needed.
+If sample assignment changed after temperature import, reimport the temperature file.
+
+## Freeze count timeseries export has `nan`
+
+`nan` means metadata was missing, not guessed.
+Fill in the relevant session metadata or sample catalog field if downstream software needs it.
+
+Common fields to check:
+
+- project name
+- user name
+- institution
+- well volume
+- sample long name
+- sampling site
+- collection start
+- collection end
+- dilution and sample-type-specific fields
 
 ## Cells drift off droplets during the run
 

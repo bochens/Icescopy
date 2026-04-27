@@ -13,6 +13,7 @@ FREEZE_COUNT_TIMESERIES_CSV_FILENAME = "freeze_count_timeseries.csv"
 SAMPLE_CATALOG_FIELD_NAMES = (
     "sample_name",
     "sample_long_name",
+    "sampling_site",
     "collection_start",
     "collection_end",
     "sample_type",

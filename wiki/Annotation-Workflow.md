@@ -10,6 +10,7 @@ Use the cursor tool when you need to:
 - inspect cells
 - edit freeze frames
 - assign samples
+- create a simple sample assignment during annotation
 
 Use the add or grid tools when you need to:
 
@@ -125,11 +126,47 @@ Sample assignment affects:
 - temperature import grouping
 - interpretation of results tables
 
+Sample assignment is done on cells.
+Sample metadata is edited in the sample catalog.
+Do not use the cursor tool as the main metadata editor.
+
 ## Use the sample catalog
 
-The sample catalog gives names to sample IDs.
+The sample catalog is the canonical place to edit sample metadata.
+It uses stable sample IDs internally and shows each sample as an expandable tree entry.
 
 Use it to keep exports readable and to avoid treating numeric sample IDs as the only user-facing identifiers.
+
+Editable fields are:
+
+- sample name
+- sample long name
+- sampling site
+- collection start
+- collection end
+- sample type
+- dilution factor
+- air volume
+- filter fraction used
+- suspension volume
+- dry mass
+
+Collection start and collection end use `YYYY-MM-DD HH:MM:SS`.
+The sample type can be `air`, `soil`, or `other`.
+Type-specific fields that do not apply are disabled in the tree.
+
+For export:
+
+- `sample_id` is the stable grouping key
+- `sample_name` is the displayed name
+- `cell_number` is the number of cells assigned to that sample
+- missing metadata is written as `nan`
+
+Changing sample names, long names, sample type, collection times, or numeric sample metadata does not rerun grayscale analysis.
+Changing which cells belong to a sample changes grouped temperature output, so reimport temperature data after sample assignment changes.
+
+Sample IDs are reused from the lowest available deleted sample number.
+For example, if sample `0` is deleted, the next new sample can use `0` again.
 
 ## Use the cells panel
 
@@ -149,4 +186,7 @@ Use this order for the least rework:
 2. correct geometry
 3. add keyframes if the layout moves
 4. assign samples
-5. review freeze frames only after analysis has been run
+5. edit sample catalog metadata
+6. run analysis
+7. review freeze frames
+8. import temperature data if needed

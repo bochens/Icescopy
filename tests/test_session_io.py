@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +13,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
+from icescopy_temperature_import import TemperatureImportError  # noqa: E402
 from icescopy_session_io import (  # noqa: E402
     FREEZE_COUNT_TIMESERIES_CSV_FILENAME,
     FREEZE_CSV_FILENAME,
@@ -35,6 +38,171 @@ class SessionIoTests(unittest.TestCase):
             )
         )
         fake_window.allocate_sample_id = lambda: IceScopy.allocate_sample_id(fake_window)
+
+    def bind_pku_temperature_methods(self, fake_window):
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.ensure_cell_record = lambda cell_id: None
+        fake_window.build_freeze_count_timeseries_sample_groups = (
+            lambda grouping_mode="samples": IceScopy.build_freeze_count_timeseries_sample_groups(
+                fake_window,
+                grouping_mode=grouping_mode,
+            )
+        )
+        fake_window.build_tamu_freeze_count_timeseries_sample_groups = (
+            lambda: IceScopy.build_tamu_freeze_count_timeseries_sample_groups(fake_window)
+        )
+        fake_window.build_freeze_count_timeseries_blank_selection = (
+            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+                fake_window,
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        fake_window.detect_cycle_start_indexes_from_temperatures = (
+            lambda temperatures, reset_temperature: IceScopy.detect_cycle_start_indexes_from_temperatures(
+                fake_window,
+                temperatures,
+                reset_temperature,
+            )
+        )
+        fake_window.build_cycle_ids_from_start_indexes = (
+            lambda total_count, cycle_start_indexes: IceScopy.build_cycle_ids_from_start_indexes(
+                fake_window,
+                total_count,
+                cycle_start_indexes,
+            )
+        )
+        fake_window.cycle_index_for_position = (
+            lambda position_value, cycle_start_positions: IceScopy.cycle_index_for_position(
+                fake_window,
+                position_value,
+                cycle_start_positions,
+            )
+        )
+        fake_window.build_pku_linksys32_image_timing_context = (
+            lambda parsed_timeseries, reset_temperature=None: IceScopy.build_pku_linksys32_image_timing_context(
+                fake_window,
+                parsed_timeseries,
+                reset_temperature=reset_temperature,
+            )
+        )
+        fake_window.build_tamu_cycle_reset_image_counts = (
+            lambda sample_groups, image_cycle_ids: IceScopy.build_tamu_cycle_reset_image_counts(
+                fake_window,
+                sample_groups,
+                image_cycle_ids,
+            )
+        )
+        fake_window.normalize_temperature_reset_threshold = (
+            lambda reset_temperature: IceScopy.normalize_temperature_reset_threshold(
+                fake_window,
+                reset_temperature,
+            )
+        )
+        fake_window.build_pku_linksys32_freeze_count_timeseries_results = (
+            lambda parsed_timeseries, **kwargs: IceScopy.build_pku_linksys32_freeze_count_timeseries_results(
+                fake_window,
+                parsed_timeseries,
+                **kwargs,
+            )
+        )
+
+    def make_pku_parsed_timeseries(self, image_count=2):
+        start_timestamp = datetime(2025, 2, 17, 18, 25, 38, 395000)
+        image_records = [
+            SimpleNamespace(timestamp=start_timestamp + timedelta(seconds=0.5 + index))
+            for index in range(image_count)
+        ]
+        return SimpleNamespace(
+            file_path="/tmp/sample.iml",
+            version="V1.4",
+            start_timestamp=start_timestamp,
+            start_timestamp_text=start_timestamp.isoformat(timespec="milliseconds"),
+            sample_period_seconds=1.0,
+            timeseries_seconds=[0.0, 1.0, 2.0],
+            timeseries_datetimes=[
+                start_timestamp,
+                start_timestamp + timedelta(seconds=1),
+                start_timestamp + timedelta(seconds=2),
+            ],
+            timeseries_timestamp_texts=[
+                start_timestamp.isoformat(timespec="microseconds"),
+                (start_timestamp + timedelta(seconds=1)).isoformat(timespec="microseconds"),
+                (start_timestamp + timedelta(seconds=2)).isoformat(timespec="microseconds"),
+            ],
+            temperature_values=[-1.0, -2.0, -3.0],
+            timeseries_row_count=3,
+            image_records=image_records,
+            image_record_count=len(image_records),
+        )
+
+    def test_pku_linksys32_import_uses_iml_image_record_timestamps(self):
+        fake_window = SimpleNamespace(
+            imageNames=["frame_001.jpg", "frame_002.jpg"],
+            imagePaths=["/tmp/frame_001.jpg", "/tmp/frame_002.jpg"],
+            cell_records_by_id={},
+            temperature_cycle_warmup_hysteresis_c=0.02,
+        )
+        self.bind_pku_temperature_methods(fake_window)
+
+        headers, rows, summary = fake_window.build_pku_linksys32_freeze_count_timeseries_results(
+            self.make_pku_parsed_timeseries(),
+        )
+
+        self.assertEqual(
+            headers,
+            ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"],
+        )
+        self.assertEqual(rows[0][:4], ["2025-02-17T18:25:38.895", "-1.500", "0", "frame_001.jpg"])
+        self.assertEqual(rows[1][:4], ["2025-02-17T18:25:39.895", "-2.500", "0", "frame_002.jpg"])
+        self.assertEqual(summary["source_type"], "pku_linksys32_iml")
+        self.assertEqual(summary["image_record_count"], 2)
+        self.assertEqual(summary["in_range_image_count"], 2)
+
+    def test_pku_linksys32_import_rejects_image_count_mismatch(self):
+        fake_window = SimpleNamespace(
+            imageNames=["frame_001.jpg", "frame_002.jpg"],
+            imagePaths=["/tmp/frame_001.jpg", "/tmp/frame_002.jpg"],
+            cell_records_by_id={},
+            temperature_cycle_warmup_hysteresis_c=0.02,
+        )
+        self.bind_pku_temperature_methods(fake_window)
+
+        with self.assertRaises(TemperatureImportError):
+            fake_window.build_pku_linksys32_freeze_count_timeseries_results(
+                self.make_pku_parsed_timeseries(image_count=1),
+            )
+
+    def test_pku_import_dialog_uses_keyword_arguments_without_calibration(self):
+        captured_kwargs = {}
+
+        class FakePKUDialog:
+            def __init__(self, **kwargs):
+                captured_kwargs.update(kwargs)
+
+            def exec(self):
+                return 0
+
+        original_dialog = icescopy_module.PKUTemperatureImportDialog
+        try:
+            icescopy_module.PKUTemperatureImportDialog = FakePKUDialog
+            fake_window = SimpleNamespace(
+                imagePaths=["/tmp/frame_001.jpg"],
+                last_temperature_import_path="/tmp/sample.iml",
+                last_temperature_reset_temperature=None,
+                last_temperature_blank_sample_names=[],
+                available_sample_names=lambda: ["Sample A"],
+            )
+
+            IceScopy.import_pku_linksys32_iml(fake_window)
+        finally:
+            icescopy_module.PKUTemperatureImportDialog = original_dialog
+
+        self.assertEqual(captured_kwargs["main_window"], fake_window)
+        self.assertEqual(captured_kwargs["sample_names"], ["Sample A"])
+        self.assertEqual(captured_kwargs["initial_blank_sample_names"], [])
+        self.assertEqual(captured_kwargs["parent"], fake_window)
+        self.assertNotIn("initial_calibration_path", captured_kwargs)
 
     def test_sample_id_allocator_reuses_lowest_deleted_catalog_id(self):
         fake_window = SimpleNamespace(
@@ -100,6 +268,7 @@ class SessionIoTests(unittest.TestCase):
                 0: {
                     "sample_name": "Marine Aerosol",
                     "sample_long_name": "MOASIC marine aerosol",
+                    "sampling_site": "Colorado State University",
                     "collection_start": "",
                     "collection_end": "",
                     "sample_type": "air",
@@ -147,6 +316,10 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(
             fake_window.freeze_count_timeseries_summary["sample_column_metadata"][0]["sample_long_name"],
             "MOASIC marine aerosol",
+        )
+        self.assertEqual(
+            fake_window.freeze_count_timeseries_summary["sample_column_metadata"][0]["sampling_site"],
+            "Colorado State University",
         )
         self.assertEqual(
             fake_window.freeze_count_timeseries_summary["matched_samples"],
@@ -322,7 +495,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("- institution", report_lines)
         self.assertIn("- well_volume_uL", report_lines)
         self.assertIn(
-            "- Sample 1 (Sample A): sample_long_name, collection_start, collection_end, dilution, air_volume_L, suspension_volume_mL, dry_mass_g",
+            "- Sample 1 (Sample A): sample_long_name, sampling_site, collection_start, collection_end, dilution, air_volume_L, suspension_volume_mL, dry_mass_g",
             report_lines,
         )
 
@@ -352,6 +525,7 @@ class SessionIoTests(unittest.TestCase):
                         "sample_id": "1",
                         "sample_name": "Sample A",
                         "sample_long_name": "Long A",
+                        "sampling_site": "Storm Peak Laboratory",
                         "collection_start": "2026-04-22T12:00:00",
                         "collection_end": "2026-04-22T18:00:00",
                         "sample_type": "air",
@@ -379,6 +553,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("# sample_id,1\n", csv_text)
         self.assertIn("# cell_number,2\n", csv_text)
         self.assertIn("# sample_name,Sample A\n", csv_text)
+        self.assertIn("# sampling_site,Storm Peak Laboratory\n", csv_text)
         self.assertIn("# collection_start,2026-04-22T12:00:00\n", csv_text)
         self.assertIn("# collection_end,2026-04-22T18:00:00\n", csv_text)
         self.assertIn("# sample_type,air\n", csv_text)
@@ -432,6 +607,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertNotIn("# exported_at:", csv_text)
         self.assertIn("# cell_number,nan\n", csv_text)
         self.assertIn("# sample_long_name,nan\n", csv_text)
+        self.assertIn("# sampling_site,nan\n", csv_text)
         self.assertIn("# collection_start,nan\n", csv_text)
         self.assertIn("# collection_end,nan\n", csv_text)
         self.assertIn("# air_volume_L,nan\n", csv_text)
@@ -451,6 +627,7 @@ class SessionIoTests(unittest.TestCase):
                 "1": {
                     "sample_name": "Sample A",
                     "sample_long_name": "Long A",
+                    "sampling_site": "Storm Peak Laboratory",
                     "collection_start": "2026-04-22T12:00:00",
                     "collection_end": "2026-04-22T18:00:00",
                     "sample_type": "air",
@@ -470,6 +647,7 @@ class SessionIoTests(unittest.TestCase):
                         "sample_id": "1",
                         "sample_name": "Sample A",
                         "sample_long_name": "Long A",
+                        "sampling_site": "Storm Peak Laboratory",
                         "collection_start": "2026-04-22T12:00:00",
                         "collection_end": "2026-04-22T18:00:00",
                         "sample_type": "air",

@@ -30,6 +30,10 @@ Typical invalidating changes are:
 - uniform exposure changes
 - analysis preference changes
 
+Sample catalog metadata does not invalidate grayscale measurements or freeze events.
+Changing a sample name, sample type, collection time, or dilution metadata updates export metadata but does not require rerunning image analysis.
+Changing which cells belong to a sample does affect grouped freeze count timeseries output, so reimport temperature data after assignment changes.
+
 ## Results tables
 
 Icescopy currently works with three main result tables:
@@ -67,6 +71,23 @@ Use it when you need:
 - temperature-aligned freeze counts
 - sample-level or grouped output for downstream interpretation
 
+The freeze count timeseries table is grouped by `sample_id`, not by normalized sample name.
+This prevents two distinct samples with the same displayed name from being merged.
+
+For each sample, the count columns are:
+
+- `number total`
+- `number frozen`
+
+The app does not calculate or export `fraction frozen`.
+Calculate fraction frozen downstream when needed.
+
+Water blank correction subtracts cumulative frozen water blank counts from each non-blank output group.
+The correction affects both `number total` and `number frozen` so the exported counts stay internally consistent.
+
+Exported freeze count timeseries CSVs include commented metadata rows for session fields and sample fields.
+Missing metadata is written as `nan`.
+
 ## Grayscale plot
 
 The grayscale plot is the main review surface for timeseries behavior.
@@ -76,6 +97,9 @@ Use it to:
 - inspect grayscale change over time
 - compare detected freeze frames against the timeseries
 - tune freeze-finding settings
+
+When switching cells, the plot autoscales to the selected cell instead of preserving the previous cell's axis range.
+The yellow current-frame marker follows the active image frame.
 
 ## Freeze finding
 

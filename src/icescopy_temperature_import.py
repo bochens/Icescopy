@@ -4,6 +4,7 @@ import csv
 import math
 import os
 import re
+import struct
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,10 @@ from PIL import Image
 
 
 CSU_IS_TIMESTAMP_RE = re.compile(r":\.(\d+)$")
+LINKSYS32_IML_TEMPERATURE_RE = re.compile(
+    r"\bTemp\s+([-+]?\d+(?:\.\d+)?)\b",
+    re.IGNORECASE,
+)
 TAMU_IMAGE_TIMESTAMP_RE = re.compile(
     r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-"
     r"(?P<hour>\d{2})-(?P<minute>\d{2})-(?P<second>\d{2})-"
@@ -110,6 +115,18 @@ INLINE_EXIF_TIMESTAMP_RE = re.compile(
 )
 EPOCH_TIMESTAMP_RE = re.compile(r"(?<!\d)(-?(?:\d{10}|\d{13}))(?!\d)")
 
+FILETIME_EPOCH = datetime(1601, 1, 1)
+LINKSYS32_IML_MIN_HEADER_BYTES = 0x108
+LINKSYS32_IML_DATA_COUNT_OFFSET = 0xF0
+LINKSYS32_IML_IMAGE_COUNT_OFFSET = 0xF4
+LINKSYS32_IML_SAMPLE_PERIOD_OFFSET = 0xFC
+LINKSYS32_IML_START_FILETIME_OFFSET = 0x100
+LINKSYS32_IML_DATA_RECORD_BYTES = 256
+LINKSYS32_IML_IMAGE_RECORD_BYTES = 348
+LINKSYS32_IML_IMAGE_RECORD_HEADER_BYTES = 28
+LINKSYS32_IML_IMAGE_TEXT_BYTES = 256
+LINKSYS32_IML_IMAGE_NOTE_BYTES = 64
+
 TIMESTAMP_STYLE_AUTO = "auto"
 TIMESTAMP_STYLE_COMMON = "common_datetime"
 TIMESTAMP_STYLE_YEAR4_DASH = "year4_dash_datetime"
@@ -184,6 +201,35 @@ class TAMULinkamTimeseries:
 
 
 @dataclass
+class Linksys32IMLImageRecord:
+    image_index: int
+    image_offset: int
+    image_byte_count: int
+    timestamp: datetime
+    timestamp_text: str
+    temperature_value: float
+    status_text: str
+    note_text: str
+
+
+@dataclass
+class Linksys32IMLTimeseries:
+    file_path: str
+    version: str
+    start_timestamp: datetime
+    start_timestamp_text: str
+    sample_period_seconds: float
+    timeseries_seconds: list[float]
+    timeseries_datetimes: list[datetime]
+    timeseries_timestamp_texts: list[str]
+    temperature_values: list[float]
+    status_texts: list[str]
+    timeseries_row_count: int
+    image_records: list[Linksys32IMLImageRecord]
+    image_record_count: int
+
+
+@dataclass
 class StandardTemperatureTimeseries:
     file_path: str
     timeseries_datetimes: list[datetime]
@@ -234,6 +280,31 @@ def _safe_float(value):
         return float(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _decode_linksys32_iml_text(raw_bytes):
+    return bytes(raw_bytes).split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+
+
+def _parse_filetime(raw_value):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    try:
+        microseconds, _ = divmod(value, 10)
+        return FILETIME_EPOCH + timedelta(microseconds=microseconds)
+    except OverflowError:
+        return None
+
+
+def _parse_linksys32_iml_temperature(status_text):
+    match = LINKSYS32_IML_TEMPERATURE_RE.search(str(status_text or ""))
+    if not match:
+        return None
+    return _safe_float(match.group(1))
 
 
 def _normalize_parsed_datetime(value):
@@ -625,6 +696,137 @@ def parse_standard_temperature_csv(
         temperature_values=[row[2] for row in parsed_rows],
         timeseries_row_count=len(parsed_rows),
     )
+
+
+def parse_linksys32_iml(file_path):
+    file_size = os.path.getsize(file_path)
+    with open(file_path, "rb") as handle:
+        header = handle.read(LINKSYS32_IML_MIN_HEADER_BYTES)
+        if len(header) < LINKSYS32_IML_MIN_HEADER_BYTES:
+            raise TemperatureImportError("The selected Linksys32 .iml file is too small to contain a valid header.")
+
+        version = _decode_linksys32_iml_text(header[:8])
+        if not version.startswith("V"):
+            raise TemperatureImportError("The selected file does not look like a Linksys32 .iml data file.")
+
+        data_record_count = struct.unpack_from("<I", header, LINKSYS32_IML_DATA_COUNT_OFFSET)[0]
+        image_record_count = struct.unpack_from("<I", header, LINKSYS32_IML_IMAGE_COUNT_OFFSET)[0]
+        sample_period_seconds = struct.unpack_from("<f", header, LINKSYS32_IML_SAMPLE_PERIOD_OFFSET)[0]
+        start_timestamp = _parse_filetime(
+            struct.unpack_from("<Q", header, LINKSYS32_IML_START_FILETIME_OFFSET)[0]
+        )
+
+        if data_record_count < 2:
+            raise TemperatureImportError("The selected Linksys32 .iml file does not contain enough data records.")
+        if not math.isfinite(sample_period_seconds) or sample_period_seconds <= 0:
+            raise TemperatureImportError("The selected Linksys32 .iml file has an invalid data sampling interval.")
+        if start_timestamp is None:
+            raise TemperatureImportError("The selected Linksys32 .iml file has an invalid start timestamp.")
+
+        image_table_bytes = int(image_record_count) * LINKSYS32_IML_IMAGE_RECORD_BYTES
+        data_table_bytes = int(data_record_count) * LINKSYS32_IML_DATA_RECORD_BYTES
+        metadata_bytes = image_table_bytes + data_table_bytes
+        if metadata_bytes <= 0 or metadata_bytes > file_size:
+            raise TemperatureImportError("The selected Linksys32 .iml file has inconsistent record counts.")
+
+        image_table_start = file_size - metadata_bytes
+        data_table_start = image_table_start + image_table_bytes
+        if image_table_start < LINKSYS32_IML_MIN_HEADER_BYTES:
+            raise TemperatureImportError("The selected Linksys32 .iml file has an invalid metadata table offset.")
+
+        image_records = []
+        for image_index in range(int(image_record_count)):
+            handle.seek(image_table_start + image_index * LINKSYS32_IML_IMAGE_RECORD_BYTES)
+            record = handle.read(LINKSYS32_IML_IMAGE_RECORD_BYTES)
+            if len(record) != LINKSYS32_IML_IMAGE_RECORD_BYTES:
+                raise TemperatureImportError("The selected Linksys32 .iml file has a truncated image record table.")
+
+            image_offset, _, image_byte_count = struct.unpack_from("<III", record, 0)
+            if image_byte_count <= 0 or image_offset + image_byte_count > image_table_start:
+                raise TemperatureImportError(
+                    f"Linksys32 .iml image record {image_index + 1} points outside the image payload."
+                )
+            image_timestamp = _parse_filetime(struct.unpack_from("<Q", record, 12)[0])
+            if image_timestamp is None:
+                raise TemperatureImportError(
+                    f"Linksys32 .iml image record {image_index + 1} has an invalid timestamp."
+                )
+
+            status_start = LINKSYS32_IML_IMAGE_RECORD_HEADER_BYTES
+            status_end = status_start + LINKSYS32_IML_IMAGE_TEXT_BYTES
+            note_end = status_end + LINKSYS32_IML_IMAGE_NOTE_BYTES
+            status_text = _decode_linksys32_iml_text(record[status_start:status_end])
+            temperature_value = _parse_linksys32_iml_temperature(status_text)
+            if temperature_value is None:
+                raise TemperatureImportError(
+                    f"Linksys32 .iml image record {image_index + 1} has an unparseable temperature value."
+                )
+            note_text = _decode_linksys32_iml_text(record[status_end:note_end])
+            image_records.append(
+                Linksys32IMLImageRecord(
+                    image_index=image_index + 1,
+                    image_offset=int(image_offset),
+                    image_byte_count=int(image_byte_count),
+                    timestamp=image_timestamp,
+                    timestamp_text=image_timestamp.isoformat(timespec="milliseconds"),
+                    temperature_value=float(temperature_value),
+                    status_text=status_text,
+                    note_text=note_text,
+                )
+            )
+
+        timeseries_datetimes = []
+        timeseries_seconds = []
+        timeseries_timestamp_texts = []
+        temperature_values = []
+        status_texts = []
+        for row_index in range(int(data_record_count)):
+            handle.seek(data_table_start + row_index * LINKSYS32_IML_DATA_RECORD_BYTES)
+            record = handle.read(LINKSYS32_IML_DATA_RECORD_BYTES)
+            if len(record) != LINKSYS32_IML_DATA_RECORD_BYTES:
+                raise TemperatureImportError("The selected Linksys32 .iml file has a truncated data record table.")
+
+            status_text = _decode_linksys32_iml_text(record)
+            temperature_value = _parse_linksys32_iml_temperature(status_text)
+            if temperature_value is None:
+                raise TemperatureImportError(
+                    f"Linksys32 .iml data record {row_index + 1} has an unparseable temperature value."
+                )
+            timestamp = start_timestamp + timedelta(seconds=float(sample_period_seconds) * row_index)
+            timeseries_seconds.append(float(sample_period_seconds) * row_index)
+            timeseries_datetimes.append(timestamp)
+            timeseries_timestamp_texts.append(timestamp.isoformat(timespec="microseconds"))
+            temperature_values.append(float(temperature_value))
+            status_texts.append(status_text)
+
+    return Linksys32IMLTimeseries(
+        file_path=str(file_path),
+        version=version,
+        start_timestamp=start_timestamp,
+        start_timestamp_text=start_timestamp.isoformat(timespec="milliseconds"),
+        sample_period_seconds=float(sample_period_seconds),
+        timeseries_seconds=timeseries_seconds,
+        timeseries_datetimes=timeseries_datetimes,
+        timeseries_timestamp_texts=timeseries_timestamp_texts,
+        temperature_values=temperature_values,
+        status_texts=status_texts,
+        timeseries_row_count=len(timeseries_datetimes),
+        image_records=image_records,
+        image_record_count=len(image_records),
+    )
+
+
+def write_linksys32_iml_temperature_csv(file_path, output_path):
+    parsed = parse_linksys32_iml(file_path)
+    with open(output_path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "temperature_C"])
+        for timestamp_text, temperature_value in zip(
+            parsed.timeseries_timestamp_texts,
+            parsed.temperature_values,
+        ):
+            writer.writerow([timestamp_text, temperature_value])
+    return parsed
 
 
 def compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count):

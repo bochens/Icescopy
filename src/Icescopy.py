@@ -35,6 +35,7 @@ from icescopy_dialogs import (
     CSUTemperatureImportDialog,
     NewSessionMetadataDialog,
     OutputResultsDialog,
+    PKUTemperatureImportDialog,
     StandardTemperatureImportDialog,
     TAMUTemperatureImportDialog,
 )
@@ -71,6 +72,7 @@ from icescopy_temperature_import import (
     normalize_temperature_reset_threshold as normalize_temperature_reset_threshold_value,
     parse_ice_array_calibration_csv,
     parse_csu_is_dat,
+    parse_linksys32_iml,
     parse_standard_temperature_csv,
     parse_tamu_image_timestamp,
     parse_tamu_linkam_xlsx,
@@ -132,6 +134,7 @@ SAMPLE_CATALOG_TREE_INDENTATION = 8
 SAMPLE_CATALOG_TREE_FIELDS = (
     ("sample_name", "Sample name"),
     ("sample_long_name", "Sample long name"),
+    ("sampling_site", "Sampling site"),
     ("collection_start", "Collection start"),
     ("collection_end", "Collection end"),
     ("sample_type", "Sample type"),
@@ -2751,6 +2754,7 @@ class IceScopy(QMainWindow):
         self.import_temperature_csv_action = QAction("Standard CSV import...", self)
         self.import_csu_is_dat_action = QAction("CSU IS .dat import...", self)
         self.import_tamu_linkam_xlsx_action = QAction("TAMU Linkam .xlsx import...", self)
+        self.import_pku_linksys32_iml_action = QAction("PKU Linksys32 .iml import...", self)
         self.sort_images_action = QAction("Sort Images", self)
         self.sample_manager_action = QAction("Sample Catalog Manager", self)
         self.image_edit_action = QAction("Image Edit", self)
@@ -2795,6 +2799,7 @@ class IceScopy(QMainWindow):
         import_temperature_menu.addSeparator()
         import_temperature_menu.addAction(self.import_csu_is_dat_action)
         import_temperature_menu.addAction(self.import_tamu_linkam_xlsx_action)
+        import_temperature_menu.addAction(self.import_pku_linksys32_iml_action)
 
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
@@ -2834,6 +2839,7 @@ class IceScopy(QMainWindow):
         self.import_temperature_csv_action.triggered.connect(self.import_standard_temperature_csv)
         self.import_csu_is_dat_action.triggered.connect(self.import_csu_is_dat)
         self.import_tamu_linkam_xlsx_action.triggered.connect(self.import_tamu_linkam_xlsx)
+        self.import_pku_linksys32_iml_action.triggered.connect(self.import_pku_linksys32_iml)
         self.remove_selected_action.triggered.connect(self.remove_selected_image)
         self.clear_images_action.triggered.connect(self.clear_loaded_images)
         self.run_analysis_action.triggered.connect(self.outputData)
@@ -3815,7 +3821,7 @@ class IceScopy(QMainWindow):
             return None
 
     def sample_catalog_field_is_relevant(self, field_name, sample_record):
-        if field_name in ("sample_name", "sample_long_name", "collection_start", "collection_end", "sample_type"):
+        if field_name in ("sample_name", "sample_long_name", "sampling_site", "collection_start", "collection_end", "sample_type"):
             return True
         sample_type = str(sample_record.get("sample_type", "") or "").strip().casefold()
         if not sample_type:
@@ -6250,6 +6256,7 @@ class IceScopy(QMainWindow):
         self.output_results_action.setEnabled(has_results and not self.output_state)
         self.import_csu_is_dat_action.setEnabled(has_images and not self.output_state)
         self.import_tamu_linkam_xlsx_action.setEnabled(has_images and not self.output_state)
+        self.import_pku_linksys32_iml_action.setEnabled(has_images and not self.output_state)
         self.import_temperature_csv_action.setEnabled(has_images and not self.output_state)
         self.viewer_single_action.setEnabled(interactive)
         self.viewer_double_action.setEnabled(interactive)
@@ -6619,6 +6626,80 @@ class IceScopy(QMainWindow):
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(parsed_image_count),
             "unparsed_images": list(unparsed_images),
+        }
+
+    def build_pku_linksys32_image_timing_context(self, parsed_timeseries, reset_temperature=None):
+        timeseries_datetimes = list(getattr(parsed_timeseries, "timeseries_datetimes", []))
+        temperature_values = np.asarray(
+            list(getattr(parsed_timeseries, "temperature_values", [])),
+            dtype=float,
+        )
+        timeseries_seconds = np.asarray(
+            list(getattr(parsed_timeseries, "timeseries_seconds", [])),
+            dtype=float,
+        )
+        if len(timeseries_datetimes) < 2 or len(timeseries_datetimes) != len(temperature_values):
+            raise TemperatureImportError("The PKU Linksys32 .iml file does not contain enough aligned datetime and temperature rows.")
+        if len(timeseries_seconds) != len(temperature_values):
+            timeseries_origin = timeseries_datetimes[0]
+            timeseries_seconds = np.asarray(
+                [
+                    float((timestamp - timeseries_origin).total_seconds())
+                    for timestamp in timeseries_datetimes
+                ],
+                dtype=float,
+            )
+
+        image_records = list(getattr(parsed_timeseries, "image_records", []))
+        loaded_image_count = len(self.imageNames)
+        if len(image_records) != loaded_image_count:
+            raise TemperatureImportError(
+                "The PKU Linksys32 .iml image record count does not match the loaded image count. "
+                f"The .iml file contains {len(image_records)} image record(s), but the session has {loaded_image_count} loaded image(s)."
+            )
+
+        cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
+            temperature_values,
+            reset_temperature,
+        )
+        cycle_start_seconds = [
+            float(timeseries_seconds[index])
+            for index in cycle_start_indexes
+            if 0 <= int(index) < len(timeseries_seconds)
+        ] or [0.0]
+
+        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
+        if start_timestamp is None:
+            start_timestamp = timeseries_datetimes[0]
+
+        image_elapsed_seconds = []
+        image_cycle_ids = []
+        parsed_image_timestamps = []
+        for image_record in image_records:
+            image_timestamp = getattr(image_record, "timestamp", None)
+            parsed_image_timestamps.append(image_timestamp)
+            if image_timestamp is None:
+                image_elapsed_seconds.append(None)
+                image_cycle_ids.append(None)
+                continue
+            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
+            image_elapsed_seconds.append(elapsed_seconds)
+            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
+
+        return {
+            "timeseries_seconds": timeseries_seconds,
+            "cycle_start_indexes": cycle_start_indexes,
+            "cycle_start_seconds": cycle_start_seconds,
+            "image_elapsed_seconds": image_elapsed_seconds,
+            "image_cycle_ids": image_cycle_ids,
+            "parsed_image_count": int(sum(1 for value in parsed_image_timestamps if value is not None)),
+            "unparsed_images": [
+                os.path.basename(str(self.imageNames[index] or ""))
+                for index, value in enumerate(parsed_image_timestamps)
+                if value is None
+            ],
+            "parsed_image_timestamps": parsed_image_timestamps,
+            "image_record_count": int(len(image_records)),
         }
 
     def build_tamu_cycle_reset_image_counts(self, sample_groups, image_cycle_ids):
@@ -7252,6 +7333,129 @@ class IceScopy(QMainWindow):
         }
         return headers, rows, summary
 
+    def build_pku_linksys32_freeze_count_timeseries_results(
+        self,
+        parsed_timeseries,
+        blank_sample_names=None,
+        reset_temperature=None,
+    ):
+        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
+        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
+            self.build_freeze_count_timeseries_blank_selection(
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        timing_context = self.build_pku_linksys32_image_timing_context(
+            parsed_timeseries,
+            reset_temperature=reset_temperature,
+        )
+        cycle_start_seconds = timing_context["cycle_start_seconds"]
+        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
+        image_cycle_ids = timing_context["image_cycle_ids"]
+        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
+        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
+        blank_correction_by_image = compute_blank_correction_by_index(
+            [sample["group_key"] for sample in blank_samples],
+            image_counts_by_sample,
+            len(self.imageNames),
+        )
+
+        timeseries_seconds = np.asarray(list(timing_context["timeseries_seconds"]), dtype=float)
+        temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
+
+        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
+        sample_column_metadata = []
+        for sample in output_samples:
+            sample_name = str(sample.get("sample_name", ""))
+            headers.append(f"{sample_name} number total")
+            headers.append(f"{sample_name} number frozen")
+            sample_column_metadata.append(
+                self.build_freeze_count_timeseries_sample_column_metadata(sample)
+            )
+
+        rows = []
+        in_range_image_count = 0
+        out_of_range_image_count = 0
+        for image_index, image_name in enumerate(self.imageNames):
+            basename = os.path.basename(str(image_name or ""))
+            image_timestamp = (
+                parsed_image_timestamps[image_index]
+                if image_index < len(parsed_image_timestamps)
+                else None
+            )
+            raw_temperature = None
+            elapsed_seconds = image_elapsed_seconds[image_index] if image_index < len(image_elapsed_seconds) else None
+            if image_timestamp is not None and elapsed_seconds is not None:
+                interpolated_temperature = np.interp(
+                    elapsed_seconds,
+                    timeseries_seconds,
+                    temperature_values,
+                    left=np.nan,
+                    right=np.nan,
+                )
+                if np.isnan(interpolated_temperature):
+                    out_of_range_image_count += 1
+                else:
+                    in_range_image_count += 1
+                    raw_temperature = float(interpolated_temperature)
+
+            output_row = [
+                image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
+                "" if raw_temperature is None else f"{raw_temperature:.3f}",
+                "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
+                basename,
+                "nan"
+                if blank_correction_by_image[image_index] is None
+                else str(int(blank_correction_by_image[image_index])),
+            ]
+            for sample in output_samples:
+                group_key = sample["group_key"]
+                total_cells = int(sample.get("total_cells", 0))
+                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
+                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
+                    total_cells,
+                    frozen_count,
+                    blank_correction_by_image[image_index],
+                )
+                output_row.append(str(int(adjusted_total)))
+                output_row.append(str(int(adjusted_frozen)))
+            rows.append(output_row)
+
+        summary = {
+            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
+            "source_type": "pku_linksys32_iml",
+            "matched_samples": [sample["sample_name"] for sample in output_samples],
+            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "sample_total_cells": [
+                {
+                    "sample_id": str(sample.get("sample_id", "") or ""),
+                    "sample_name": str(sample.get("sample_name", "")),
+                    "total_cells": int(sample.get("total_cells", 0)),
+                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
+                }
+                for sample in matched_samples
+            ],
+            "sample_column_metadata": sample_column_metadata,
+            "grouping_mode": str(grouping_mode),
+            "count_mode": "cycle_reset",
+            "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
+            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
+            "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
+            "image_record_count": int(timing_context.get("image_record_count", 0)),
+            "linksys32_version": str(getattr(parsed_timeseries, "version", "") or ""),
+            "cycle_count": int(len(cycle_start_seconds)),
+            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
+            "total_images": int(len(self.imageNames)),
+            "parsed_image_count": int(timing_context["parsed_image_count"]),
+            "in_range_image_count": int(in_range_image_count),
+            "out_of_range_image_count": int(out_of_range_image_count),
+            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
+            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+            "unmatched_blank_samples": unmatched_blank_samples,
+        }
+        return headers, rows, summary
+
     def import_standard_temperature_csv(self, checked=False):
         if not self.imagePaths:
             QMessageBox.information(
@@ -7637,6 +7841,117 @@ class IceScopy(QMainWindow):
             self.log("TAMU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             self.log(f"TAMU calibration applied to {calibrated_cell_count} cell(s): {calibration_path}")
+
+    def import_pku_linksys32_iml(self, checked=False):
+        if not self.imagePaths:
+            QMessageBox.information(self, "PKU Linksys32 .iml import", "Load images before importing a PKU Linksys32 .iml file.")
+            return
+
+        available_sample_names = self.available_sample_names()
+
+        dialog = PKUTemperatureImportDialog(
+            main_window=self,
+            initial_path=self.last_temperature_import_path,
+            sample_names=available_sample_names,
+            initial_reset_temperature=getattr(self, "last_temperature_reset_temperature", None),
+            initial_blank_sample_names=getattr(self, "last_temperature_blank_sample_names", []),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        dialog_values = dialog.get_values()
+        file_path = dialog_values["file_path"]
+        reset_temperature = dialog_values["reset_temperature"]
+        blank_sample_names = dialog_values["blank_sample_names"]
+
+        try:
+            parsed_timeseries = parse_linksys32_iml(file_path)
+            headers, rows, summary = self.build_pku_linksys32_freeze_count_timeseries_results(
+                parsed_timeseries,
+                blank_sample_names=blank_sample_names,
+                reset_temperature=reset_temperature,
+            )
+        except (OSError, TemperatureImportError) as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "PKU Linksys32 .iml import failed",
+                "The PKU Linksys32 .iml import failed.",
+                err,
+                detail_text,
+            )
+            self.log(f"PKU Linksys32 .iml import failed: {err}")
+            return
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "PKU Linksys32 .iml import failed",
+                "The PKU Linksys32 .iml import failed due to an unexpected internal error.",
+                err,
+                detail_text,
+            )
+            self.log("PKU Linksys32 .iml import failed with an unexpected internal error.")
+            self.log(detail_text.rstrip())
+            return
+
+        self.last_temperature_import_path = str(file_path)
+        self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
+        self.last_temperature_blank_sample_names = list(blank_sample_names)
+        self.set_freeze_count_timeseries_results(headers, rows, summary)
+
+        matched_samples = summary.get("matched_samples", [])
+        matched_blank_samples = summary.get("matched_blank_samples", [])
+        unmatched_blank = summary.get("unmatched_blank_samples", [])
+        parsed_image_count = int(summary.get("parsed_image_count", 0))
+        total_images = int(summary.get("total_images", 0))
+        in_range_image_count = int(summary.get("in_range_image_count", 0))
+        out_of_range_image_count = int(summary.get("out_of_range_image_count", 0))
+        unparsed_image_count = int(summary.get("unparsed_image_count", 0))
+        cycle_count = int(summary.get("cycle_count", 1))
+        image_record_count = int(summary.get("image_record_count", 0))
+        reset_temperature = summary.get("reset_temperature")
+        grouping_mode = str(summary.get("grouping_mode", "samples"))
+        grouping_label = "Current sample setup" if grouping_mode == "samples" else "No sample (all cells as one sample)"
+
+        message_lines = [
+            f"Grouping: {grouping_label}",
+            f"Matched .iml image records: {image_record_count}/{total_images}",
+            f"Images with .iml timestamps: {parsed_image_count}/{total_images}",
+            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
+            f"Detected cooling cycles: {cycle_count}",
+            "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
+        ]
+        if reset_temperature is not None:
+            message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
+        if matched_samples:
+            message_lines.append("Output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
+        if out_of_range_image_count:
+            message_lines.append(f"Images outside the timeseries range: {out_of_range_image_count}")
+        if unparsed_image_count:
+            preview = ", ".join(summary.get("unparsed_images_preview", []))
+            if preview:
+                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count} ({preview})")
+            else:
+                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
+
+        self.show_detailed_information_dialog(
+            "PKU Linksys32 .iml import",
+            "PKU Linksys32 .iml import completed successfully.\n\n"
+            f"Created {len(rows)} synchronized output rows from {parsed_image_count} .iml image timestamps.",
+            "\n".join(message_lines),
+        )
+        self.log(f"Imported PKU Linksys32 .iml file: {file_path}")
+        self.log(f"PKU grouping mode: {grouping_label}")
+        if matched_samples:
+            self.log("PKU output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            self.log("PKU water blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            self.log("PKU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def export_grayscale_results_for_external_tool(self):
         if not self.grayscale_results_headers or not self.grayscale_results_rows:

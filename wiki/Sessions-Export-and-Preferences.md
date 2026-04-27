@@ -11,6 +11,7 @@ These are zip-based bundles that store:
 - session metadata
 - application state
 - result tables as CSV members
+- the sample catalog as structured JSON inside `session.json`
 
 The current result bundle members are:
 
@@ -66,6 +67,21 @@ Export is useful for:
 - record keeping
 - integration with other tools
 
+The `.icescopy` session bundle stores result tables as plain CSV members without the extra freeze count timeseries export preamble.
+The commented preamble and sample metadata rows are added when exporting `freeze_count_timeseries.csv` for outside use.
+
+The exported freeze count timeseries CSV includes:
+
+- session metadata comments
+- sample metadata comments
+- main data table
+
+The sample metadata comments include `cell_number`, which is the number of cells assigned to each sample.
+The main data table keeps only `number total` and `number frozen` for each sample.
+It does not include `fraction frozen`.
+
+Missing sample metadata is written as `nan`.
+
 ## Preferences
 
 Preferences control the default application behavior.
@@ -88,4 +104,5 @@ A session describes one working analysis state.
 
 - treat preferences as global defaults
 - treat session files as experiment-specific working state
+- treat exported CSVs as downstream exchange files
 - export CSVs when you need stable downstream records

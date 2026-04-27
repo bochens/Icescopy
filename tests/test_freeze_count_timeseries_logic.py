@@ -1,8 +1,9 @@
 import sys
 import unittest
 import tempfile
+import struct
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -27,18 +28,124 @@ from icescopy_temperature_import import (  # noqa: E402
     detect_cycle_start_indexes_from_temperatures,
     parse_flexible_datetime_text,
     parse_generic_image_timestamp,
+    parse_linksys32_iml,
     parse_timestamp_text,
     parse_standard_temperature_csv,
     resolve_image_timestamps,
     TemperatureImportError,
     reconcile_counts_by_cycle,
     reconcile_cumulative_counts,
+    write_linksys32_iml_temperature_csv,
 )
 
 
 class FreezeCountTimeseriesLogicTests(unittest.TestCase):
     def expected_epoch_utc_naive(self, seconds_value):
         return datetime.fromtimestamp(seconds_value, tz=timezone.utc).replace(tzinfo=None)
+
+    def linkam_filetime(self, timestamp):
+        delta = timestamp - datetime(1601, 1, 1)
+        return (
+            (delta.days * 24 * 60 * 60 + delta.seconds) * 10_000_000
+            + delta.microseconds * 10
+        )
+
+    def linksys32_status_record(self, text, byte_count):
+        encoded = text.encode("ascii")
+        self.assertLessEqual(len(encoded), byte_count)
+        return encoded + (b" " * (byte_count - len(encoded)))
+
+    def build_linksys32_iml_fixture(self, file_path):
+        start_timestamp = datetime(2025, 2, 17, 18, 25, 38, 395000)
+        data_statuses = [
+            "Temp -3.7 `C;Ramp Row 2,Rate 1 `C/min,Limit -35 `C",
+            "Temp -3.8 `C;Ramp Row 2,Rate 1 `C/min,Limit -35 `C",
+            "Temp -3.9 `C;Ramp Row 2,Rate 1 `C/min,Limit -35 `C",
+        ]
+        image_statuses = [
+            "Temp -3.7 `C;Ramp Row 2,Rate 1 `C/min,Limit -35 `C",
+            "Temp -3.9 `C;Ramp Row 2,Rate 1 `C/min,Limit -35 `C",
+        ]
+
+        prefix = bytearray(b"\x00" * 0x200)
+        prefix[:4] = b"V1.4"
+        prefix[8:25] = b"Original data run"
+        struct.pack_into("<I", prefix, 0xF0, len(data_statuses))
+        struct.pack_into("<I", prefix, 0xF4, len(image_statuses))
+        struct.pack_into("<f", prefix, 0xFC, 0.5)
+        struct.pack_into("<Q", prefix, 0x100, self.linkam_filetime(start_timestamp))
+
+        image_records = bytearray()
+        for image_index, status_text in enumerate(image_statuses):
+            record = bytearray(b" " * 348)
+            image_offset = 0x110 + image_index * 16
+            struct.pack_into("<III", record, 0, image_offset, 0, 16)
+            struct.pack_into(
+                "<Q",
+                record,
+                12,
+                self.linkam_filetime(start_timestamp + timedelta(seconds=image_index)),
+            )
+            record[28:284] = self.linksys32_status_record(status_text, 256)
+            image_records.extend(record)
+
+        data_records = bytearray()
+        for status_text in data_statuses:
+            data_records.extend(self.linksys32_status_record(status_text, 256))
+
+        file_path.write_bytes(bytes(prefix) + bytes(image_records) + bytes(data_records))
+        return start_timestamp
+
+    def test_parse_linksys32_iml_reads_temperature_records_and_image_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            file_path = Path(td) / "sample.iml"
+            start_timestamp = self.build_linksys32_iml_fixture(file_path)
+
+            parsed = parse_linksys32_iml(file_path)
+
+        self.assertEqual(parsed.version, "V1.4")
+        self.assertEqual(parsed.start_timestamp, start_timestamp)
+        self.assertEqual(parsed.sample_period_seconds, 0.5)
+        self.assertEqual(parsed.timeseries_seconds, [0.0, 0.5, 1.0])
+        self.assertEqual(parsed.timeseries_row_count, 3)
+        self.assertEqual(parsed.temperature_values, [-3.7, -3.8, -3.9])
+        self.assertEqual(
+            parsed.timeseries_datetimes,
+            [
+                start_timestamp,
+                start_timestamp + timedelta(seconds=0.5),
+                start_timestamp + timedelta(seconds=1.0),
+            ],
+        )
+        self.assertEqual(parsed.image_record_count, 2)
+        self.assertEqual(parsed.image_records[0].image_offset, 0x110)
+        self.assertEqual(parsed.image_records[1].temperature_value, -3.9)
+
+    def test_parse_linksys32_iml_rejects_bad_record_counts(self):
+        with tempfile.TemporaryDirectory() as td:
+            file_path = Path(td) / "bad.iml"
+            start_timestamp = self.build_linksys32_iml_fixture(file_path)
+            raw = bytearray(file_path.read_bytes())
+            struct.pack_into("<I", raw, 0xF0, 5000)
+            struct.pack_into("<Q", raw, 0x100, self.linkam_filetime(start_timestamp))
+            file_path.write_bytes(raw)
+
+            with self.assertRaises(TemperatureImportError):
+                parse_linksys32_iml(file_path)
+
+    def test_write_linksys32_iml_temperature_csv_outputs_standard_two_column_csv(self):
+        with tempfile.TemporaryDirectory() as td:
+            file_path = Path(td) / "sample.iml"
+            output_path = Path(td) / "temperature.csv"
+            self.build_linksys32_iml_fixture(file_path)
+
+            parsed = write_linksys32_iml_temperature_csv(file_path, output_path)
+
+            csv_lines = output_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(parsed.timeseries_row_count, 3)
+        self.assertEqual(csv_lines[0], "timestamp,temperature_C")
+        self.assertEqual(csv_lines[1], "2025-02-17T18:25:38.395000,-3.7")
+        self.assertEqual(csv_lines[-1], "2025-02-17T18:25:39.395000,-3.9")
 
     def test_reconcile_without_anchors_repairs_monotonicity_and_clamps(self):
         corrected = reconcile_cumulative_counts(

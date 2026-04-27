@@ -73,7 +73,6 @@ Build outputs appear in:
 ## Notes on packaged builds
 
 - the packaged app does not bundle the repository `README.md`
-- the packaged app does not bundle the PDF manual from the repo root
 - icon assets used by the macOS build come from `resources/app_icons/`
 
 ## Preferences and writable data
