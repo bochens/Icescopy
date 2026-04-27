@@ -110,7 +110,10 @@ class SessionIoTests(unittest.TestCase):
     def make_pku_parsed_timeseries(self, image_count=2):
         start_timestamp = datetime(2025, 2, 17, 18, 25, 38, 395000)
         image_records = [
-            SimpleNamespace(timestamp=start_timestamp + timedelta(seconds=0.5 + index))
+            SimpleNamespace(
+                timestamp=start_timestamp + timedelta(seconds=0.5 + index),
+                temperature_value=-10.0 - index,
+            )
             for index in range(image_count)
         ]
         return SimpleNamespace(
@@ -136,7 +139,7 @@ class SessionIoTests(unittest.TestCase):
             image_record_count=len(image_records),
         )
 
-    def test_pku_linksys32_import_uses_iml_image_record_timestamps(self):
+    def test_pku_linksys32_import_uses_iml_image_record_timestamps_and_temperatures(self):
         fake_window = SimpleNamespace(
             imageNames=["frame_001.jpg", "frame_002.jpg"],
             imagePaths=["/tmp/frame_001.jpg", "/tmp/frame_002.jpg"],
@@ -153,11 +156,12 @@ class SessionIoTests(unittest.TestCase):
             headers,
             ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"],
         )
-        self.assertEqual(rows[0][:4], ["2025-02-17T18:25:38.895", "-1.500", "0", "frame_001.jpg"])
-        self.assertEqual(rows[1][:4], ["2025-02-17T18:25:39.895", "-2.500", "0", "frame_002.jpg"])
+        self.assertEqual(rows[0][:4], ["2025-02-17T18:25:38.895", "-10.000", "0", "frame_001.jpg"])
+        self.assertEqual(rows[1][:4], ["2025-02-17T18:25:39.895", "-11.000", "0", "frame_002.jpg"])
         self.assertEqual(summary["source_type"], "pku_linksys32_iml")
         self.assertEqual(summary["image_record_count"], 2)
-        self.assertEqual(summary["in_range_image_count"], 2)
+        self.assertEqual(summary["temperature_source"], "pku_linksys32_image_record")
+        self.assertEqual(summary["tagged_temperature_count"], 2)
 
     def test_pku_linksys32_import_rejects_image_count_mismatch(self):
         fake_window = SimpleNamespace(

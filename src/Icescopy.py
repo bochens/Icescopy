@@ -6675,9 +6675,21 @@ class IceScopy(QMainWindow):
         image_elapsed_seconds = []
         image_cycle_ids = []
         parsed_image_timestamps = []
+        image_record_temperatures = []
         for image_record in image_records:
             image_timestamp = getattr(image_record, "timestamp", None)
+            try:
+                image_temperature = float(getattr(image_record, "temperature_value", None))
+            except (TypeError, ValueError):
+                raise TemperatureImportError(
+                    f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
+                ) from None
+            if not np.isfinite(image_temperature):
+                raise TemperatureImportError(
+                    f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
+                )
             parsed_image_timestamps.append(image_timestamp)
+            image_record_temperatures.append(image_temperature)
             if image_timestamp is None:
                 image_elapsed_seconds.append(None)
                 image_cycle_ids.append(None)
@@ -6699,6 +6711,7 @@ class IceScopy(QMainWindow):
                 if value is None
             ],
             "parsed_image_timestamps": parsed_image_timestamps,
+            "image_record_temperatures": image_record_temperatures,
             "image_record_count": int(len(image_records)),
         }
 
@@ -7351,18 +7364,15 @@ class IceScopy(QMainWindow):
             reset_temperature=reset_temperature,
         )
         cycle_start_seconds = timing_context["cycle_start_seconds"]
-        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
         parsed_image_timestamps = timing_context["parsed_image_timestamps"]
+        image_record_temperatures = timing_context["image_record_temperatures"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
         blank_correction_by_image = compute_blank_correction_by_index(
             [sample["group_key"] for sample in blank_samples],
             image_counts_by_sample,
             len(self.imageNames),
         )
-
-        timeseries_seconds = np.asarray(list(timing_context["timeseries_seconds"]), dtype=float)
-        temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
 
         headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
         sample_column_metadata = []
@@ -7375,8 +7385,7 @@ class IceScopy(QMainWindow):
             )
 
         rows = []
-        in_range_image_count = 0
-        out_of_range_image_count = 0
+        tagged_temperature_count = 0
         for image_index, image_name in enumerate(self.imageNames):
             basename = os.path.basename(str(image_name or ""))
             image_timestamp = (
@@ -7384,21 +7393,13 @@ class IceScopy(QMainWindow):
                 if image_index < len(parsed_image_timestamps)
                 else None
             )
-            raw_temperature = None
-            elapsed_seconds = image_elapsed_seconds[image_index] if image_index < len(image_elapsed_seconds) else None
-            if image_timestamp is not None and elapsed_seconds is not None:
-                interpolated_temperature = np.interp(
-                    elapsed_seconds,
-                    timeseries_seconds,
-                    temperature_values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                if np.isnan(interpolated_temperature):
-                    out_of_range_image_count += 1
-                else:
-                    in_range_image_count += 1
-                    raw_temperature = float(interpolated_temperature)
+            raw_temperature = (
+                image_record_temperatures[image_index]
+                if image_index < len(image_record_temperatures)
+                else None
+            )
+            if raw_temperature is not None:
+                tagged_temperature_count += 1
 
             output_row = [
                 image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
@@ -7448,8 +7449,8 @@ class IceScopy(QMainWindow):
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
             "total_images": int(len(self.imageNames)),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
-            "in_range_image_count": int(in_range_image_count),
-            "out_of_range_image_count": int(out_of_range_image_count),
+            "temperature_source": "pku_linksys32_image_record",
+            "tagged_temperature_count": int(tagged_temperature_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
             "unmatched_blank_samples": unmatched_blank_samples,
@@ -7903,8 +7904,7 @@ class IceScopy(QMainWindow):
         unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
-        in_range_image_count = int(summary.get("in_range_image_count", 0))
-        out_of_range_image_count = int(summary.get("out_of_range_image_count", 0))
+        tagged_temperature_count = int(summary.get("tagged_temperature_count", 0))
         unparsed_image_count = int(summary.get("unparsed_image_count", 0))
         cycle_count = int(summary.get("cycle_count", 1))
         image_record_count = int(summary.get("image_record_count", 0))
@@ -7916,7 +7916,7 @@ class IceScopy(QMainWindow):
             f"Grouping: {grouping_label}",
             f"Matched .iml image records: {image_record_count}/{total_images}",
             f"Images with .iml timestamps: {parsed_image_count}/{total_images}",
-            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Images with .iml tagged temperatures: {tagged_temperature_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7929,8 +7929,6 @@ class IceScopy(QMainWindow):
             message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
             message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
-        if out_of_range_image_count:
-            message_lines.append(f"Images outside the timeseries range: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:

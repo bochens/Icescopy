@@ -9,6 +9,7 @@ The current application supports:
 - standard two-column temperature CSV
 - CSU `.dat`
 - TAMU Linkam `.xlsx`
+- PKU Linksys32 `.iml`
 
 These importers are not interchangeable.
 Choose the importer that matches the external data format you actually have.
@@ -103,6 +104,20 @@ This workflow uses:
 - time interpolation against the workbook timeseries
 - optional calibration CSV by cell ID
 
+## PKU Linksys32 import
+
+Use the PKU importer when you have a Linksys32 `.iml` data file with embedded image records.
+
+This workflow uses:
+
+- loaded image order matched to the `.iml` image record order
+- timestamps stored in the `.iml` image records
+- temperature values tagged directly on each `.iml` image record
+- the continuous `.iml` temperature trace for cycle-boundary detection
+
+The `.iml` image record count must match the number of loaded images.
+Icescopy does not guess PKU image timestamps from filenames or EXIF metadata.
+
 ## Reset After Warmed To
 
 The reset threshold is used to split repeated cooling-warming cycles.
@@ -168,6 +183,7 @@ Downstream tools should calculate fractions themselves if needed.
 ## Practical warnings
 
 - if image timestamps are wrong, TAMU output will be wrong
+- if loaded image order does not match PKU `.iml` image record order, PKU output will be wrong
 - if standard CSV timestamp settings are wrong, interpolation will fail or align to the wrong images
 - if sample assignment is wrong, grouped output will be wrong
 - if freeze annotations are stale, freeze count timeseries will also be stale
