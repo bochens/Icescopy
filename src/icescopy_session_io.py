@@ -191,6 +191,7 @@ def build_session_payload(main_window):
         "flagframe_list": main_window.flagframe_list.copy(),
         "keyframe_cell_items_dict": keyframe_cell_items_dict,
         "tool_mode": main_window.tool_mode,
+        "tool_settings": main_window.serialize_tool_settings(),
         "last_grayscale_output_path": main_window.last_grayscale_output_path,
         "last_freeze_output_path": main_window.last_freeze_output_path,
         "last_temperature_import_path": main_window.last_temperature_import_path,
@@ -220,6 +221,12 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
     grayscale_headers, grayscale_rows = grayscale_table
     freeze_headers, freeze_rows = freeze_table
     freeze_count_timeseries_headers, freeze_count_timeseries_rows = freeze_count_timeseries_table
+
+    default_tool_settings = (
+        main_window.default_tool_settings()
+        if hasattr(main_window, "default_tool_settings")
+        else {}
+    )
 
     return {
         "session_metadata": payload["session_metadata"],
@@ -260,6 +267,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
         "freeze_count_timeseries_rows": freeze_count_timeseries_rows,
         "freeze_count_timeseries_summary": dict(payload["freeze_count_timeseries_summary"]),
         "tool_mode": payload["tool_mode"],
+        "tool_settings": payload.get("tool_settings", default_tool_settings),
         "console_history": payload["console_history"],
     }
 

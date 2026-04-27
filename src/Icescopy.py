@@ -363,6 +363,7 @@ class IceScopy(QMainWindow):
         self.grid_preview_outline_color = DEFAULT_VISUAL_COLORS["GridPreviewOutlineColor"]
         self.grid_preview_fill_color = DEFAULT_VISUAL_COLORS["GridPreviewFillColor"]
         self.preview_handle_size = 12.0
+        self.circle_label_font_size = 12.0
         self.circle_label_offset_x = 6.0
         self.circle_label_offset_y = 6.0
         self.default_circle_radius = self.circle_radius
@@ -498,6 +499,7 @@ class IceScopy(QMainWindow):
         self.grid_preview_outline_color = preferences.get('GridPreviewOutlineColor', self.grid_preview_outline_color)
         self.grid_preview_fill_color = preferences.get('GridPreviewFillColor', self.grid_preview_fill_color)
         self.preview_handle_size = float(preferences.get('PreviewHandleSize', self.preview_handle_size))
+        self.circle_label_font_size = float(preferences.get('CircleLabelFontSize', self.circle_label_font_size))
         self.circle_label_offset_x = float(preferences.get('CircleLabelOffsetX', self.circle_label_offset_x))
         self.circle_label_offset_y = float(preferences.get('CircleLabelOffsetY', self.circle_label_offset_y))
 
@@ -528,6 +530,78 @@ class IceScopy(QMainWindow):
         if hasattr(self, "grayscale_plot_widget"):
             self.refresh_grayscale_plot()
         self.scene.update()
+
+    def default_tool_settings(self):
+        return {
+            "circle_radius": float(self.default_circle_radius),
+            "grid_rows": int(self.default_grid_rows),
+            "grid_columns": int(self.default_grid_columns),
+            "grid_horizontal_pitch": float(self.default_grid_horizontal_pitch),
+            "grid_vertical_pitch": float(self.default_grid_vertical_pitch),
+            "grid_rotation_degrees": float(self.default_grid_rotation_degrees),
+        }
+
+    def serialize_tool_settings(self):
+        return self.normalize_tool_settings(
+            {
+                "circle_radius": self.circle_radius,
+                "grid_rows": self.grid_rows,
+                "grid_columns": self.grid_columns,
+                "grid_horizontal_pitch": self.grid_horizontal_pitch,
+                "grid_vertical_pitch": self.grid_vertical_pitch,
+                "grid_rotation_degrees": self.grid_rotation_degrees,
+            }
+        )
+
+    def normalize_tool_settings(self, tool_settings):
+        defaults = self.default_tool_settings()
+        if not isinstance(tool_settings, dict):
+            return defaults
+
+        normalized = dict(defaults)
+        numeric_fields = (
+            ("circle_radius", float),
+            ("grid_rows", int),
+            ("grid_columns", int),
+            ("grid_horizontal_pitch", float),
+            ("grid_vertical_pitch", float),
+            ("grid_rotation_degrees", float),
+        )
+        for field_name, converter in numeric_fields:
+            if field_name not in tool_settings:
+                continue
+            try:
+                normalized[field_name] = converter(tool_settings[field_name])
+            except (TypeError, ValueError):
+                normalized[field_name] = defaults[field_name]
+
+        normalized["circle_radius"] = max(0.1, float(normalized["circle_radius"]))
+        normalized["grid_rows"] = max(1, int(normalized["grid_rows"]))
+        normalized["grid_columns"] = max(1, int(normalized["grid_columns"]))
+        normalized["grid_horizontal_pitch"] = max(0.1, float(normalized["grid_horizontal_pitch"]))
+        normalized["grid_vertical_pitch"] = max(0.1, float(normalized["grid_vertical_pitch"]))
+        normalized["grid_rotation_degrees"] = max(
+            -180.0,
+            min(180.0, float(normalized["grid_rotation_degrees"])),
+        )
+        return normalized
+
+    def apply_tool_settings(self, tool_settings=None, *, sync_ui=False):
+        normalized = self.normalize_tool_settings(tool_settings)
+        self.circle_radius = normalized["circle_radius"]
+        self.grid_rows = normalized["grid_rows"]
+        self.grid_columns = normalized["grid_columns"]
+        self.grid_horizontal_pitch = normalized["grid_horizontal_pitch"]
+        self.grid_vertical_pitch = normalized["grid_vertical_pitch"]
+        self.grid_rotation_degrees = normalized["grid_rotation_degrees"]
+
+        if sync_ui:
+            if hasattr(self, "radius_textbox"):
+                self.updateRadiusTextbox()
+            if hasattr(self, "tool_options_stack"):
+                self.sync_tool_options_panel()
+            if hasattr(self, "cell_controller") and self.cell_controller.uses_grid_preview():
+                self.update_grid_preview()
 
     def get_qcolor(self, color_value):
         if isinstance(color_value, QColor):
@@ -1343,15 +1417,6 @@ class IceScopy(QMainWindow):
         self.push_cell_history("Rename Cell ID", before_state, include_analysis=True)
         self.log(f"Rename cell {old_cell_id} to {new_cell_id}")
         self.sync_tool_options_panel()
-
-    def restore_add_defaults(self, include_grid=False):
-        self.circle_radius = float(self.default_circle_radius)
-        if include_grid:
-            self.grid_rows = int(self.default_grid_rows)
-            self.grid_columns = int(self.default_grid_columns)
-            self.grid_horizontal_pitch = float(self.default_grid_horizontal_pitch)
-            self.grid_vertical_pitch = float(self.default_grid_vertical_pitch)
-            self.grid_rotation_degrees = float(self.default_grid_rotation_degrees)
 
     def initData(self):
         # Gets called so wiped at loading images
@@ -5668,6 +5733,7 @@ class IceScopy(QMainWindow):
             self.last_standard_temperature_generated_start_text = state.get("last_standard_temperature_generated_start_text", "")
             self.last_standard_temperature_frame_interval_seconds = state.get("last_standard_temperature_frame_interval_seconds", 1.0)
             self.last_standard_temperature_temperature_unit = state.get("last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS)
+            self.apply_tool_settings(state.get("tool_settings", self.default_tool_settings()))
             self.grayscale_results_headers = state["grayscale_results_headers"].copy()
             self.grayscale_results_rows = copy.deepcopy(state["grayscale_results_rows"])
             self.freeze_results_headers = state["freeze_results_headers"].copy()
@@ -6437,8 +6503,24 @@ class IceScopy(QMainWindow):
             record = self.ensure_cell_record(cell_id)
             if record is None:
                 continue
-            sample_id = str(getattr(record, "sample_id", "")).strip()
+            raw_sample_id = getattr(record, "sample_id", "")
+            sample_id = "" if raw_sample_id is None else str(raw_sample_id).strip()
             if not sample_id:
+                group_key = f"__cell_{int(cell_id)}__"
+                groups[group_key] = {
+                    "group_key": group_key,
+                    "group_role": "unassigned_cell",
+                    "sample_id": "",
+                    "sample_name": f"Cell {int(cell_id)}",
+                    **{
+                        field_name: ""
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
+                    "cell_ids": [int(cell_id)],
+                    "total_cells": 1,
+                    "sort_index": int(cell_id),
+                }
                 continue
             sample_record = self.sample_record_for_id(sample_id)
             sample_name = str(sample_record.get("sample_name", "")).strip()
@@ -6448,6 +6530,7 @@ class IceScopy(QMainWindow):
                 sample_id,
                 {
                     "group_key": sample_id,
+                    "group_role": "sample",
                     "sample_id": sample_id,
                     "sample_name": sample_name,
                     **{
@@ -6457,6 +6540,7 @@ class IceScopy(QMainWindow):
                     },
                     "cell_ids": [],
                     "total_cells": 0,
+                    "sort_index": len(groups),
                 },
             )
             group["cell_ids"].append(int(cell_id))
@@ -6541,6 +6625,7 @@ class IceScopy(QMainWindow):
             matched_samples.append(
                 {
                     "group_key": str(group_key),
+                    "group_role": str(group.get("group_role", "sample") or "sample"),
                     "sample_id": str(group.get("sample_id", "") or ""),
                     "normalized_name": normalized_name,
                     "sample_name": str(group.get("sample_name", "")),
@@ -6552,12 +6637,20 @@ class IceScopy(QMainWindow):
                     "total_cells": int(group.get("total_cells", 0)),
                     "cell_ids": list(group.get("cell_ids", [])),
                     "is_blank": normalized_name in blank_name_set,
+                    "sort_index": int(group.get("sort_index", 0) or 0),
                 }
             )
         matched_samples.sort(
             key=lambda sample: (
-                str(sample["sample_name"]).casefold(),
+                1 if sample.get("group_role") == "unassigned_cell" else 0,
+                ""
+                if sample.get("group_role") == "unassigned_cell"
+                else str(sample["sample_name"]).casefold(),
+                int(sample.get("sort_index", 0) or 0)
+                if sample.get("group_role") == "unassigned_cell"
+                else 0,
                 str(sample.get("sample_id", "") or ""),
+                str(sample.get("group_key", "")),
             )
         )
         blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
@@ -7059,6 +7152,7 @@ class IceScopy(QMainWindow):
             matched_samples.append(
                 {
                     "group_key": str(group.get("group_key", "") or group.get("sample_id", "") or normalized_name),
+                    "group_role": str(group.get("group_role", "sample") or "sample"),
                     "sample_id": str(group.get("sample_id", "") or ""),
                     "normalized_name": normalized_name,
                     "sample_name": group["sample_name"],
@@ -7074,11 +7168,39 @@ class IceScopy(QMainWindow):
                 }
             )
 
+        matched_group_keys = {str(sample.get("group_key", "")) for sample in matched_samples}
+        for group in sample_groups.values():
+            if str(group.get("group_role", "")) != "unassigned_cell":
+                continue
+            group_key = str(group.get("group_key", ""))
+            if group_key in matched_group_keys:
+                continue
+            normalized_name = normalize_sample_name(group.get("sample_name", ""))
+            matched_samples.append(
+                {
+                    "group_key": group_key,
+                    "group_role": "unassigned_cell",
+                    "sample_id": "",
+                    "normalized_name": normalized_name,
+                    "sample_name": str(group.get("sample_name", "")),
+                    "dat_column": None,
+                    **{
+                        field_name: str(group.get(field_name, "") or "")
+                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                        if field_name != "sample_name"
+                    },
+                    "cell_ids": list(group.get("cell_ids", [])),
+                    "total_cells": int(group.get("total_cells", 0)),
+                    "is_blank": normalized_name in blank_name_set,
+                }
+            )
+
         unmatched_app_samples = sorted(
             group["sample_name"]
             for normalized_name, groups in groups_by_normalized_name.items()
             for group in groups
             if normalized_name not in dat_columns_by_name
+            and str(group.get("group_role", "")) != "unassigned_cell"
         )
         unmatched_dat_samples = sorted(
             column_name
@@ -7123,10 +7245,13 @@ class IceScopy(QMainWindow):
             group_key = sample["group_key"]
             dat_column = sample["dat_column"]
             total_cells = int(sample["total_cells"])
-            raw_counts = [
-                int(getattr(row, "sample_counts", {}).get(dat_column, 0))
-                for row in parsed_rows
-            ]
+            if dat_column is None:
+                raw_counts = [0 for _row in parsed_rows]
+            else:
+                raw_counts = [
+                    int(getattr(row, "sample_counts", {}).get(dat_column, 0))
+                    for row in parsed_rows
+                ]
             anchor_counts = {}
             image_counts = image_counts_by_sample.get(group_key, {})
             for row in parsed_rows:
@@ -8553,13 +8678,11 @@ class IceScopy(QMainWindow):
     def selectTool(self, checked):
         if self.tool_mode != "select":
             self.cancel_unfinished_tool_workflow()
-            self.restore_add_defaults(include_grid=False)
         self.apply_select_tool_ui()
 
     def gridTool(self, checked):
         if self.tool_mode != "grid":
             self.cancel_unfinished_tool_workflow()
-            self.restore_add_defaults(include_grid=True)
         self.apply_grid_tool_ui()
 
     def activate_edit_cell_item(self, cell_item):
@@ -9348,6 +9471,8 @@ class IceScopy(QMainWindow):
 
         self.initData()
         self.session_active = bool(activate_session)
+        if activate_session:
+            self.apply_tool_settings(self.default_tool_settings())
         if new_metadata is not None:
             self.apply_session_metadata(new_metadata)
 
@@ -10592,6 +10717,10 @@ class IceScopy(QMainWindow):
         preview_handle_size_element = root.find('PreviewHandleSize')
         if preview_handle_size_element is not None and preview_handle_size_element.text is not None:
             preferences['PreviewHandleSize'] = float(preview_handle_size_element.text)
+
+        circle_label_font_size_element = root.find('CircleLabelFontSize')
+        if circle_label_font_size_element is not None and circle_label_font_size_element.text is not None:
+            preferences['CircleLabelFontSize'] = float(circle_label_font_size_element.text)
 
         circle_label_offset_x_element = root.find('CircleLabelOffsetX')
         if circle_label_offset_x_element is not None and circle_label_offset_x_element.text is not None:

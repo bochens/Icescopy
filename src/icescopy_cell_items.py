@@ -102,8 +102,13 @@ class CellCircle(QGraphicsEllipseItem):
         # Draw the ellipse using the pen settings
         painter.drawEllipse(self.rect())
 
-        # Draw the cell ID at the center of the ellipse
-        painter.setFont(self.LABEL_FONT)
+        # Draw the cell ID near the ellipse.
+        label_font = QFont(self.LABEL_FONT)
+        label_font_size = float(
+            getattr(self.main_window, "circle_label_font_size", self.LABEL_FONT.pointSizeF())
+        )
+        label_font.setPointSizeF(max(1.0, label_font_size))
+        painter.setFont(label_font)
         label_pen = QPen(sample_color if sample_color is not None else pen.color())
         label_pen.setWidth(1)
         painter.setPen(label_pen)

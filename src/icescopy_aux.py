@@ -111,6 +111,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "TimeseriesCurrentFrameColor": "255,204,0,220",
     "TimeseriesCurrentFrameLineWidth": 2.0,
     "PreviewHandleSize": 12.0,
+    "CircleLabelFontSize": 12.0,
     "CircleLabelOffsetX": 6.0,
     "CircleLabelOffsetY": 6.0,
     **DEFAULT_VISUAL_COLORS,
@@ -799,6 +800,7 @@ class PreferencesDialog(QDialog):
         self.timeseries_current_frame_color_field = ColorPreferenceButton(self.pref_value("TimeseriesCurrentFrameColor"), self)
         self.timeseries_current_frame_line_width_field = self.make_double_spinbox(0.1, 20.0, self.pref_value("TimeseriesCurrentFrameLineWidth"), 1)
         self.preview_handle_size_field = self.make_double_spinbox(2.0, 100.0, self.pref_value("PreviewHandleSize"), 1)
+        self.circle_label_font_size_field = self.make_double_spinbox(1.0, 200.0, self.pref_value("CircleLabelFontSize"), 1)
         self.circle_label_offset_x_field = self.make_double_spinbox(-500.0, 500.0, self.pref_value("CircleLabelOffsetX"), 1)
         self.circle_label_offset_y_field = self.make_double_spinbox(-500.0, 500.0, self.pref_value("CircleLabelOffsetY"), 1)
         self.circle_default_color_field = ColorPreferenceButton(self.pref_value("CircleDefaultColor"), self)
@@ -843,6 +845,7 @@ class PreferencesDialog(QDialog):
             self.timeseries_current_frame_color_field,
             self.timeseries_current_frame_line_width_field,
             self.preview_handle_size_field,
+            self.circle_label_font_size_field,
             self.circle_label_offset_x_field,
             self.circle_label_offset_y_field,
             self.circle_default_color_field,
@@ -1094,6 +1097,7 @@ class PreferencesDialog(QDialog):
                     ("Pen Width", self.pen_width_field),
                     ("Dot Size", self.dot_size_field),
                     ("Preview Handle Size", self.preview_handle_size_field),
+                    ("Cell Number Font Size", self.circle_label_font_size_field),
                     ("Label X Offset", self.circle_label_offset_x_field),
                     ("Label Y Offset", self.circle_label_offset_y_field),
                 ]),
@@ -1258,6 +1262,7 @@ class PreferencesDialog(QDialog):
         SubElement(root, "TimeseriesCurrentFrameColor").text = self.timeseries_current_frame_color_field.color_value()
         SubElement(root, "TimeseriesCurrentFrameLineWidth").text = str(self.timeseries_current_frame_line_width_field.value())
         SubElement(root, "PreviewHandleSize").text = str(self.preview_handle_size_field.value())
+        SubElement(root, "CircleLabelFontSize").text = str(self.circle_label_font_size_field.value())
         SubElement(root, "CircleLabelOffsetX").text = str(self.circle_label_offset_x_field.value())
         SubElement(root, "CircleLabelOffsetY").text = str(self.circle_label_offset_y_field.value())
         SubElement(root, "CircleDefaultColor").text = self.circle_default_color_field.color_value()
@@ -1277,6 +1282,7 @@ class PreferencesDialog(QDialog):
         self.pen_width_field.setValue(1.0)
         self.dot_size_field.setValue(1.0)
         self.preview_handle_size_field.setValue(float(DEFAULT_PREFERENCE_VALUES["PreviewHandleSize"]))
+        self.circle_label_font_size_field.setValue(float(DEFAULT_PREFERENCE_VALUES["CircleLabelFontSize"]))
         self.circle_label_offset_x_field.setValue(float(DEFAULT_PREFERENCE_VALUES["CircleLabelOffsetX"]))
         self.circle_label_offset_y_field.setValue(float(DEFAULT_PREFERENCE_VALUES["CircleLabelOffsetY"]))
         self.circle_default_color_field.set_color_value(DEFAULT_VISUAL_COLORS["CircleDefaultColor"])

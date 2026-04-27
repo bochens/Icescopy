@@ -899,7 +899,6 @@ class CellEditController:
             return
 
         if current_tool_mode == "select":
-            self.main_window.restore_add_defaults(include_grid=False)
             if was_floating:
                 self.main_window.apply_cursor_tool_ui()
             else:
@@ -909,7 +908,6 @@ class CellEditController:
             return
 
         if current_tool_mode == "grid":
-            self.main_window.restore_add_defaults(include_grid=True)
             if was_floating:
                 self.main_window.apply_cursor_tool_ui()
             else:
