@@ -241,7 +241,7 @@ class CSUTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            "Water blank correction is applied within each cycle. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
+            "Water blank correction is applied within each cycle. If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
             self,
         )
         hint_label.setWordWrap(True)
@@ -417,7 +417,7 @@ class TAMUTemperatureImportDialog(QDialog):
 
         hint_label = QLabel(
             "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. "
-            "If water blank samples are selected, their cumulative frozen counts are subtracted from every non-blank output group. "
+            "If water blank samples are selected, their frozen counts and total counts are subtracted from every non-blank output group. "
             "If reset is enabled, counts restart once temperature warms back to the selected threshold.",
             self,
         )
@@ -920,7 +920,7 @@ class StandardTemperatureImportDialog(QDialog):
             "YYYYMMDD_HHMMSS, YYYYMMDD HHMMSS, YYMMDD_HHMMSS, YYMMDD HHMMSS, YYMMDD HHMM, YYMMDD-HHMMSS, "
             "YY/MM/DD HH:MM:SS, and EXIF text YYYY:MM:DD HH:MM:SS.</li>"
             "<li>Use the explicit Unix epoch options for 10-digit seconds or 13-digit milliseconds since 1970-01-01 00:00:00 UTC.</li>"
-            "<li>If water blank samples are selected, their cumulative frozen counts are subtracted from each non-blank output group.</li>"
+            "<li>If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group.</li>"
             "</ul>",
             self,
         )

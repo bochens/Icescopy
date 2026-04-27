@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSele
 import xml.etree.ElementTree as ET
 import csv
 import os
+import sys
 import math
 import tempfile
 import traceback
@@ -157,6 +158,61 @@ SAMPLE_CATALOG_TYPE_REQUIRED_FIELDS = {
     "soil": {"dilution", "suspension_volume_mL", "dry_mass_g"},
     "other": {"dilution"},
 }
+
+class IcescopyApplication(QApplication):
+    """QApplication that opens .icescopy documents sent by the operating system."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.main_window = None
+        self.pending_session_paths = []
+        self.opened_session_paths = set()
+
+    def set_main_window(self, main_window):
+        self.main_window = main_window
+        self.open_pending_session_paths()
+
+    def event(self, event):
+        if event.type() == QEvent.FileOpen:
+            file_path = self.file_path_from_file_open_event(event)
+            if file_path:
+                self.open_session_path(file_path)
+                return True
+        return super().event(event)
+
+    def file_path_from_file_open_event(self, event):
+        file_path = event.file()
+        if file_path:
+            return file_path
+
+        url = event.url()
+        if url.isLocalFile():
+            return url.toLocalFile()
+        return ""
+
+    def open_session_path(self, file_path):
+        normalized_path = os.path.abspath(os.path.expanduser(str(file_path)))
+        if normalized_path in self.opened_session_paths:
+            return
+
+        if self.main_window is None:
+            if normalized_path not in self.pending_session_paths:
+                self.pending_session_paths.append(normalized_path)
+            return
+
+        opened = self.main_window.open_session_file_path(
+            normalized_path,
+            next_action_label="opening a session file",
+        )
+        if opened:
+            self.opened_session_paths.add(normalized_path)
+
+    def open_pending_session_paths(self):
+        pending_paths = list(self.pending_session_paths)
+        self.pending_session_paths = []
+        for file_path in pending_paths:
+            self.open_session_path(file_path)
+
 
 DEFAULT_VISUAL_COLORS = {
     "CircleDefaultColor": "255,0,0,255",
@@ -8911,10 +8967,6 @@ class IceScopy(QMainWindow):
             self.load_aux(self.sort_image_paths(input_imagePath))
 
     def openSession(self):
-        save_choice = self.prompt_save_before_replacing_session("opening another session")
-        if save_choice == "cancel":
-            return
-
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Session",
@@ -8924,6 +8976,29 @@ class IceScopy(QMainWindow):
         )
         if not file_path:
             return
+
+        self.open_session_file_path(file_path, next_action_label="opening another session")
+
+    def open_session_file_path(self, file_path, *, next_action_label="opening another session"):
+        file_path = os.path.abspath(os.path.expanduser(str(file_path)))
+        if not file_path.lower().endswith(".icescopy"):
+            QMessageBox.warning(
+                self,
+                "Open Session",
+                "Icescopy can only open .icescopy session files.",
+            )
+            return False
+        if not os.path.isfile(file_path):
+            QMessageBox.warning(
+                self,
+                "Open Session",
+                f"Session file not found:\n{file_path}",
+            )
+            return False
+
+        save_choice = self.prompt_save_before_replacing_session(next_action_label)
+        if save_choice == "cancel":
+            return False
 
         try:
             payload, grayscale_table, freeze_table, freeze_count_timeseries_table = load_session_bundle(file_path)
@@ -8947,9 +9022,11 @@ class IceScopy(QMainWindow):
                     "Session Images Missing",
                     "Some session image files could not be found.\n\nUse File -> Relink Images Folder... to point the session to the current image folder.",
                 )
+            return True
         except Exception as err:
             QMessageBox.critical(self, "Open Session Failed", str(err))
             self.log(f"Failed to open session: {err}")
+            return False
 
     def get_missing_session_image_paths(self):
         missing_paths = []
@@ -10738,11 +10815,16 @@ class IceScopy(QMainWindow):
         return preferences
 
 if __name__ == '__main__':
-    app = QApplication([])
+    app = IcescopyApplication(sys.argv)
     if platform.system() == "Windows" and "Fusion" in QStyleFactory.keys():
         app.setStyle(QStyleFactory.create("Fusion"))
     app.setWindowIcon(QIcon(os.path.join(resources_dir, "app_icons", "IcescopyApp.png")))
     window = IceScopy()
+    app.set_main_window(window)
     window.show()
+
+    for argument in sys.argv[1:]:
+        if str(argument).lower().endswith(".icescopy"):
+            QTimer.singleShot(0, partial(app.open_session_path, argument))
     
     app.exec()

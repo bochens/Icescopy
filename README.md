@@ -28,31 +28,13 @@ Image assay data often needs cleanup before freezing events can be reviewed reli
 
 Import a standard temperature timeseries file, use instrument-specific importers, or customize how image timestamps should be matched to temperature records. Icescopy can apply water blank correction and can also help correct or double-check an instrument's real-time frozen counts against image-derived freeze calls.
 
-![Icescopy temperature import dialogs showing standard CSV customization and CSU dat workflow support](resources/readme/icescopy-temperature-import.png)
+<img src="resources/readme/icescopy-temperature-import.png" alt="Icescopy temperature import dialogs showing standard CSV customization and CSU dat workflow support" width="760">
 
 ### Enter Sample Metadata And Review Results
 
 After annotation, use the sample catalog to enter sample names, collection information, sample type, dilution, volumes, and related metadata. Icescopy then keeps that metadata beside the image-derived measurements so freeze count timeseries, result tables, and exports remain connected to the samples they came from.
 
 ![Icescopy workspace showing sample metadata entry and freeze count timeseries results for a well-plate ice assay](resources/readme/icescopy-freeze-count-timeseries.png)
-
-## What The Software Does
-
-Icescopy is built around four core tasks:
-
-1. Load and sort an image sequence.
-2. Mark cells or droplets manually with single-cell or grid tools.
-3. Review grayscale measurements and freezing events.
-4. Save a reusable session and export result tables.
-
-It also supports:
-
-- manual freeze-frame editing
-- sample assignment and sample catalog management
-- image-wide exposure, contrast, crop, and uniform-exposure adjustments
-- CSU `.dat` temperature import
-- TAMU Linkam `.xlsx` temperature import
-- session save/load with `.icescopy` files
 
 ## Notes
 
