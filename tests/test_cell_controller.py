@@ -11,12 +11,13 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PySide6.QtCore import QRectF  # noqa: E402
+from PySide6.QtCore import QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QGraphicsScene, QGraphicsView  # noqa: E402
 
 from icescopy_cell_items import CellCircle  # noqa: E402
 from icescopy_cell_controller import CellEditController  # noqa: E402
+from icescopy_aux import CustomGraphicsView  # noqa: E402
 
 
 class DummyMainWindow:
@@ -50,6 +51,8 @@ class DummyMainWindow:
         self.next_cell_id = 0
         self.rendered_cell_items = []
         self.tool_status_label = QLabel()
+        self.scene = QGraphicsScene()
+        self.view = QGraphicsView(self.scene)
 
     def restore_add_defaults(self, include_grid=False):
         self.restore_calls.append(include_grid)
@@ -125,6 +128,49 @@ class DummyMainWindow:
     def image_pixel_to_scene_coordinates(self, pixel_x, pixel_y, _image_rect=None):
         return (float(pixel_x), float(pixel_y))
 
+    def is_grid_horizontal_pitch_modifier_active(self, modifiers):
+        return bool(modifiers & Qt.AltModifier)
+
+    def is_grid_tilt_modifier_active(self, modifiers):
+        return bool(modifiers & Qt.ShiftModifier)
+
+
+class DummyWheelEvent:
+    def __init__(self, modifiers=Qt.NoModifier, inverted=False):
+        self._modifiers = modifiers
+        self._inverted = inverted
+        self.accepted = False
+
+    def modifiers(self):
+        return self._modifiers
+
+    def inverted(self):
+        return self._inverted
+
+    def accept(self):
+        self.accepted = True
+
+
+class DummyDelta:
+    def __init__(self, y_value):
+        self._y_value = y_value
+
+    def y(self):
+        return self._y_value
+
+
+class DummyGraphicsWheelEvent(DummyWheelEvent):
+    def __init__(self, angle_delta=120, pixel_delta=0, modifiers=Qt.NoModifier, inverted=False):
+        super().__init__(modifiers=modifiers, inverted=inverted)
+        self._angle_delta = angle_delta
+        self._pixel_delta = pixel_delta
+
+    def angleDelta(self):
+        return DummyDelta(self._angle_delta)
+
+    def pixelDelta(self):
+        return DummyDelta(self._pixel_delta)
+
 
 class CellEditControllerTests(unittest.TestCase):
     @classmethod
@@ -140,6 +186,45 @@ class CellEditControllerTests(unittest.TestCase):
         self.assertEqual(main_window.restore_calls, [])
         self.assertEqual(main_window.tool_mode, "select")
         self.assertAlmostEqual(main_window.circle_radius, 37.5)
+        self.assertEqual(main_window.synced_tool_panel, 1)
+
+    def test_add_cell_wheel_still_changes_add_radius(self):
+        main_window = DummyMainWindow(tool_mode="select")
+        main_window.radius_wheel_step = 2.0
+        main_window.image_width = 100.0
+        main_window.maximum_zoom = 10.0
+        main_window.space_held = False
+        main_window.temporary_event_data = {}
+        main_window.update_zoom_count = 0
+        main_window.update_radius_count = 0
+        main_window.update_preview_count = 0
+        main_window.updateZoomTextbox = lambda: setattr(
+            main_window,
+            "update_zoom_count",
+            main_window.update_zoom_count + 1,
+        )
+        main_window.updateRadiusTextbox = lambda: setattr(
+            main_window,
+            "update_radius_count",
+            main_window.update_radius_count + 1,
+        )
+        main_window.update_grid_preview = lambda: setattr(
+            main_window,
+            "update_preview_count",
+            main_window.update_preview_count + 1,
+        )
+        main_window.is_pan_interaction_active = lambda: False
+        controller = CellEditController(main_window)
+        main_window.cell_controller = controller
+        view = CustomGraphicsView(main_window.scene, main_window)
+        event = DummyGraphicsWheelEvent(angle_delta=120)
+
+        view.wheelEvent(event)
+
+        self.assertTrue(event.accepted)
+        self.assertAlmostEqual(main_window.circle_radius, 39.5)
+        self.assertEqual(main_window.update_radius_count, 1)
+        self.assertEqual(main_window.update_preview_count, 1)
         self.assertEqual(main_window.synced_tool_panel, 1)
 
     def test_floating_cancel_in_add_cell_preserves_user_radius_when_leaving_tool(self):
@@ -210,6 +295,56 @@ class CellEditControllerTests(unittest.TestCase):
         self.assertEqual(recorded["args"], ("scene", (10.0, 20.0), 15.0))
         self.assertAlmostEqual(main_window.circle_radius, 37.5)
         self.assertTrue(main_window.finalized)
+
+    def test_single_edit_wheel_changes_edit_radius_delta_not_add_radius(self):
+        main_window = DummyMainWindow(tool_mode="edit-new")
+        main_window.edit_single_base_radius = 12.0
+        main_window.edit_single_radius_delta = 0.0
+        main_window.radius_wheel_step = 2.0
+        main_window.grid_pitch_wheel_step = 1.0
+        main_window.grid_tilt_wheel_step = 1.0
+        controller = CellEditController(main_window)
+        controller.update_preview = lambda: None
+        event = DummyWheelEvent()
+
+        handled = controller.handle_wheel_adjustment(event, 120)
+
+        self.assertTrue(handled)
+        self.assertTrue(event.accepted)
+        self.assertAlmostEqual(main_window.edit_single_radius_delta, 2.0)
+        self.assertAlmostEqual(main_window.circle_radius, 37.5)
+
+    def test_cancel_single_edit_restores_edit_rubber_band_selection(self):
+        main_window = DummyMainWindow(tool_mode="edit-new")
+        main_window.scene = QGraphicsScene()
+        main_window.view = QGraphicsView(main_window.scene)
+        main_window.view.setDragMode(QGraphicsView.NoDrag)
+        main_window.grid_preview_origin_pixels = (10.0, 20.0)
+        controller = CellEditController(main_window)
+        main_window.cell_controller = controller
+
+        controller.cancel_preview(log_message=False)
+
+        self.assertEqual(main_window.tool_mode, "edit-choose")
+        self.assertEqual(main_window.view.dragMode(), QGraphicsView.RubberBandDrag)
+        self.assertEqual(main_window.view.rubberBandSelectionMode(), Qt.IntersectsItemShape)
+
+    def test_cancel_group_edit_restores_edit_rubber_band_selection(self):
+        main_window = DummyMainWindow(tool_mode="edit-group")
+        main_window.scene = QGraphicsScene()
+        main_window.view = QGraphicsView(main_window.scene)
+        main_window.view.setDragMode(QGraphicsView.NoDrag)
+        main_window.grid_preview_origin_pixels = (10.0, 20.0)
+        controller = CellEditController(main_window)
+        controller.group_cell_ids = {1, 2}
+        main_window.cell_controller = controller
+
+        controller.cancel_preview(log_message=False)
+
+        self.assertEqual(main_window.tool_mode, "edit-choose")
+        self.assertEqual(main_window.view.dragMode(), QGraphicsView.RubberBandDrag)
+        self.assertEqual(main_window.view.rubberBandSelectionMode(), Qt.IntersectsItemShape)
+        self.assertEqual(controller.group_cell_ids, [])
 
     def test_grid_add_commit_preserves_user_radius_and_grid_settings(self):
         main_window = DummyMainWindow(tool_mode="grid")

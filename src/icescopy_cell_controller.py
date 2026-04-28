@@ -906,22 +906,16 @@ class CellEditController:
             # in the broader edit workflow instead of kicking all the way back
             # to Cursor.
             self.main_window.reset_cell_items_edit_chosen()
-            self.main_window.tool_mode = "edit-choose"
-            self.main_window.set_view_cursor_shape(Qt.PointingHandCursor)
-            self.main_window.tool_status_label.setText("Edit Cell")
             self.clear_group_cells()
-            self.main_window.sync_tool_options_panel()
+            self.start_edit_choose()
             if had_preview and log_message:
                 self.main_window.log("Cancel group edit preview")
             return
 
         if self.main_window.tool_mode == "edit-new":
             self.main_window.reset_cell_items_edit_chosen()
-            self.main_window.tool_mode = "edit-choose"
-            self.main_window.set_view_cursor_shape(Qt.PointingHandCursor)
-            self.main_window.tool_status_label.setText("Edit Cell")
             self.main_window.restore_after_edit_mode()
-            self.main_window.sync_tool_options_panel()
+            self.start_edit_choose()
             if had_preview and log_message:
                 self.main_window.log("Cancel Edit")
             return

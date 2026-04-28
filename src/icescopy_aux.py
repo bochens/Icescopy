@@ -218,7 +218,7 @@ class CustomGraphicsView(QGraphicsView):
 
             event.accept()
 
-        elif self.main_window.tool_mode in ['select', 'edit-new']:
+        elif self.main_window.tool_mode == 'select':
             # Handle circle size change here for select mode
             radius_step = float(getattr(self.main_window, "radius_wheel_step", 1.0))
             if wheel_delta > 0:  # scroll up
