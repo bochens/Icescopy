@@ -433,6 +433,10 @@ class IceScopy(QMainWindow):
         self.edit_single_radius_delta = 0.0
         self.edit_group_base_radius = None
         self.edit_group_base_radii_by_number = {}
+        self.edit_group_base_positions_by_number = {}
+        self.edit_group_base_origin_pixels = None
+        self.edit_group_base_primary_axis = (1.0, 0.0)
+        self.edit_group_base_secondary_axis = (0.0, 1.0)
         self.edit_group_radius_delta = 0.0
         self.edit_group_base_horizontal_pitch = None
         self.edit_group_base_vertical_pitch = None
@@ -3791,9 +3795,9 @@ class IceScopy(QMainWindow):
             value_handler=self.handle_preview_offset_change,
         )
         self.edit_grid_tool_page.add_row("Radius Delta", self.edit_grid_radius_spinbox, "scroll")
-        self.edit_grid_tool_page.add_row("H Pitch Delta", self.edit_grid_hpitch_spinbox, self.grid_horizontal_pitch_shortcut_label())
-        self.edit_grid_tool_page.add_row("V Pitch Delta", self.edit_grid_vpitch_spinbox, self.grid_vertical_pitch_shortcut_label())
-        self.edit_grid_tool_page.add_row("Tilt Delta", self.edit_grid_rotation_spinbox, self.grid_tilt_shortcut_label())
+        self.edit_grid_tool_page.add_row("X Pitch", self.edit_grid_hpitch_spinbox, self.grid_horizontal_pitch_shortcut_label())
+        self.edit_grid_tool_page.add_row("Y Pitch", self.edit_grid_vpitch_spinbox, self.grid_vertical_pitch_shortcut_label())
+        self.edit_grid_tool_page.add_row("Rotation", self.edit_grid_rotation_spinbox, self.grid_tilt_shortcut_label())
         self.edit_grid_tool_page.add_row("X Offset", self.edit_grid_offset_x_spinbox)
         self.edit_grid_tool_page.add_row("Y Offset", self.edit_grid_offset_y_spinbox)
         self.edit_grid_tool_page.add_action_row(
@@ -4526,11 +4530,9 @@ class IceScopy(QMainWindow):
         sender = self.sender()
         if sender is self.edit_circle_radius_spinbox:
             self.edit_single_radius_delta = float(value)
-            base_radius = float(self.edit_single_base_radius if self.edit_single_base_radius is not None else self.circle_radius)
-            self.circle_radius = max(1.0, base_radius + self.edit_single_radius_delta)
         else:
             self.circle_radius = float(value)
-        self.updateRadiusTextbox()
+            self.updateRadiusTextbox()
         if self.tool_mode in {'select', 'edit-new'}:
             if self.cell_controller.uses_grid_preview():
                 self.update_grid_preview()
@@ -4541,11 +4543,9 @@ class IceScopy(QMainWindow):
         sender = self.sender()
         if sender is self.edit_grid_radius_spinbox:
             self.edit_group_radius_delta = float(value)
-            base_radius = float(self.edit_group_base_radius if self.edit_group_base_radius is not None else self.circle_radius)
-            self.circle_radius = max(1.0, base_radius + self.edit_group_radius_delta)
         else:
             self.circle_radius = float(value)
-        self.updateRadiusTextbox()
+            self.updateRadiusTextbox()
         self.handle_grid_parameter_change()
 
     def handle_preview_offset_change(self, *_args):
@@ -4581,12 +4581,6 @@ class IceScopy(QMainWindow):
             self.edit_group_horizontal_pitch_delta = float(controls["hpitch"].value())
             self.edit_group_vertical_pitch_delta = float(controls["vpitch"].value())
             self.edit_group_rotation_delta = float(controls["rotation"].value())
-            base_hpitch = float(self.edit_group_base_horizontal_pitch if self.edit_group_base_horizontal_pitch is not None else self.grid_horizontal_pitch)
-            base_vpitch = float(self.edit_group_base_vertical_pitch if self.edit_group_base_vertical_pitch is not None else self.grid_vertical_pitch)
-            base_rotation = float(self.edit_group_base_rotation_degrees if self.edit_group_base_rotation_degrees is not None else self.grid_rotation_degrees)
-            self.grid_horizontal_pitch = max(0.1, base_hpitch + self.edit_group_horizontal_pitch_delta)
-            self.grid_vertical_pitch = max(0.1, base_vpitch + self.edit_group_vertical_pitch_delta)
-            self.grid_rotation_degrees = max(-180.0, min(180.0, base_rotation + self.edit_group_rotation_delta))
         else:
             self.grid_horizontal_pitch = float(controls["hpitch"].value())
             self.grid_vertical_pitch = float(controls["vpitch"].value())
@@ -4761,9 +4755,6 @@ class IceScopy(QMainWindow):
 
     def get_edit_target_items(self):
         return self.cell_controller.get_target_items()
-
-    def infer_grid_parameters_from_cells(self, selected_items):
-        self.cell_controller.infer_grid_parameters_from_cells(selected_items)
 
     def handle_scene_cell_selection_changed(self):
         if hasattr(self, "tool_options_stack"):
@@ -5480,6 +5471,17 @@ class IceScopy(QMainWindow):
         else:
             self.reset_cursor_action.trigger()
 
+    def redraw_no_image_cell_template_view(self, *, fit_view=False):
+        """Draw stored cells on a blank scene when no images are loaded."""
+        if hasattr(self, "pixmap_item") or not hasattr(self, "cell_controller"):
+            return
+        self.cell_controller.redraw_current_cells(
+            preserve_selection=False,
+            force_scene_scan=True,
+        )
+        if fit_view and getattr(self, "rendered_cell_items", []) and hasattr(self, "view"):
+            self.view.fitInView(self.view.sceneRect(), Qt.KeepAspectRatio)
+
     def restore_image_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
@@ -5584,9 +5586,13 @@ class IceScopy(QMainWindow):
             else:
                 self.populate_image_list()
                 self.reset_transient_interaction_state()
+                preserved_cell_items = copy.deepcopy(self.cell_items)
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
+                self.cell_items = preserved_cell_items
+                self.rendered_cell_items = []
+                self.redraw_no_image_cell_template_view(fit_view=True)
                 self.image_name_label.clear()
                 self.image_textbox.clear()
                 self.image_slider.blockSignals(True)
@@ -5704,6 +5710,8 @@ class IceScopy(QMainWindow):
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
+                self.rendered_cell_items = []
+                self.redraw_no_image_cell_template_view(fit_view=True)
                 self.image_name_label.clear()
                 self.image_textbox.clear()
                 self.image_slider.blockSignals(True)
@@ -5848,6 +5856,8 @@ class IceScopy(QMainWindow):
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
+                self.rendered_cell_items = []
+                self.redraw_no_image_cell_template_view(fit_view=True)
                 self.sync_image_list_selection()
 
                 self.select_tool_action.setEnabled(False)
@@ -5885,7 +5895,7 @@ class IceScopy(QMainWindow):
             self.preview_frame_update_in_progress = False
 
             if not self.imagePaths:
-                self.cell_items = []
+                self.cell_items = copy.deepcopy(state.get("cell_items", []))
                 self.rendered_cell_items = []
                 self.next_cell_id = int(state.get("next_cell_id", 0))
                 self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", {}))
@@ -5899,8 +5909,12 @@ class IceScopy(QMainWindow):
                 self.keyframe_list = []
                 self.flagframe_list = []
                 self.keyframe_cell_items_dict = {}
+                self.scene.clear()
+                if hasattr(self, 'pixmap_item'):
+                    del(self.pixmap_item)
                 self.recompute_next_cell_id(preserve_if_larger=True)
                 self.ensure_sample_catalog_matches_cell_records()
+                self.redraw_no_image_cell_template_view(fit_view=True)
                 self.refresh_sample_catalog_tree(preserve_selection=False)
                 self.restore_tool_mode_ui(restore_tool_mode)
                 return
@@ -8476,13 +8490,13 @@ class IceScopy(QMainWindow):
                 return self.cell_items
                 
     def grid_horizontal_pitch_shortcut_label(self):
-        return "opt+scroll" if IS_MACOS else "caps+scroll"
+        return "Option scroll" if IS_MACOS else "Caps Lock scroll"
 
     def grid_vertical_pitch_shortcut_label(self):
-        return "ctrl+scroll"
+        return "Command scroll" if IS_MACOS else "Ctrl scroll"
 
     def grid_tilt_shortcut_label(self):
-        return "cmd+scroll" if IS_MACOS else "shift+scroll"
+        return "Control scroll" if IS_MACOS else "Shift scroll"
 
     def is_caps_lock_pressed(self):
         if not IS_WINDOWS:
@@ -8752,7 +8766,6 @@ class IceScopy(QMainWindow):
         self.preview_offset_y = 0.0
         self.edit_single_base_radius = float(cell_item.circle_sizes)
         self.edit_single_radius_delta = 0.0
-        self.circle_radius = float(cell_item.circle_sizes)
         self.tool_mode = 'edit-new'
         self.set_tools_highlight(self.tool_mode)
         self.set_undo_status()
@@ -8765,7 +8778,6 @@ class IceScopy(QMainWindow):
         )
         self.grid_preview_floating = False
         self.update_grid_preview()
-        self.updateRadiusTextbox()
         self.sync_tool_options_panel()
         self.refresh_grayscale_plot()
     
@@ -9473,7 +9485,7 @@ class IceScopy(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Clear Images",
-                "Remove all loaded images from this session? This also clears cells, keyframes, and analysis results tied to those images, but does not delete files from disk.",
+                "Remove all loaded images from this session? Cells and sample assignments are kept. Keyframes and analysis results tied to the images are cleared, but files are not deleted from disk.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -9481,14 +9493,13 @@ class IceScopy(QMainWindow):
                 return
 
         before_state = self.capture_image_session_state()
+        preserved_cell_items = copy.deepcopy(self.cell_items)
+        preserved_next_cell_id = int(getattr(self, "next_cell_id", 0))
+        preserved_cell_records = copy.deepcopy(self.serialize_cell_records())
 
         self.reset_transient_interaction_state()
         self.reset_pending_frame_navigation_state(stop_timer=True)
         self.clear_image_caches()
-        self.cell_items = []
-        self.rendered_cell_items = []
-        self.next_cell_id = 0
-        self.cell_records_by_id = {}
         self.keyframe_list = []
         self.flagframe_list = []
         self.keyframe_cell_items_dict = {}
@@ -9503,6 +9514,12 @@ class IceScopy(QMainWindow):
         self.scene.clear()
         if hasattr(self, 'pixmap_item'):
             del(self.pixmap_item)
+        self.cell_items = preserved_cell_items
+        self.rendered_cell_items = []
+        self.next_cell_id = preserved_next_cell_id
+        self.cell_records_by_id = self.deserialize_cell_records(preserved_cell_records)
+        self.ensure_cell_registry_matches_scene_cells()
+        self.recompute_next_cell_id(preserve_if_larger=True)
 
         self.image_name_label.clear()
         self.image_textbox.clear()
@@ -9524,6 +9541,7 @@ class IceScopy(QMainWindow):
         self.invalidate_analysis_results("image list changed")
         self.populate_image_list()
         self.reset_cursor_action.trigger()
+        self.redraw_no_image_cell_template_view(fit_view=True)
         self.log(log_message)
         self.push_image_session_history("Clear Images", before_state)
 

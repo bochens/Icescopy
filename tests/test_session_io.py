@@ -6,6 +6,7 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,19 @@ from icescopy_session_io import (  # noqa: E402
 
 
 class SessionIoTests(unittest.TestCase):
+    def test_grid_scroll_shortcut_labels_match_platform_modifier_handlers(self):
+        fake_window = SimpleNamespace()
+
+        with patch.object(icescopy_module, "IS_MACOS", True), patch.object(icescopy_module, "IS_WINDOWS", False):
+            self.assertEqual(IceScopy.grid_horizontal_pitch_shortcut_label(fake_window), "Option scroll")
+            self.assertEqual(IceScopy.grid_vertical_pitch_shortcut_label(fake_window), "Command scroll")
+            self.assertEqual(IceScopy.grid_tilt_shortcut_label(fake_window), "Control scroll")
+
+        with patch.object(icescopy_module, "IS_MACOS", False), patch.object(icescopy_module, "IS_WINDOWS", True):
+            self.assertEqual(IceScopy.grid_horizontal_pitch_shortcut_label(fake_window), "Caps Lock scroll")
+            self.assertEqual(IceScopy.grid_vertical_pitch_shortcut_label(fake_window), "Ctrl scroll")
+            self.assertEqual(IceScopy.grid_tilt_shortcut_label(fake_window), "Shift scroll")
+
     def bind_sample_allocator_methods(self, fake_window):
         fake_window.used_sample_ids = lambda: IceScopy.used_sample_ids(fake_window)
         fake_window.lowest_available_sample_id = lambda: IceScopy.lowest_available_sample_id(fake_window)
@@ -1139,6 +1153,121 @@ class SessionIoTests(unittest.TestCase):
             self.assertEqual(grayscale_table, (grayscale_headers, grayscale_rows))
             self.assertEqual(freeze_table, (freeze_headers, freeze_rows))
             self.assertEqual(temperature_table, (temperature_headers, temperature_rows))
+
+    def test_clear_loaded_images_keeps_cell_catalog_state(self):
+        class DummyScene:
+            def __init__(self):
+                self.cleared = False
+
+            def clear(self):
+                self.cleared = True
+
+        class DummyLabel:
+            def clear(self):
+                pass
+
+        class DummySlider:
+            def blockSignals(self, _blocked):
+                pass
+
+            def setMinimum(self, _value):
+                pass
+
+            def setMaximum(self, _value):
+                pass
+
+            def setValue(self, _value):
+                pass
+
+            def setEnabled(self, _enabled):
+                pass
+
+            def clear_marker_state(self):
+                pass
+
+        class DummyAction:
+            def __init__(self):
+                self.triggered = False
+
+            def setEnabled(self, _enabled):
+                pass
+
+            def trigger(self):
+                self.triggered = True
+
+        cell_items = [
+            SimpleNamespace(cell_id=0, circle_pixel_positions=(10, 20)),
+            SimpleNamespace(cell_id=1, circle_pixel_positions=(30, 40)),
+        ]
+        serialized_records = {
+            "0": {"cell_id": 0, "sample_id": "5"},
+            "1": {"cell_id": 1, "sample_id": ""},
+        }
+        fake_window = SimpleNamespace(
+            imagePaths=["a.png", "b.png"],
+            imageNames=["a.png", "b.png"],
+            image_index=1,
+            last_committed_image_index=1,
+            image_list_entry_ids=[0, 1],
+            next_image_list_entry_id=2,
+            cell_items=cell_items,
+            rendered_cell_items=list(cell_items),
+            next_cell_id=2,
+            cell_records_by_id=dict(serialized_records),
+            keyframe_list=[0],
+            flagframe_list=[1],
+            keyframe_cell_items_dict={0: [cell_items[0]]},
+            image_width=100,
+            scene=DummyScene(),
+            image_name_label=DummyLabel(),
+            image_textbox=DummyLabel(),
+            image_slider=DummySlider(),
+            select_tool_action=DummyAction(),
+            grid_tool_action=DummyAction(),
+            pan_tool_action=DummyAction(),
+            deselect_tool_action=DummyAction(),
+            edit_tool_action=DummyAction(),
+            reset_cursor_action=DummyAction(),
+            history_pushed=False,
+            logged_message=None,
+            no_image_redraw_fit_view=None,
+        )
+        fake_window.capture_image_session_state = lambda: {}
+        fake_window.serialize_cell_records = lambda: dict(serialized_records)
+        fake_window.deserialize_cell_records = lambda payload: dict(payload)
+        fake_window.reset_transient_interaction_state = lambda: None
+        fake_window.reset_pending_frame_navigation_state = lambda stop_timer=True: None
+        fake_window.clear_image_caches = lambda: None
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.recompute_next_cell_id = lambda preserve_if_larger=True: None
+        fake_window.update_session_actions_state = lambda: None
+        fake_window.updateButtonStates = lambda: None
+        fake_window.invalidate_analysis_results = lambda reason=None: None
+        fake_window.populate_image_list = lambda: None
+        fake_window.redraw_no_image_cell_template_view = (
+            lambda fit_view=False: setattr(fake_window, "no_image_redraw_fit_view", fit_view)
+        )
+        fake_window.log = lambda message: setattr(fake_window, "logged_message", message)
+        fake_window.push_image_session_history = (
+            lambda text, before_state: setattr(fake_window, "history_pushed", (text, before_state))
+        )
+
+        IceScopy.clear_loaded_images(fake_window, confirm=False)
+
+        self.assertTrue(fake_window.scene.cleared)
+        self.assertEqual([item.cell_id for item in fake_window.cell_items], [0, 1])
+        self.assertIsNot(fake_window.cell_items[0], cell_items[0])
+        self.assertEqual(fake_window.next_cell_id, 2)
+        self.assertEqual(fake_window.cell_records_by_id, serialized_records)
+        self.assertEqual(fake_window.keyframe_list, [])
+        self.assertEqual(fake_window.flagframe_list, [])
+        self.assertEqual(fake_window.keyframe_cell_items_dict, {})
+        self.assertEqual(fake_window.imagePaths, [])
+        self.assertEqual(fake_window.imageNames, [])
+        self.assertEqual(fake_window.rendered_cell_items, [])
+        self.assertIs(fake_window.no_image_redraw_fit_view, True)
+        self.assertTrue(fake_window.reset_cursor_action.triggered)
+        self.assertEqual(fake_window.history_pushed[0], "Clear Images")
 
 
 if __name__ == "__main__":

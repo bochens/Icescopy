@@ -1,14 +1,21 @@
+import os
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from PySide6.QtCore import QRectF  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QGraphicsScene, QGraphicsView  # noqa: E402
+
+from icescopy_cell_items import CellCircle  # noqa: E402
 from icescopy_cell_controller import CellEditController  # noqa: E402
 
 
@@ -41,6 +48,8 @@ class DummyMainWindow:
         self.logs = []
         self.finalized = False
         self.next_cell_id = 0
+        self.rendered_cell_items = []
+        self.tool_status_label = QLabel()
 
     def restore_add_defaults(self, include_grid=False):
         self.restore_calls.append(include_grid)
@@ -97,8 +106,31 @@ class DummyMainWindow:
     def refresh_cells_panel(self):
         pass
 
+    def refresh_cursor_selection_info(self):
+        pass
+
+    def handle_scene_cell_selection_changed(self):
+        pass
+
+    def update_cell_items_selectable_state(self):
+        if hasattr(self, "cell_controller"):
+            self.cell_controller.update_scene_selectable_state()
+
+    def sync_active_preview_coordinate_controls(self):
+        pass
+
+    def get_qcolor(self, _color_text):
+        return QColor(255, 0, 0)
+
+    def image_pixel_to_scene_coordinates(self, pixel_x, pixel_y, _image_rect=None):
+        return (float(pixel_x), float(pixel_y))
+
 
 class CellEditControllerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def test_pinned_cancel_in_add_cell_preserves_user_radius(self):
         main_window = DummyMainWindow(tool_mode="select")
         controller = CellEditController(main_window)
@@ -159,6 +191,26 @@ class CellEditControllerTests(unittest.TestCase):
         self.assertAlmostEqual(main_window.circle_radius, 37.5)
         self.assertTrue(main_window.finalized)
 
+    def test_single_edit_uses_target_radius_delta_without_changing_add_radius(self):
+        main_window = DummyMainWindow(tool_mode="edit-new")
+        main_window.edit_single_base_radius = 12.0
+        main_window.edit_single_radius_delta = 3.0
+        controller = CellEditController(main_window)
+        controller.get_preview_definitions = lambda: [("scene", (10.0, 20.0))]
+        recorded = {}
+
+        def replace_active_edit_cell(scene_pos, pixel_pos, radius):
+            recorded["args"] = (scene_pos, pixel_pos, radius)
+            return 7
+
+        controller.replace_active_edit_cell = replace_active_edit_cell
+
+        controller.apply_single_edit()
+
+        self.assertEqual(recorded["args"], ("scene", (10.0, 20.0), 15.0))
+        self.assertAlmostEqual(main_window.circle_radius, 37.5)
+        self.assertTrue(main_window.finalized)
+
     def test_grid_add_commit_preserves_user_radius_and_grid_settings(self):
         main_window = DummyMainWindow(tool_mode="grid")
         controller = CellEditController(main_window)
@@ -180,6 +232,82 @@ class CellEditControllerTests(unittest.TestCase):
         self.assertAlmostEqual(main_window.grid_rotation_degrees, 7.0)
         self.assertEqual(len(main_window.cell_items), 2)
         self.assertTrue(main_window.finalized)
+
+    def test_group_edit_starts_from_selected_geometry_not_add_grid_settings(self):
+        class FakePixmapItem:
+            def sceneBoundingRect(self):
+                return QRectF(0.0, 0.0, 1000.0, 1000.0)
+
+        main_window = DummyMainWindow(tool_mode="cursor")
+        main_window.scene = QGraphicsScene()
+        main_window.view = QGraphicsView(main_window.scene)
+        main_window.tool_status_label = QLabel()
+        main_window.grid_preview_outline_color = "255,0,0,255"
+        main_window.grid_preview_fill_color = "255,0,0,50"
+        main_window.grid_horizontal_pitch = 999.0
+        main_window.grid_vertical_pitch = 777.0
+        main_window.grid_rotation_degrees = 45.0
+        main_window.pixmap_item = FakePixmapItem()
+        controller = CellEditController(main_window)
+        main_window.cell_controller = controller
+        selected_items = [
+            CellCircle(main_window, (100.0, 100.0), 10.0, (100.0, 100.0), 0),
+            CellCircle(main_window, (157.0, 113.0), 12.0, (157.0, 113.0), 1),
+            CellCircle(main_window, (184.0, 211.0), 9.0, (184.0, 211.0), 2),
+        ]
+        for item in selected_items:
+            main_window.scene.addItem(item)
+        main_window.cell_items = list(selected_items)
+
+        controller.start_group_edit(selected_items)
+        definitions = controller.get_preview_definitions()
+        positions_by_cell_id = {
+            cell_id: pixel_pos
+            for cell_id, (_scene_pos, pixel_pos) in zip(controller.group_ordered_cell_ids, definitions)
+        }
+
+        self.assertEqual(len(definitions), 3)
+        self.assertEqual(
+            positions_by_cell_id,
+            {
+                0: (100.0, 100.0),
+                1: (157.0, 113.0),
+                2: (184.0, 211.0),
+            },
+        )
+        self.assertEqual(main_window.grid_horizontal_pitch, 999.0)
+        self.assertEqual(main_window.grid_vertical_pitch, 777.0)
+        self.assertEqual(main_window.grid_rotation_degrees, 45.0)
+        self.assertEqual(main_window.circle_radius, 37.5)
+
+    def test_redraw_current_cells_draws_template_cells_without_images(self):
+        main_window = DummyMainWindow(tool_mode="cursor")
+        main_window.scene = QGraphicsScene()
+        main_window.view = QGraphicsView(main_window.scene)
+        controller = CellEditController(main_window)
+        main_window.cell_controller = controller
+        main_window.cell_items = [
+            CellCircle(main_window, (100.0, 125.0), 12.0, (100.0, 125.0), 0),
+            CellCircle(main_window, (220.0, 240.0), 15.0, (220.0, 240.0), 1),
+        ]
+
+        controller.redraw_current_cells(preserve_selection=False, force_scene_scan=True)
+
+        scene_cells = [
+            item for item in main_window.scene.items()
+            if isinstance(item, CellCircle)
+        ]
+        self.assertEqual(len(scene_cells), 2)
+        self.assertEqual(
+            sorted(item.cell_id for item in main_window.rendered_cell_items),
+            [0, 1],
+        )
+        self.assertEqual(
+            sorted(item.cell_id for item in main_window.cell_items),
+            [0, 1],
+        )
+        self.assertTrue(main_window.view.sceneRect().contains(100.0, 125.0))
+        self.assertTrue(main_window.view.sceneRect().contains(220.0, 240.0))
 
 
 if __name__ == "__main__":

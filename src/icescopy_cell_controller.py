@@ -1,6 +1,6 @@
 import numpy as np
 import shiboken6
-from PySide6.QtCore import QPointF, Qt, QSignalBlocker
+from PySide6.QtCore import QPointF, QRectF, Qt, QSignalBlocker
 from PySide6.QtGui import QColor, QBrush, QPen
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsView
 
@@ -200,13 +200,32 @@ class CellEditController:
         return anchored_items
 
     def _anchored_geometry(self, item):
-        image_rect = self.main_window.pixmap_item.sceneBoundingRect()
-        anchored_position = self.main_window.image_pixel_to_scene_coordinates(
-            item.circle_pixel_positions[0],
-            item.circle_pixel_positions[1],
-            image_rect,
-        )
+        if hasattr(self.main_window, "pixmap_item"):
+            image_rect = self.main_window.pixmap_item.sceneBoundingRect()
+            anchored_position = self.main_window.image_pixel_to_scene_coordinates(
+                item.circle_pixel_positions[0],
+                item.circle_pixel_positions[1],
+                image_rect,
+            )
+        else:
+            anchored_position = (
+                float(item.circle_pixel_positions[0]),
+                float(item.circle_pixel_positions[1]),
+            )
         return anchored_position, item.circle_sizes, item.circle_pixel_positions, item.cell_id
+
+    def _update_no_image_scene_rect(self):
+        if hasattr(self.main_window, "pixmap_item") or not hasattr(self.main_window, "view"):
+            return
+
+        items_rect = self.main_window.scene.itemsBoundingRect()
+        if items_rect.isNull() or not items_rect.isValid():
+            self.main_window.view.setSceneRect(QRectF(0.0, 0.0, 640.0, 480.0))
+            return
+
+        margin = 100.0
+        items_rect.adjust(-margin, -margin, margin, margin)
+        self.main_window.view.setSceneRect(items_rect)
 
     def _sync_scene_items_from_models(
         self,
@@ -215,11 +234,6 @@ class CellEditController:
         forced_edit_cell_ids=None,
         force_scene_scan=False,
     ):
-        if not hasattr(self.main_window, "pixmap_item"):
-            self.main_window.cell_items = list(source_items)
-            self.main_window.rendered_cell_items = []
-            return
-
         preserve_selected_set = set(preserve_selected_cell_ids or [])
         forced_edit_set = set(forced_edit_cell_ids) if forced_edit_cell_ids is not None else None
         tracked_scene_items = [
@@ -358,6 +372,7 @@ class CellEditController:
 
         self.main_window.rendered_cell_items = list(updated_items)
         self.main_window.cell_items = updated_items
+        self._update_no_image_scene_rect()
         if (
             (not getattr(self.main_window, "preview_frame_update_in_progress", False))
             and getattr(self.main_window, "tool_mode", "") == "cursor"
@@ -629,10 +644,9 @@ class CellEditController:
         self.main_window.activate_edit_cell_item(cell_item)
 
     def start_group_edit(self, selected_items, preserve_preview=False):
-        # Multi-cell edit uses a grid-like placement preview, but the edit
-        # controls are relative deltas. Positions follow the inferred pattern
-        # while per-circle radii stay tied to each selected item's own base
-        # size, so resizing a mixed group does not flatten everything.
+        # Edit must start from the selected geometry exactly. Add/grid settings
+        # are intentionally not reused here; edit controls apply deltas to the
+        # selected circles' own positions and radii.
         if preserve_preview:
             radius_delta = float(getattr(self.main_window, "edit_group_radius_delta", 0.0))
             hpitch_delta = float(getattr(self.main_window, "edit_group_horizontal_pitch_delta", 0.0))
@@ -643,29 +657,23 @@ class CellEditController:
             hpitch_delta = 0.0
             vpitch_delta = 0.0
             rotation_delta = 0.0
+            self.main_window.preview_offset_x = 0.0
+            self.main_window.preview_offset_y = 0.0
 
         self.set_group_cells_from_items(selected_items, preserve_existing=preserve_preview)
         self.mark_edit_targets(self.group_cell_ids)
-        self.infer_grid_parameters_from_cells(selected_items)
+        self.set_group_edit_basis_from_selection(selected_items)
         self.main_window.edit_group_base_radii_by_number = {
             item.cell_id: float(item.circle_sizes)
             for item in selected_items
         }
-        self.main_window.edit_group_base_radius = float(self.main_window.circle_radius)
+        self.main_window.edit_group_base_radius = float(np.mean([
+            item.circle_sizes for item in selected_items
+        ]))
         self.main_window.edit_group_radius_delta = radius_delta
-        self.main_window.edit_group_base_horizontal_pitch = float(self.main_window.grid_horizontal_pitch)
-        self.main_window.edit_group_base_vertical_pitch = float(self.main_window.grid_vertical_pitch)
-        self.main_window.edit_group_base_rotation_degrees = float(self.main_window.grid_rotation_degrees)
         self.main_window.edit_group_horizontal_pitch_delta = hpitch_delta
         self.main_window.edit_group_vertical_pitch_delta = vpitch_delta
         self.main_window.edit_group_rotation_delta = rotation_delta
-        self.main_window.circle_radius = max(1.0, self.main_window.edit_group_base_radius + self.main_window.edit_group_radius_delta)
-        self.main_window.grid_horizontal_pitch = max(0.1, self.main_window.edit_group_base_horizontal_pitch + self.main_window.edit_group_horizontal_pitch_delta)
-        self.main_window.grid_vertical_pitch = max(0.1, self.main_window.edit_group_base_vertical_pitch + self.main_window.edit_group_vertical_pitch_delta)
-        self.main_window.grid_rotation_degrees = max(
-            -180.0,
-            min(180.0, self.main_window.edit_group_base_rotation_degrees + self.main_window.edit_group_rotation_delta),
-        )
         self.main_window.tool_mode = "edit-group"
         self.main_window.set_view_cursor_shape(Qt.CrossCursor)
         self.main_window.tool_status_label.setText("Edit Cell Group")
@@ -676,43 +684,63 @@ class CellEditController:
         self.clear_scene_selection(clear_group=False)
         self.main_window.sync_tool_options_panel()
 
-    def infer_grid_parameters_from_cells(self, selected_items):
-        """Infer a best-fit grid from the selected items.
-
-        This keeps group-edit aligned with the currently selected pattern rather
-        than forcing users to rebuild the spacing from scratch every time.
-        """
+    def set_group_edit_basis_from_selection(self, selected_items):
         selected_items = list(selected_items)
         if not selected_items:
+            self.main_window.edit_group_base_positions_by_number = {}
+            self.main_window.edit_group_base_origin_pixels = None
+            self.main_window.edit_group_base_primary_axis = (1.0, 0.0)
+            self.main_window.edit_group_base_secondary_axis = (0.0, 1.0)
+            self.main_window.edit_group_base_horizontal_pitch = 1.0
+            self.main_window.edit_group_base_vertical_pitch = 1.0
+            self.main_window.edit_group_base_rotation_degrees = 0.0
             return
 
+        number_to_item = {item.cell_id: item for item in selected_items}
+        ordered_numbers = self.group_ordered_cell_ids or self._infer_spatial_order(selected_items)
+        origin_item = number_to_item.get(ordered_numbers[0], selected_items[0])
+        origin = np.array(origin_item.circle_pixel_positions, dtype=float)
         points = np.array([item.circle_pixel_positions for item in selected_items], dtype=float)
         radii = np.array([item.circle_sizes for item in selected_items], dtype=float)
 
-        if len(points) == 1:
+        if len(points) > 1:
+            _centered, primary_axis, secondary_axis = self._principal_axes(points)
+            centered_for_pitch = points - points.mean(axis=0)
+            projected_x = centered_for_pitch @ primary_axis
+            projected_y = centered_for_pitch @ secondary_axis
+            _x_centers, h_pitch = self._cluster_axis(projected_x, radii)
+            _y_centers, v_pitch = self._cluster_axis(projected_y, radii)
+            rotation = float(np.degrees(np.arctan2(primary_axis[1], primary_axis[0])))
+        else:
+            primary_axis = np.array([1.0, 0.0], dtype=float)
+            secondary_axis = np.array([0.0, 1.0], dtype=float)
             radius = float(radii[0])
-            self.main_window.grid_rows = 1
-            self.main_window.grid_columns = 1
-            self.main_window.grid_horizontal_pitch = max(radius * 2.0, 1.0)
-            self.main_window.grid_vertical_pitch = max(radius * 2.0, 1.0)
-            self.main_window.grid_rotation_degrees = 0.0
-            self.main_window.circle_radius = radius
-            return
+            h_pitch = max(radius * 2.0, 1.0)
+            v_pitch = max(radius * 2.0, 1.0)
+            rotation = 0.0
 
-        centered, primary_axis, secondary_axis = self._principal_axes(points)
-        projected_x = centered @ primary_axis
-        projected_y = centered @ secondary_axis
-
-        x_centers, h_pitch = self._cluster_axis(projected_x, radii)
-        y_centers, v_pitch = self._cluster_axis(projected_y, radii)
-        rotation = float(np.degrees(np.arctan2(primary_axis[1], primary_axis[0])))
-
-        self.main_window.grid_columns = max(1, len(x_centers))
-        self.main_window.grid_rows = max(1, len(y_centers))
-        self.main_window.grid_horizontal_pitch = max(h_pitch, 1.0)
-        self.main_window.grid_vertical_pitch = max(v_pitch, 1.0)
-        self.main_window.grid_rotation_degrees = rotation
-        self.main_window.circle_radius = float(np.mean(radii))
+        self.main_window.edit_group_base_positions_by_number = {
+            item.cell_id: (
+                float(item.circle_pixel_positions[0]),
+                float(item.circle_pixel_positions[1]),
+            )
+            for item in selected_items
+        }
+        self.main_window.edit_group_base_origin_pixels = (
+            float(origin[0]),
+            float(origin[1]),
+        )
+        self.main_window.edit_group_base_primary_axis = (
+            float(primary_axis[0]),
+            float(primary_axis[1]),
+        )
+        self.main_window.edit_group_base_secondary_axis = (
+            float(secondary_axis[0]),
+            float(secondary_axis[1]),
+        )
+        self.main_window.edit_group_base_horizontal_pitch = max(float(h_pitch), 1.0)
+        self.main_window.edit_group_base_vertical_pitch = max(float(v_pitch), 1.0)
+        self.main_window.edit_group_base_rotation_degrees = rotation
 
     def _cluster_axis(self, values, radii):
         sorted_values = np.sort(values)
@@ -1021,12 +1049,60 @@ class CellEditController:
         definitions = []
 
         if self.is_group_edit_mode():
+            base_positions = getattr(self.main_window, "edit_group_base_positions_by_number", {}) or {}
+            base_origin = getattr(self.main_window, "edit_group_base_origin_pixels", None)
+            if not base_positions or base_origin is None:
+                return []
+
+            primary_axis = np.array(
+                getattr(self.main_window, "edit_group_base_primary_axis", (1.0, 0.0)),
+                dtype=float,
+            )
+            secondary_axis = np.array(
+                getattr(self.main_window, "edit_group_base_secondary_axis", (0.0, 1.0)),
+                dtype=float,
+            )
+            primary_norm = float(np.linalg.norm(primary_axis))
+            secondary_norm = float(np.linalg.norm(secondary_axis))
+            if primary_norm <= 1e-9:
+                primary_axis = np.array([1.0, 0.0], dtype=float)
+            else:
+                primary_axis = primary_axis / primary_norm
+            if secondary_norm <= 1e-9:
+                secondary_axis = np.array([0.0, 1.0], dtype=float)
+            else:
+                secondary_axis = secondary_axis / secondary_norm
+
+            base_origin_array = np.array(base_origin, dtype=float)
+            base_hpitch = max(float(getattr(self.main_window, "edit_group_base_horizontal_pitch", 1.0) or 1.0), 1e-6)
+            base_vpitch = max(float(getattr(self.main_window, "edit_group_base_vertical_pitch", 1.0) or 1.0), 1e-6)
+            hpitch_delta = float(getattr(self.main_window, "edit_group_horizontal_pitch_delta", 0.0))
+            vpitch_delta = float(getattr(self.main_window, "edit_group_vertical_pitch_delta", 0.0))
+            h_scale = max(0.1, base_hpitch + hpitch_delta) / base_hpitch
+            v_scale = max(0.1, base_vpitch + vpitch_delta) / base_vpitch
+            rotation_delta = np.deg2rad(float(getattr(self.main_window, "edit_group_rotation_delta", 0.0)))
+            edit_cos = float(np.cos(rotation_delta))
+            edit_sin = float(np.sin(rotation_delta))
+            preview_origin = np.array(self.main_window.grid_preview_origin_pixels, dtype=float)
+
             for cell_id in self.group_ordered_cell_ids:
-                row, col = self.group_reference_cells.get(cell_id, (0, 0))
-                dx = float(col) * self.main_window.grid_horizontal_pitch
-                dy = float(row) * self.main_window.grid_vertical_pitch
-                x_pixel = self.main_window.grid_preview_origin_pixels[0] + offset_x + dx * cos_theta - dy * sin_theta
-                y_pixel = self.main_window.grid_preview_origin_pixels[1] + offset_y + dx * sin_theta + dy * cos_theta
+                base_position = base_positions.get(cell_id)
+                if base_position is None:
+                    continue
+                relative = np.array(base_position, dtype=float) - base_origin_array
+                relative_x = float(relative @ primary_axis) * h_scale
+                relative_y = float(relative @ secondary_axis) * v_scale
+                scaled_vector = primary_axis * relative_x + secondary_axis * relative_y
+                rotated_vector = np.array(
+                    [
+                        scaled_vector[0] * edit_cos - scaled_vector[1] * edit_sin,
+                        scaled_vector[0] * edit_sin + scaled_vector[1] * edit_cos,
+                    ],
+                    dtype=float,
+                )
+                pixel_position = preview_origin + np.array([offset_x, offset_y], dtype=float) + rotated_vector
+                x_pixel = float(pixel_position[0])
+                y_pixel = float(pixel_position[1])
                 scene_pos = self.main_window.image_pixel_to_scene_coordinates(x_pixel, y_pixel, image_rect)
                 definitions.append((scene_pos, (x_pixel, y_pixel)))
             return definitions
@@ -1071,6 +1147,15 @@ class CellEditController:
         preview_count = self._preview_count()
         if preview_count <= 0:
             return []
+
+        if self.main_window.tool_mode == "edit-new":
+            base_radius = float(
+                self.main_window.edit_single_base_radius
+                if self.main_window.edit_single_base_radius is not None
+                else self.main_window.circle_radius
+            )
+            radius_delta = float(getattr(self.main_window, "edit_single_radius_delta", 0.0))
+            return [max(1.0, base_radius + radius_delta)] * preview_count
 
         if not self.is_group_edit_mode():
             return [float(self.main_window.circle_radius)] * preview_count
@@ -1169,17 +1254,18 @@ class CellEditController:
 
         before_state = self.main_window.capture_cell_state()
         scene_pos, pixel_pos = definitions[0]
+        edit_radius = self.get_preview_radii()[0]
         cell_id = self.replace_active_edit_cell(
             scene_pos,
             pixel_pos,
-            self.main_window.circle_radius,
+            edit_radius,
         )
         if cell_id is None:
             return
 
         self.main_window.push_cell_history("Edit Cell", before_state)
         self.main_window.log(
-            f"Updated cell {cell_id} to ({int(pixel_pos[0])}, {int(pixel_pos[1])}); Circle size: {self.main_window.circle_radius:g}"
+            f"Updated cell {cell_id} to ({int(pixel_pos[0])}, {int(pixel_pos[1])}); Circle size: {edit_radius:g}"
         )
         self.main_window.reset_cell_items_edit_chosen()
         self.main_window.restore_after_edit_mode()
@@ -1233,7 +1319,7 @@ class CellEditController:
         self.main_window.reset_cell_items_edit_chosen()
         self.main_window.reselect_cell_ids(selected_cell_ids)
         self.main_window.push_cell_history("Edit Cell Group", before_state)
-        self.main_window.log("Redraw selected group from current grid settings")
+        self.main_window.log("Redraw selected group from selected geometry")
         self.clear_group_cells()
         self.cancel_preview(log_message=False)
         self.main_window.finalize_tool_mode_after_commit()
@@ -1280,7 +1366,7 @@ class CellEditController:
 
         if is_group_edit:
             if is_pinned:
-                hint = "Pinned group preview. Drag the handle or adjust radius delta, pitch delta, tilt delta, X Offset, and Y Offset, then click Apply or press Enter. Float returns to mouse placement."
+                hint = "Pinned group preview. Drag the handle or adjust radius, X pitch, Y pitch, rotation, X Offset, and Y Offset, then click Apply or press Enter. Float returns to mouse placement."
             else:
                 hint = "Move the group preview over the current image. Single click pins it. Double-click or Enter pins and applies immediately."
             controls["hint"].setText(hint)
@@ -1337,33 +1423,23 @@ class CellEditController:
         if self.main_window.is_grid_horizontal_pitch_modifier_active(modifiers):
             if self.is_group_edit_mode():
                 self.main_window.edit_group_horizontal_pitch_delta += direction * pitch_step
-                base_pitch = float(self.main_window.edit_group_base_horizontal_pitch or self.main_window.grid_horizontal_pitch)
-                self.main_window.grid_horizontal_pitch = max(0.1, base_pitch + self.main_window.edit_group_horizontal_pitch_delta)
             else:
                 self.main_window.grid_horizontal_pitch = max(0.1, self.main_window.grid_horizontal_pitch + direction * pitch_step)
         elif modifiers & Qt.ControlModifier:
             if self.is_group_edit_mode():
                 self.main_window.edit_group_vertical_pitch_delta += direction * pitch_step
-                base_pitch = float(self.main_window.edit_group_base_vertical_pitch or self.main_window.grid_vertical_pitch)
-                self.main_window.grid_vertical_pitch = max(0.1, base_pitch + self.main_window.edit_group_vertical_pitch_delta)
             else:
                 self.main_window.grid_vertical_pitch = max(0.1, self.main_window.grid_vertical_pitch + direction * pitch_step)
         elif self.main_window.is_grid_tilt_modifier_active(modifiers):
             if self.is_group_edit_mode():
                 self.main_window.edit_group_rotation_delta += direction * tilt_step
-                base_rotation = float(self.main_window.edit_group_base_rotation_degrees or self.main_window.grid_rotation_degrees)
-                self.main_window.grid_rotation_degrees = max(-180, min(180, base_rotation + self.main_window.edit_group_rotation_delta))
             else:
                 self.main_window.grid_rotation_degrees = max(-180, min(180, self.main_window.grid_rotation_degrees + direction * tilt_step))
         else:
             if self.main_window.tool_mode == "edit-new":
                 self.main_window.edit_single_radius_delta += direction * radius_step
-                base_radius = float(self.main_window.edit_single_base_radius or self.main_window.circle_radius)
-                self.main_window.circle_radius = max(1.0, base_radius + self.main_window.edit_single_radius_delta)
             elif self.is_group_edit_mode():
                 self.main_window.edit_group_radius_delta += direction * radius_step
-                base_radius = float(self.main_window.edit_group_base_radius or self.main_window.circle_radius)
-                self.main_window.circle_radius = max(1.0, base_radius + self.main_window.edit_group_radius_delta)
             else:
                 self.main_window.circle_radius = max(0.1, self.main_window.circle_radius + direction * radius_step)
 
