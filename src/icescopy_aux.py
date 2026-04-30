@@ -27,13 +27,13 @@ from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QCol
 from PySide6.QtCore import QRectF, QThread, Signal, QTimer
 from xml.etree.ElementTree import Element, SubElement, ElementTree, parse
 import numpy as np
-import cv2
 import darkdetect
 import multiprocessing
 import os
 
 
 from icescopy_cell_items import CellCircle
+from icescopy_frame_source import ImageSequenceFrameSource
 from icescopy_freezfinder import (
     DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -404,11 +404,13 @@ class Image_analysis_thread(QThread):
         convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
         convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
         freeze_finder_detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
+        frame_source=None,
     ):
         super().__init__()
         self.filePath   = filePath
         self.imagePaths = imagePaths
         self.imageNames = imageNames
+        self.frame_source = frame_source or ImageSequenceFrameSource(self.imagePaths)
         # self.circle_pixel_positions = circle_pixel_positions
         # self.circle_sizes = circle_sizes
 
@@ -419,7 +421,7 @@ class Image_analysis_thread(QThread):
         self.image_edit_uniform_exposure_offsets = dict(image_edit_uniform_exposure_offsets or {})
         self.image_edit_crop_state = dict(image_edit_crop_state or {})
 
-        self.imageFolderPath = os.path.dirname(self.imagePaths[0])
+        self.imageFolderPath = self.frame_source.source_path()
         self.freeze_finder_width = freeze_finder_width
         self.freeze_finder_prominence = freeze_finder_prominence
         self.freeze_finder_tail_extend_points = freeze_finder_tail_extend_points
@@ -453,8 +455,11 @@ class Image_analysis_thread(QThread):
                 seen_cell_ids.add(cell_id)
                 ordered_cell_ids.append(cell_id)
 
-        for i in range(len(self.imagePaths)):
-            file_name = self.imageNames[i]
+        frame_count = self.frame_source.frame_count()
+        for i, image_gray in self.frame_source.iter_gray_arrays():
+            if i >= frame_count:
+                break
+            file_name = self.frame_source.frame_name(i)
             frame_items = self.list_of_cell_items[i] if i < len(self.list_of_cell_items) else []
             frame_item_by_id = {}
             for circle in frame_items:
@@ -473,7 +478,7 @@ class Image_analysis_thread(QThread):
                 for item in ordered_frame_items
             ]
 
-            gss_list = self.gray_scale_mean(self.imagePaths[i], circle_pixel_positions, circle_sizes)
+            gss_list = self.gray_scale_mean_from_array(i, image_gray, circle_pixel_positions, circle_sizes)
             
             file_name_list.append(file_name)
             gss_table.append(gss_list)
@@ -559,29 +564,40 @@ class Image_analysis_thread(QThread):
         if self.freeze_output_path:
             write_freeze_results_csv(self.freeze_output_path, self.freeze_result_headers, self.freeze_result_rows)
 
-    def gray_scale_mean(self, image_path, circle_pixel_positions, circle_sizes):
-        # Read directly as grayscale so we avoid an extra color conversion on every frame.
-        image_gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    def gray_scale_mean(self, frame_index, circle_pixel_positions, circle_sizes):
+        image_gray = self.frame_source.get_gray_array(frame_index)
+        return self.gray_scale_mean_from_array(frame_index, image_gray, circle_pixel_positions, circle_sizes)
+
+    def gray_scale_mean_from_array(self, frame_index, image_gray, circle_pixel_positions, circle_sizes):
+        frame_key = self.frame_source.frame_key(frame_index)
         if image_gray is None:
-            raise Exception(f"Unable to read image: {image_path}")
+            raise Exception(f"Unable to read frame: {frame_index}")
         raw_height, raw_width = image_gray.shape[:2]
         crop_is_identity = crop_state_is_identity(raw_width, raw_height, self.image_edit_crop_state)
-        _crop_state, crop_matrix, _output_size = build_rotated_crop_affine(
-            raw_width,
-            raw_height,
-            self.image_edit_crop_state or {},
-        )
+        crop_matrix = None
+        if not crop_is_identity:
+            _crop_state, crop_matrix, _output_size = build_rotated_crop_affine(
+                raw_width,
+                raw_height,
+                self.image_edit_crop_state or {},
+            )
         try:
-            effective_exposure = float(self.image_edit_exposure) + float(self.image_edit_uniform_exposure_offsets.get(str(image_path), 0.0))
+            effective_exposure = float(self.image_edit_exposure) + float(self.image_edit_uniform_exposure_offsets.get(str(frame_key), 0.0))
         except (TypeError, ValueError):
             effective_exposure = float(self.image_edit_exposure)
-        image_gray = apply_image_adjustments_to_uint8(
-            image_gray,
-            effective_exposure,
-            self.image_edit_contrast,
-            crop_state=self.image_edit_crop_state or {},
-            apply_crop=True,
+        apply_adjustments = (
+            not crop_is_identity
+            or abs(float(effective_exposure)) >= 1e-9
+            or abs(float(self.image_edit_contrast)) >= 1e-9
         )
+        if apply_adjustments:
+            image_gray = apply_image_adjustments_to_uint8(
+                image_gray,
+                effective_exposure,
+                self.image_edit_contrast,
+                crop_state=self.image_edit_crop_state or {},
+                apply_crop=True,
+            )
 
         gss_list = [] # gray scale sum table
         image_height, image_width = image_gray.shape[:2]

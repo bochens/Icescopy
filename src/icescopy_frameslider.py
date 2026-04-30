@@ -115,7 +115,11 @@ class FrameSlider(QSlider):
             painter.drawPixmap(target_rect.topLeft(), pixmap)
 
     def set_custom_ticks(self):
-        original_range = len(self.main_window.imagePaths)
+        original_range = (
+            int(self.main_window.frame_count())
+            if self.main_window is not None and hasattr(self.main_window, "frame_count")
+            else len(getattr(self.main_window, "imagePaths", []))
+        )
         slider_width = max(1, self.width())
         tick_interval = int(self.main_window.slider_tick_pixel_interval * original_range / slider_width)
         if tick_interval == 0:
@@ -132,7 +136,11 @@ class FrameSlider(QSlider):
 
     def update_zoomed_level(self, zoom_value):
         """Updates the zoom level of the slider based on zoom_value."""
-        original_range = len(self.main_window.imagePaths)
+        original_range = (
+            int(self.main_window.frame_count())
+            if self.main_window is not None and hasattr(self.main_window, "frame_count")
+            else len(getattr(self.main_window, "imagePaths", []))
+        )
         if original_range <= 0:
             self.setRange(0, 0)
             self.left_ratio = 0.0

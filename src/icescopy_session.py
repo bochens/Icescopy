@@ -149,12 +149,18 @@ class FrameNavigationCommand(QUndoCommand):
 class ImageListModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = parent
         self._entries = []
         self._tooltips = []
+
+    def _uses_frame_source(self):
+        return self.main_window is not None and hasattr(self.main_window, "frame_count")
 
     def rowCount(self, parent=QModelIndex()):
         if parent.isValid():
             return 0
+        if self._uses_frame_source():
+            return int(self.main_window.frame_count())
         return len(self._entries)
 
     def data(self, index, role=Qt.DisplayRole):
@@ -162,7 +168,14 @@ class ImageListModel(QAbstractListModel):
             return None
 
         row = index.row()
-        if row < 0 or row >= len(self._entries):
+        if row < 0 or row >= self.rowCount():
+            return None
+
+        if self._uses_frame_source():
+            if role in (Qt.DisplayRole, Qt.EditRole):
+                return self.main_window.format_frame_list_entry(row)
+            if role == Qt.ToolTipRole:
+                return self.main_window.frame_tooltip(row)
             return None
 
         if role in (Qt.DisplayRole, Qt.EditRole):
@@ -172,6 +185,10 @@ class ImageListModel(QAbstractListModel):
         return None
 
     def set_items(self, entries, tooltips):
+        if self._uses_frame_source():
+            self.beginResetModel()
+            self.endResetModel()
+            return
         self.beginResetModel()
         self._entries = list(entries)
         self._tooltips = list(tooltips)
@@ -179,6 +196,10 @@ class ImageListModel(QAbstractListModel):
 
     def append_items(self, entries, tooltips):
         if not entries:
+            return
+        if self._uses_frame_source():
+            self.beginResetModel()
+            self.endResetModel()
             return
         start = len(self._entries)
         end = start + len(entries) - 1
@@ -189,6 +210,11 @@ class ImageListModel(QAbstractListModel):
 
     def remove_rows(self, rows):
         if not rows:
+            return
+
+        if self._uses_frame_source():
+            self.beginResetModel()
+            self.endResetModel()
             return
 
         sorted_rows = sorted(set(rows))
@@ -211,6 +237,21 @@ class ImageListModel(QAbstractListModel):
             self.endRemoveRows()
 
     def update_items(self, row_data):
+        if self._uses_frame_source():
+            valid_rows = []
+            row_count = self.rowCount()
+            for row in row_data:
+                try:
+                    row_int = int(row)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= row_int < row_count:
+                    valid_rows.append(row_int)
+            for row in sorted(valid_rows):
+                model_index = self.index(row, 0)
+                self.dataChanged.emit(model_index, model_index, [Qt.DisplayRole, Qt.ToolTipRole])
+            return
+
         for row in sorted(row_data):
             if not (0 <= row < len(self._entries)):
                 continue

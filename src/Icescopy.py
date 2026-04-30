@@ -4,8 +4,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
                                QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
                                QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory, QStyledItemDelegate)
-from PySide6.QtGui import QPixmap, QImage, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPalette, QDoubleValidator
-from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPalette, QDoubleValidator
+from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF, QObject, QThread, Signal, Slot
 import xml.etree.ElementTree as ET
 import csv
 import os
@@ -17,11 +17,10 @@ import darkdetect
 import platform
 import ctypes
 import time
-import cv2
 from functools import partial
 import copy
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
 import shiboken6
 import re
@@ -42,6 +41,13 @@ from icescopy_dialogs import (
 )
 from icescopy_dock import DockTitleBar
 from icescopy_frameslider import FrameSlider, SliderZoom_Slider
+from icescopy_frame_source import (
+    ImageSequenceFrameSource,
+    SOURCE_KIND_IMAGE_SEQUENCE,
+    SOURCE_KIND_VIDEO,
+    VideoFrameSource,
+    frame_source_from_session_payload,
+)
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -62,6 +68,8 @@ from icescopy_plot import GrayscalePlotWidget
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
+    IMAGE_TIMESTAMP_SOURCE_GENERATED,
+    IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
@@ -75,6 +83,7 @@ from icescopy_temperature_import import (
     parse_csu_is_dat,
     parse_linksys32_iml,
     parse_standard_temperature_csv,
+    parse_timestamp_text,
     parse_tamu_image_timestamp,
     parse_tamu_linkam_xlsx,
     reconcile_cumulative_counts,
@@ -212,6 +221,51 @@ class IcescopyApplication(QApplication):
         self.pending_session_paths = []
         for file_path in pending_paths:
             self.open_session_path(file_path)
+
+
+class VideoPreviewDecodeWorker(QObject):
+    decoded = Signal(int, object, str, str)
+    failed = Signal(int, str, str)
+
+    def __init__(self, video_path, preview_cache_dir, frame_metadata, frame_size, parent=None):
+        super().__init__(parent)
+        self.video_path = str(video_path)
+        self.preview_cache_dir = str(preview_cache_dir)
+        self.frame_metadata = list(frame_metadata or [])
+        self.frame_size = tuple(frame_size or (0, 0))
+        self.frame_source = None
+        self.closed = False
+
+    @Slot(int)
+    def decode(self, index):
+        if self.closed:
+            return
+        requested_index = 0
+        try:
+            index = int(index)
+            requested_index = index
+            if self.frame_source is None:
+                self.frame_source = VideoFrameSource(
+                    self.video_path,
+                    cache_size=4,
+                    preview_cache_dir=self.preview_cache_dir,
+                    frame_metadata=self.frame_metadata,
+                    frame_size=self.frame_size,
+                )
+            q_image = self.frame_source.get_preview_qimage(index)
+            frame_key = self.frame_source.frame_key(index)
+        except Exception as err:
+            self.failed.emit(requested_index, str(err), self.video_path)
+            return
+        if not self.closed:
+            self.decoded.emit(index, q_image, frame_key, self.video_path)
+
+    @Slot()
+    def close(self):
+        self.closed = True
+        if self.frame_source is not None:
+            self.frame_source.close()
+            self.frame_source = None
 
 
 DEFAULT_VISUAL_COLORS = {
@@ -374,6 +428,7 @@ class SampleCatalogTreeWidget(QTreeWidget):
 
 
 class IceScopy(QMainWindow):
+    video_preview_decode_requested = Signal(int)
 
     def __init__(self):
 
@@ -581,7 +636,7 @@ class IceScopy(QMainWindow):
             self.updateRadiusTextbox()
         if hasattr(self, "viewer_single_action"):
             self.update_viewer_mode_actions()
-        if self.imagePaths and hasattr(self, "view"):
+        if self.has_frames() and hasattr(self, "view"):
             self.updateImage(self.image_index)
         elif hasattr(self, "view"):
             self.view.viewport().update()
@@ -1098,8 +1153,8 @@ class IceScopy(QMainWindow):
                 row = self.grayscale_results_rows[int(frame_index)]
                 if len(row) > 0:
                     image_name = str(row[0])
-            elif 0 <= int(frame_index) < len(self.imageNames):
-                image_name = str(self.imageNames[int(frame_index)])
+            elif 0 <= int(frame_index) < self.frame_count():
+                image_name = str(self.frame_name(int(frame_index)))
             rebuilt_rows.append([
                 label,
                 str(int(frame_index)),
@@ -1513,10 +1568,15 @@ class IceScopy(QMainWindow):
         self.image_width = None  # Add image_width attribute
         self.imagePaths = []
         self.imageNames = []
+        self.frame_source = ImageSequenceFrameSource([])
         self.image_index = 0  # Index of the currently displayed image
         self.last_committed_image_index = 0
         self.pending_preview_image_index = None
         self.preview_frame_update_in_progress = False
+        self.video_preview_thread = None
+        self.video_preview_worker = None
+        self.video_preview_decode_in_flight = False
+        self.video_preview_target_index = None
         self.pending_image_edit_preview_state = None
         self.image_edit_preview_in_progress = False
         self.pending_image_edit_histogram_qimage = None
@@ -1563,11 +1623,12 @@ class IceScopy(QMainWindow):
         self.timer = None
         self.output_state = False
         self.raw_image_cache = OrderedDict()
-        self.raw_image_cache_size = 4
+        self.raw_image_cache_size = 8
+        self.preview_raw_frame_keys = set()
         self.image_cache = OrderedDict()
-        self.image_cache_size = 8
+        self.image_cache_size = 12
         self.pixmap_cache = OrderedDict()
-        self.pixmap_cache_size = 8
+        self.pixmap_cache_size = 12
         self.raw_image_size_cache = {}
         self.image_edit_histogram_scale_cache = {}
         self.image_edit_uniform_exposure_overlay = None
@@ -1591,6 +1652,149 @@ class IceScopy(QMainWindow):
         self.current_session_file_path = None
         self.update_session_metadata_status_label()
 
+    def active_frame_source(self):
+        if not hasattr(self, "frame_source") or self.frame_source is None:
+            self.frame_source = ImageSequenceFrameSource(getattr(self, "imagePaths", []))
+        return self.frame_source
+
+    def frame_count(self):
+        try:
+            return int(self.active_frame_source().frame_count())
+        except Exception:
+            return len(getattr(self, "imagePaths", []))
+
+    def has_frames(self):
+        return self.frame_count() > 0
+
+    def source_kind(self):
+        try:
+            return str(self.active_frame_source().source_kind())
+        except Exception:
+            return SOURCE_KIND_IMAGE_SEQUENCE
+
+    def is_video_source(self):
+        return self.source_kind() == SOURCE_KIND_VIDEO
+
+    def start_video_preview_decoder(self):
+        self.stop_video_preview_decoder()
+        if not self.is_video_source():
+            return
+
+        frame_source = self.active_frame_source()
+        preview_cache_dir = getattr(frame_source, "preview_cache_dir", lambda: "")()
+        if not preview_cache_dir:
+            return
+
+        self.video_preview_worker = VideoPreviewDecodeWorker(
+            frame_source.source_path(),
+            preview_cache_dir,
+            getattr(frame_source, "frame_metadata", lambda: [])(),
+            getattr(frame_source, "frame_size", lambda: (0, 0))(),
+        )
+        self.video_preview_thread = QThread(self)
+        self.video_preview_worker.moveToThread(self.video_preview_thread)
+        self.video_preview_decode_requested.connect(self.video_preview_worker.decode)
+        self.video_preview_worker.decoded.connect(self.handle_video_preview_decoded)
+        self.video_preview_worker.failed.connect(self.handle_video_preview_failed)
+        self.video_preview_thread.finished.connect(self.video_preview_worker.deleteLater)
+        self.video_preview_thread.start()
+
+    def stop_video_preview_decoder(self):
+        self.video_preview_decode_in_flight = False
+        self.video_preview_target_index = None
+        worker = getattr(self, "video_preview_worker", None)
+        thread = getattr(self, "video_preview_thread", None)
+        if worker is not None:
+            try:
+                self.video_preview_decode_requested.disconnect(worker.decode)
+            except (TypeError, RuntimeError):
+                pass
+            worker.close()
+        if thread is not None:
+            thread.quit()
+            thread.wait(1000)
+        self.video_preview_worker = None
+        self.video_preview_thread = None
+
+    def supports_image_file_operations(self):
+        try:
+            return bool(self.active_frame_source().supports_image_file_operations())
+        except Exception:
+            return False
+
+    def frame_name(self, index):
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return ""
+        try:
+            return self.active_frame_source().frame_name(index)
+        except Exception:
+            if self.imageNames and 0 <= index < len(self.imageNames):
+                return self.imageNames[index]
+        return ""
+
+    def frame_tooltip(self, index):
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return ""
+        try:
+            return self.active_frame_source().frame_tooltip(index)
+        except Exception:
+            if self.imagePaths and 0 <= index < len(self.imagePaths):
+                return self.imagePaths[index]
+        return ""
+
+    def frame_key(self, index):
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return str(index)
+        try:
+            return self.active_frame_source().frame_key(index)
+        except Exception:
+            if self.imagePaths and 0 <= index < len(self.imagePaths):
+                return os.path.normcase(os.path.normpath(self.imagePaths[index]))
+        return str(index)
+
+    def rebuild_image_sequence_frame_source(self):
+        old_frame_source = getattr(self, "frame_source", None)
+        self.stop_video_preview_decoder()
+        self.frame_source = ImageSequenceFrameSource(getattr(self, "imagePaths", []))
+        if old_frame_source is not None and old_frame_source is not self.frame_source:
+            close_source = getattr(old_frame_source, "close", None)
+            if callable(close_source):
+                close_source()
+        self.imageNames = self.frame_source.names()
+
+    def set_frame_source(self, frame_source, *, reset_frame_ids=True):
+        old_frame_source = getattr(self, "frame_source", None)
+        self.stop_video_preview_decoder()
+        self.frame_source = frame_source or ImageSequenceFrameSource([])
+        if old_frame_source is not None and old_frame_source is not self.frame_source:
+            close_source = getattr(old_frame_source, "close", None)
+            if callable(close_source):
+                close_source()
+        if self.source_kind() == SOURCE_KIND_IMAGE_SEQUENCE:
+            self.imagePaths = self.frame_source.paths()
+            self.imageNames = self.frame_source.names()
+        else:
+            self.imagePaths = []
+            self.imageNames = []
+        if reset_frame_ids:
+            self.image_list_entry_ids = (
+                list(range(self.frame_count()))
+                if self.source_kind() == SOURCE_KIND_IMAGE_SEQUENCE
+                else []
+            )
+            self.next_image_list_entry_id = self.frame_count()
+        if self.source_kind() == SOURCE_KIND_VIDEO:
+            self.start_video_preview_decoder()
+
+    def frame_source_session_payload(self):
+        return self.active_frame_source().to_session_payload()
+
     def serialize_session_metadata(self):
         return {
             "project_name": str(getattr(self, "session_project_name", "")).strip(),
@@ -1601,7 +1805,10 @@ class IceScopy(QMainWindow):
         }
 
     def serialize_image_edit_state(self):
-        valid_paths = {str(path) for path in getattr(self, "imagePaths", [])}
+        valid_frame_keys = {
+            self.frame_key(index)
+            for index in range(self.frame_count())
+        }
         return {
             "exposure": float(getattr(self, "image_edit_exposure", 0.0)),
             "contrast": float(getattr(self, "image_edit_contrast", 0.0)),
@@ -1613,9 +1820,9 @@ class IceScopy(QMainWindow):
                     "height": getattr(self, "image_edit_uniform_exposure_area_height", None),
                 },
                 "offsets": {
-                    str(path): float(value)
-                    for path, value in dict(getattr(self, "image_edit_uniform_exposure_offsets", {})).items()
-                    if str(path) in valid_paths and abs(float(value)) > 1e-9
+                    str(frame_key): float(value)
+                    for frame_key, value in dict(getattr(self, "image_edit_uniform_exposure_offsets", {})).items()
+                    if str(frame_key) in valid_frame_keys and abs(float(value)) > 1e-9
                 },
             },
             "crop": {
@@ -1730,7 +1937,7 @@ class IceScopy(QMainWindow):
         if sync_controls:
             self.sync_image_edit_controls()
 
-        if refresh_display and visual_changed and self.imagePaths:
+        if refresh_display and visual_changed and self.has_frames():
             if geometry_changed:
                 self.updateImage(self.image_index)
             else:
@@ -1739,7 +1946,7 @@ class IceScopy(QMainWindow):
             self.request_image_edit_histogram_refresh()
 
     def refresh_current_image_edit_visuals(self):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
         if not hasattr(self, "pixmap_item"):
             self.updateImage(self.image_index)
@@ -1760,12 +1967,11 @@ class IceScopy(QMainWindow):
             self.view.setUpdatesEnabled(True)
 
     def prewarm_current_image_edit_render_cache(self):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
-        if not (0 <= int(self.image_index) < len(self.imagePaths)):
+        if not (0 <= int(self.image_index) < self.frame_count()):
             return
-        image_path = self.imagePaths[int(self.image_index)]
-        self.get_cached_raw_image(image_path)
+        self.get_cached_raw_image(self.image_index)
         self.get_cached_image(self.image_index)
         self.get_cached_pixmap(self.image_index)
 
@@ -1854,9 +2060,9 @@ class IceScopy(QMainWindow):
         if image_path is None:
             if index is None:
                 index = self.image_index
-            if not self.imagePaths or not (0 <= int(index) < len(self.imagePaths)):
+            if not self.has_frames() or not (0 <= int(index) < self.frame_count()):
                 return 0.0
-            image_path = self.imagePaths[int(index)]
+            image_path = self.frame_key(int(index))
         try:
             return float(offsets.get(str(image_path), 0.0))
         except (TypeError, ValueError):
@@ -1882,29 +2088,29 @@ class IceScopy(QMainWindow):
         }, raw_width=raw_width, raw_height=raw_height)
 
     def get_raw_image_dimensions(self, index):
-        if not self.imagePaths:
+        if not self.has_frames():
             return 0, 0
         try:
             index = int(index)
         except (TypeError, ValueError):
             return 0, 0
-        if index < 0 or index >= len(self.imagePaths):
+        if index < 0 or index >= self.frame_count():
             return 0, 0
 
-        image_path = self.imagePaths[index]
-        cached_size = getattr(self, "raw_image_size_cache", {}).get(image_path)
+        frame_key = self.frame_key(index)
+        cached_size = getattr(self, "raw_image_size_cache", {}).get(frame_key)
         if cached_size is not None:
             return int(cached_size[0]), int(cached_size[1])
 
-        raw_q_image = self.get_cached_raw_image(image_path)
+        raw_q_image = self.get_cached_raw_image(index)
         width = int(raw_q_image.width())
         height = int(raw_q_image.height())
         if hasattr(self, "raw_image_size_cache"):
-            self.raw_image_size_cache[image_path] = (width, height)
+            self.raw_image_size_cache[frame_key] = (width, height)
         return width, height
 
     def get_current_raw_image_dimensions(self):
-        if not self.imagePaths:
+        if not self.has_frames():
             return 0, 0
         return self.get_raw_image_dimensions(self.image_index)
 
@@ -2009,7 +2215,7 @@ class IceScopy(QMainWindow):
             return
         if getattr(self, "tool_mode", "") != "image-edit":
             return
-        if not self.imagePaths or not (0 <= self.image_index < len(self.imagePaths)):
+        if not self.has_frames() or not (0 <= self.image_index < self.frame_count()):
             self.image_edit_histogram_widget.clear_histogram()
             return
 
@@ -2269,7 +2475,7 @@ class IceScopy(QMainWindow):
             self.image_edit_uniform_exposure_area_width = float(area_state["width"])
             self.image_edit_uniform_exposure_area_height = float(area_state["height"])
         self.temporary_event_data["image_edit_uniform_exposure_area_active"] = True
-        if self.imagePaths:
+        if self.has_frames():
             self.updateImage(self.image_index)
         else:
             self.sync_image_edit_controls()
@@ -2278,7 +2484,7 @@ class IceScopy(QMainWindow):
         if not self.is_image_edit_uniform_exposure_area_active():
             return
         self.temporary_event_data.pop("image_edit_uniform_exposure_area_active", None)
-        if self.imagePaths:
+        if self.has_frames():
             self.updateImage(self.image_index)
         else:
             self.sync_image_edit_controls()
@@ -2335,7 +2541,7 @@ class IceScopy(QMainWindow):
         overlay = getattr(self, "image_edit_uniform_exposure_overlay", None)
         should_show = (
             getattr(self, "tool_mode", "") == "image-edit"
-            and bool(self.imagePaths)
+            and self.has_frames()
             and getattr(self, "pixmap_item", None) is not None
             and self.is_image_edit_uniform_exposure_area_active()
             and not self.is_image_edit_crop_active()
@@ -2371,13 +2577,13 @@ class IceScopy(QMainWindow):
         overlay.show()
 
     def show_image_edit_progress_frame(self, index):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
         try:
             index = int(index)
         except (TypeError, ValueError):
             return
-        if index < 0 or index >= len(self.imagePaths):
+        if index < 0 or index >= self.frame_count():
             return
         self.image_slider.blockSignals(True)
         try:
@@ -2389,13 +2595,13 @@ class IceScopy(QMainWindow):
         QApplication.processEvents()
 
     def show_analysis_progress_frame(self, index):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
         try:
             index = int(index)
         except (TypeError, ValueError):
             return
-        if index < 0 or index >= len(self.imagePaths):
+        if index < 0 or index >= self.frame_count():
             return
         self.image_slider.blockSignals(True)
         try:
@@ -2409,13 +2615,13 @@ class IceScopy(QMainWindow):
         return 16
 
     def enqueue_analysis_progress_frame(self, index):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
         try:
             index = int(index)
         except (TypeError, ValueError):
             return
-        if index < 0 or index >= len(self.imagePaths):
+        if index < 0 or index >= self.frame_count():
             return
         self.pending_analysis_progress_index = index
         if not self.analysis_progress_timer.isActive():
@@ -2431,17 +2637,17 @@ class IceScopy(QMainWindow):
             self.analysis_progress_timer.start(self.get_analysis_progress_interval_ms())
 
     def compute_image_edit_uniform_exposure_solution(self, area_state, reference_index, progress_callback=None):
-        if not self.imagePaths:
+        if not self.has_frames():
             return {}, {}
         try:
-            reference_index = max(0, min(int(reference_index), len(self.imagePaths) - 1))
+            reference_index = max(0, min(int(reference_index), self.frame_count() - 1))
         except (TypeError, ValueError):
             reference_index = self.image_index
 
         def load_gray(index):
-            image_gray = cv2.imread(self.imagePaths[index], cv2.IMREAD_GRAYSCALE)
+            image_gray = self.active_frame_source().get_gray_array(index)
             if image_gray is None:
-                raise ValueError(f"Unable to read image: {self.imagePaths[index]}")
+                raise ValueError(f"Unable to read frame: {index}")
             image_gray = apply_image_adjustments_to_uint8(
                 image_gray,
                 self.image_edit_exposure,
@@ -2477,7 +2683,7 @@ class IceScopy(QMainWindow):
             raise ValueError("Uniform exposure reference area is too dark.")
 
         offsets = {}
-        for index, image_path in enumerate(self.imagePaths):
+        for index in range(self.frame_count()):
             if progress_callback is not None:
                 progress_callback(index)
             image_gray = reference_image if index == reference_index else load_gray(index)
@@ -2486,12 +2692,12 @@ class IceScopy(QMainWindow):
                 raise ValueError(f"Uniform exposure area is too dark on frame {index}.")
             offset = float(np.clip(np.log2(reference_mean / current_mean), -4.0, 4.0))
             if abs(offset) > 1e-9:
-                offsets[str(image_path)] = offset
+                offsets[self.frame_key(index)] = offset
         normalized_area = self.normalize_image_edit_uniform_exposure_area_state(area_state)
         return offsets, normalized_area
 
     def run_image_edit_uniform_exposure(self):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
         if not self.has_image_edit_uniform_exposure_area():
             QMessageBox.information(self, "Uniform Exposure", "Set a control area first.")
@@ -2506,7 +2712,7 @@ class IceScopy(QMainWindow):
                 progress_callback=self.show_image_edit_progress_frame,
             )
         except Exception as err:
-            if self.imagePaths and 0 <= progress_restore_index < len(self.imagePaths):
+            if self.has_frames() and 0 <= progress_restore_index < self.frame_count():
                 self.show_image_edit_progress_frame(progress_restore_index)
             QMessageBox.warning(self, "Uniform Exposure", str(err))
             return
@@ -2523,9 +2729,9 @@ class IceScopy(QMainWindow):
             refresh_display=True,
             sync_controls=True,
         )
-        if self.imagePaths and 0 <= progress_restore_index < len(self.imagePaths) and progress_restore_index != self.image_index:
+        if self.has_frames() and 0 <= progress_restore_index < self.frame_count() and progress_restore_index != self.image_index:
             self.show_image_edit_progress_frame(progress_restore_index)
-        self.log(f"Applied uniform exposure to {len(self.imagePaths)} images")
+        self.log(f"Applied uniform exposure to {self.frame_count()} frames")
         self.push_data_history("Run Uniform Exposure", before_state)
 
     def reset_image_edit_uniform_exposure(self):
@@ -2613,7 +2819,7 @@ class IceScopy(QMainWindow):
         self.temporary_event_data["image_edit_crop_draft_state"] = dict(draft_state)
         if self.tool_mode == "image-edit":
             self.view.setDragMode(QGraphicsView.NoDrag)
-        if self.imagePaths:
+        if self.has_frames():
             self.updateImage(self.image_index)
         else:
             self.sync_image_edit_controls()
@@ -2660,7 +2866,7 @@ class IceScopy(QMainWindow):
         if self.tool_mode == "image-edit":
             self.view.setDragMode(QGraphicsView.RubberBandDrag)
             self.view.setRubberBandSelectionMode(Qt.IntersectsItemShape)
-        if self.imagePaths:
+        if self.has_frames():
             self.updateImage(self.image_index)
         else:
             self.sync_image_edit_controls()
@@ -2689,7 +2895,7 @@ class IceScopy(QMainWindow):
         overlay = getattr(self, "image_edit_crop_overlay", None)
         should_show = (
             self.tool_mode == "image-edit"
-            and bool(self.imagePaths)
+            and self.has_frames()
             and hasattr(self, "pixmap_item")
             and self.is_image_edit_crop_active()
         )
@@ -2748,7 +2954,7 @@ class IceScopy(QMainWindow):
                 self.current_image_edit_crop_state(),
             )
         return bool(
-            self.imagePaths
+            self.has_frames()
             or self.cell_items
             or self.cell_records_by_id
             or self.sample_catalog
@@ -2862,8 +3068,10 @@ class IceScopy(QMainWindow):
         window_menu = menubar.addMenu("Window")
 
         # Create actions with icons
-        self.add_images_action = QAction("Add Images", self)
-        self.add_folder_action = QAction("Add Folder", self)
+        self.add_source_action = QAction("Add Source", self)
+        self.add_images_action = QAction("Add Image Files...", self)
+        self.add_folder_action = QAction("Add Image Folder...", self)
+        self.open_video_action = QAction("Open Video Source...", self)
         self.remove_selected_action = QAction("Remove Selected", self)
         self.clear_images_action = QAction("Clear Images", self)
         self.new_session_action = QAction("New Session", self)
@@ -2901,15 +3109,18 @@ class IceScopy(QMainWindow):
         self.deselect_tool_action = QAction("Delete Cells (D)", self)
         self.pan_tool_action = QAction("Pan and Zoom (Z)", self) 
 
-        file_menu.addAction(self.add_images_action)
-        file_menu.addAction(self.add_folder_action)
         file_menu.addAction(self.new_session_action)
         file_menu.addAction(self.open_session_action)
         file_menu.addAction(self.save_session_action)
         file_menu.addAction(self.save_session_as_action)
         file_menu.addAction(self.edit_session_metadata_action)
+        file_menu.addSeparator() # Add a separator to the menu
         file_menu.addAction(self.output_results_action)
         file_menu.addSeparator() # Add a separator to the menu
+        file_menu.addAction(self.add_images_action)
+        file_menu.addAction(self.add_folder_action)
+        file_menu.addAction(self.open_video_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.relink_images_action)
         file_menu.addSeparator() # Add a separator to the menu
         file_menu.addAction(self.remove_selected_action)
@@ -2948,12 +3159,15 @@ class IceScopy(QMainWindow):
         else:
             self.undo_action.setToolTip("Undo (Ctrl+Z)")
             self.redo_action.setToolTip("Redo (Ctrl+Y)")
+        self.add_source_action.setToolTip("Add image files, an image folder, or a video source")
         self.deselect_tool_action.setToolTip(
             "Delete mode. Click cells to remove them. In Cursor mode, Delete or Backspace removes the selected cells."
         )
 
+        self.add_source_action.triggered.connect(self.open_add_images_dialog)
         self.add_folder_action.triggered.connect(self.loadFolder)
-        self.add_images_action.triggered.connect(self.open_add_images_dialog)
+        self.add_images_action.triggered.connect(self.loadImages)
+        self.open_video_action.triggered.connect(self.open_video)
         self.new_session_action.triggered.connect(self.newSession)
         self.open_session_action.triggered.connect(self.openSession)
         self.save_session_action.triggered.connect(self.handle_save_session_action)
@@ -3013,6 +3227,10 @@ class IceScopy(QMainWindow):
         self.edit_tool_action.setEnabled(False)
         self.pan_tool_action.setEnabled(False)
         self.image_edit_action.setEnabled(False)
+        self.add_source_action.setEnabled(False)
+        self.add_images_action.setEnabled(False)
+        self.add_folder_action.setEnabled(False)
+        self.open_video_action.setEnabled(False)
         self.remove_selected_action.setEnabled(False)
         self.clear_images_action.setEnabled(False)
         self.save_session_action.setEnabled(False)
@@ -3031,7 +3249,7 @@ class IceScopy(QMainWindow):
         self.toolbar.addAction(self.save_session_action)
         self.toolbar.addAction(self.output_results_action)
         self.toolbar.addSeparator()  # Add a separator between groups of actions
-        self.toolbar.addAction(self.add_images_action)
+        self.toolbar.addAction(self.add_source_action)
         self.toolbar.addAction(self.remove_selected_action)
         self.toolbar.addAction(self.clear_images_action)
         self.toolbar.addAction(self.sort_images_action)
@@ -4338,7 +4556,7 @@ class IceScopy(QMainWindow):
 
         self.sync_image_edit_crop_overlay()
         desired_crop_applied = self.should_apply_crop_in_display()
-        if self.imagePaths and self.displayed_image_edit_crop_applied != desired_crop_applied:
+        if self.has_frames() and self.displayed_image_edit_crop_applied != desired_crop_applied:
             self.updateImage(self.image_index)
 
         self.update_preview_shortcut_enabled_state()
@@ -4980,6 +5198,7 @@ class IceScopy(QMainWindow):
         self.update_results_table_visibility()
         self.refresh_grayscale_plot()
         self.refresh_cells_panel()
+        self.update_cursor_record_edit_state()
 
     def update_freeze_count_timeseries_table(self):
         if hasattr(self, "freeze_count_timeseries_table"):
@@ -5210,7 +5429,7 @@ class IceScopy(QMainWindow):
     def get_plot_current_image_index(self):
         if self.pending_preview_image_index is not None:
             return self.pending_preview_image_index
-        if self.imagePaths and (0 <= self.image_index < len(self.imagePaths)):
+        if self.has_frames() and (0 <= self.image_index < self.frame_count()):
             return self.image_index
         return None
 
@@ -5218,8 +5437,8 @@ class IceScopy(QMainWindow):
         current_index = self.get_plot_current_image_index()
         if current_index is None:
             return None
-        if self.imageNames and (0 <= int(current_index) < len(self.imageNames)):
-            return self.imageNames[int(current_index)]
+        if 0 <= int(current_index) < self.frame_count():
+            return self.frame_name(int(current_index))
         return None
 
     def capture_session_state(self):
@@ -5235,6 +5454,7 @@ class IceScopy(QMainWindow):
             "flagframe_list": self.flagframe_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
             "image_width": self.image_width,
+            "frame_source": copy.deepcopy(self.frame_source_session_payload()),
             "imagePaths": self.imagePaths.copy(),
             "imageNames": self.imageNames.copy(),
             "image_index": self.image_index,
@@ -5346,6 +5566,7 @@ class IceScopy(QMainWindow):
             "keyframe_list": self.keyframe_list.copy(),
             "flagframe_list": self.flagframe_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
+            "frame_source": copy.deepcopy(self.frame_source_session_payload()),
             "imagePaths": self.imagePaths.copy(),
             "imageNames": self.imageNames.copy(),
             "image_index": self.image_index,
@@ -5388,6 +5609,7 @@ class IceScopy(QMainWindow):
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
+            "frame_source": copy.deepcopy(self.frame_source_session_payload()),
             "imagePaths": self.imagePaths.copy(),
             "imageNames": self.imageNames.copy(),
             "image_index": self.image_index,
@@ -5441,7 +5663,7 @@ class IceScopy(QMainWindow):
         """Reapply cursor/drag/action state after undo/redo restores data."""
         restored_tool_mode = restored_tool_mode or getattr(self, "tool_mode", "cursor")
 
-        if not self.imagePaths:
+        if not self.has_frames():
             self.tool_mode = "cursor"
             self.grid_preview_origin_pixels = None
             self.grid_preview_floating = True
@@ -5489,8 +5711,9 @@ class IceScopy(QMainWindow):
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
+            current_source_payload = self.frame_source_session_payload()
             current_image_paths = self.imagePaths.copy()
-            current_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
+            current_current_key = self.frame_key(self.image_index) if self.has_frames() and 0 <= self.image_index < self.frame_count() else None
             self.pending_navigation_before_index = None
             self.pending_navigation_history_text = "Change Frame"
             self.slider_drag_start_index = None
@@ -5510,8 +5733,11 @@ class IceScopy(QMainWindow):
             self.keyframe_list = state["keyframe_list"].copy()
             self.flagframe_list = state["flagframe_list"].copy()
             self.keyframe_cell_items_dict = copy.deepcopy(state["keyframe_cell_items_dict"])
-            self.imagePaths = state["imagePaths"].copy()
-            self.imageNames = state["imageNames"].copy()
+            frame_source_payload = state.get("frame_source", {
+                "kind": SOURCE_KIND_IMAGE_SEQUENCE,
+                "image_paths": state.get("imagePaths", []),
+            })
+            self.set_frame_source(frame_source_from_session_payload(frame_source_payload), reset_frame_ids=False)
             self.image_index = state["image_index"]
             self.last_committed_image_index = int(self.image_index)
             self.image_list_entry_ids = state["image_list_entry_ids"].copy()
@@ -5547,14 +5773,14 @@ class IceScopy(QMainWindow):
             self.update_results_tables()
             self.refresh_sample_catalog_tree(preserve_selection=False)
 
-            image_set_changed = current_image_paths != self.imagePaths
-            new_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
+            image_set_changed = current_image_paths != self.imagePaths or current_source_payload != self.frame_source_session_payload()
+            new_current_key = self.frame_key(self.image_index) if self.has_frames() and 0 <= self.image_index < self.frame_count() else None
 
-            if self.imagePaths:
+            if self.has_frames():
                 self.image_slider.blockSignals(True)
                 self.image_slider.setEnabled(True)
                 self.image_slider.setMinimum(0)
-                self.image_slider.setMaximum(len(self.imagePaths) - 1)
+                self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
                 self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
@@ -5572,12 +5798,12 @@ class IceScopy(QMainWindow):
                     self.update_image_list_annotations()
                     self.sync_image_list_selection()
 
-                if current_current_path != new_current_path or not hasattr(self, 'pixmap_item'):
+                if current_current_key != new_current_key or not hasattr(self, 'pixmap_item'):
                     self.updateImage(self.image_index)
                     self.finalize_frame_update(self.image_index)
                 else:
                     self.cell_controller.redraw_current_cells(preserve_selection=False, force_scene_scan=True)
-                    self.image_name_label.setText(self.imageNames[self.image_index])
+                    self.image_name_label.setText(self.frame_name(self.image_index))
                     self.resize_image_textbox()
                     self.updateButtonStates()
                     self.update_toggle_keyframe_button_icon()
@@ -5626,16 +5852,20 @@ class IceScopy(QMainWindow):
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
+            current_source_payload = self.frame_source_session_payload()
             current_image_paths = self.imagePaths.copy()
-            current_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
+            current_current_key = self.frame_key(self.image_index) if self.has_frames() and 0 <= self.image_index < self.frame_count() else None
             self.pending_navigation_before_index = None
             self.pending_navigation_history_text = "Change Frame"
             self.slider_drag_start_index = None
             self.pending_preview_image_index = None
             self.preview_frame_update_in_progress = False
 
-            self.imagePaths = state["imagePaths"].copy()
-            self.imageNames = state["imageNames"].copy()
+            frame_source_payload = state.get("frame_source", {
+                "kind": SOURCE_KIND_IMAGE_SEQUENCE,
+                "image_paths": state.get("imagePaths", []),
+            })
+            self.set_frame_source(frame_source_from_session_payload(frame_source_payload), reset_frame_ids=False)
             self.image_index = state["image_index"]
             self.last_committed_image_index = int(self.image_index)
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
@@ -5669,14 +5899,14 @@ class IceScopy(QMainWindow):
             self.update_results_tables()
             self.refresh_sample_catalog_tree(preserve_selection=False)
 
-            image_set_changed = current_image_paths != self.imagePaths
-            new_current_path = self.imagePaths[self.image_index] if self.imagePaths and 0 <= self.image_index < len(self.imagePaths) else None
+            image_set_changed = current_image_paths != self.imagePaths or current_source_payload != self.frame_source_session_payload()
+            new_current_key = self.frame_key(self.image_index) if self.has_frames() and 0 <= self.image_index < self.frame_count() else None
 
-            if self.imagePaths:
+            if self.has_frames():
                 self.image_slider.blockSignals(True)
                 self.image_slider.setEnabled(True)
                 self.image_slider.setMinimum(0)
-                self.image_slider.setMaximum(len(self.imagePaths) - 1)
+                self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
                 self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
@@ -5694,11 +5924,11 @@ class IceScopy(QMainWindow):
                     self.update_image_list_annotations()
                     self.sync_image_list_selection()
 
-                if current_current_path != new_current_path or not hasattr(self, 'pixmap_item'):
+                if current_current_key != new_current_key or not hasattr(self, 'pixmap_item'):
                     self.updateImage(self.image_index)
                     self.finalize_frame_update(self.image_index)
                 else:
-                    self.image_name_label.setText(self.imageNames[self.image_index])
+                    self.image_name_label.setText(self.frame_name(self.image_index))
                     self.resize_image_textbox()
                     self.updateButtonStates()
                     self.update_toggle_keyframe_button_icon()
@@ -5750,6 +5980,7 @@ class IceScopy(QMainWindow):
             self.apply_session_metadata(state.get("session_metadata", self.serialize_session_metadata()))
 
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", "cursor")
+            current_source_payload = self.frame_source_session_payload()
             current_image_paths = self.imagePaths.copy()
             current_image_names = self.imageNames.copy()
             self.pending_navigation_before_index = None
@@ -5771,11 +6002,19 @@ class IceScopy(QMainWindow):
             self.flagframe_list = state["flagframe_list"].copy()
             self.keyframe_cell_items_dict = copy.deepcopy(state["keyframe_cell_items_dict"])
             self.image_width = state["image_width"]
-            self.imagePaths = state["imagePaths"].copy()
-            self.imageNames = state["imageNames"].copy()
+            frame_source_payload = state.get("frame_source", {
+                "kind": SOURCE_KIND_IMAGE_SEQUENCE,
+                "image_paths": state.get("imagePaths", []),
+            })
+            self.set_frame_source(frame_source_from_session_payload(frame_source_payload), reset_frame_ids=False)
             self.image_index = state["image_index"]
             self.last_committed_image_index = int(self.image_index)
-            self.image_list_entry_ids = state.get("image_list_entry_ids", list(range(len(self.imagePaths))))
+            default_entry_ids = (
+                list(range(self.frame_count()))
+                if self.source_kind() == SOURCE_KIND_IMAGE_SEQUENCE
+                else []
+            )
+            self.image_list_entry_ids = state.get("image_list_entry_ids", default_entry_ids)
             self.next_image_list_entry_id = state.get("next_image_list_entry_id", len(self.image_list_entry_ids))
             self.sort_mode = state.get("sort_mode", self.sort_mode)
             self.apply_image_edit_state(
@@ -5815,14 +6054,15 @@ class IceScopy(QMainWindow):
 
             image_set_changed = (
                 current_image_paths != self.imagePaths or
-                current_image_names != self.imageNames
+                current_image_names != self.imageNames or
+                current_source_payload != self.frame_source_session_payload()
             )
 
-            if self.imagePaths:
+            if self.has_frames():
                 self.image_slider.blockSignals(True)
                 self.image_slider.setEnabled(True)
                 self.image_slider.setMinimum(0)
-                self.image_slider.setMaximum(len(self.imagePaths) - 1)
+                self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
                 self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
@@ -5894,7 +6134,7 @@ class IceScopy(QMainWindow):
             self.pending_preview_image_index = None
             self.preview_frame_update_in_progress = False
 
-            if not self.imagePaths:
+            if not self.has_frames():
                 self.cell_items = copy.deepcopy(state.get("cell_items", []))
                 self.rendered_cell_items = []
                 self.next_cell_id = int(state.get("next_cell_id", 0))
@@ -5919,7 +6159,7 @@ class IceScopy(QMainWindow):
                 self.restore_tool_mode_ui(restore_tool_mode)
                 return
 
-            frame_count = len(self.imagePaths)
+            frame_count = self.frame_count()
             restored_keyframes = sorted(
                 frame
                 for frame in state.get("keyframe_list", [])
@@ -6043,7 +6283,7 @@ class IceScopy(QMainWindow):
         self.history_restoring = True
         try:
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
-            frame_count = len(self.imagePaths)
+            frame_count = self.frame_count()
             if frame_count <= 0:
                 self.keyframe_list = []
                 self.flagframe_list = []
@@ -6173,7 +6413,7 @@ class IceScopy(QMainWindow):
     def restore_navigation_index(self, index, preserve_active_tool=False):
         self.history_restoring = True
         try:
-            if not self.imagePaths:
+            if not self.has_frames():
                 return
 
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else getattr(self, "tool_mode", "cursor")
@@ -6183,7 +6423,7 @@ class IceScopy(QMainWindow):
             self.pending_preview_image_index = None
             self.preview_frame_update_in_progress = False
 
-            target_index = max(0, min(int(index), len(self.imagePaths) - 1))
+            target_index = max(0, min(int(index), self.frame_count() - 1))
             if target_index == self.image_index:
                 self.finalize_frame_update(target_index)
             else:
@@ -6269,7 +6509,7 @@ class IceScopy(QMainWindow):
         history_label = f"{text} ({before_index} -> {after_index})"
         self.undo_stack.push(FrameNavigationCommand(self, history_label, before_index, after_index))
 
-    def format_image_list_entry(self, index):
+    def format_frame_list_entry(self, index):
         markers = []
         if index in self.keyframe_list:
             markers.append("K")
@@ -6277,28 +6517,32 @@ class IceScopy(QMainWindow):
             markers.append("F")
 
         marker_text = f"[{' '.join(markers)}] " if markers else ""
+        if self.is_video_source():
+            return f"{marker_text}{self.frame_name(index)}"
         entry_id = self.image_list_entry_ids[index] if index < len(self.image_list_entry_ids) else index
-        return f"{entry_id:06d} {marker_text}{self.imageNames[index]}"
+        return f"{entry_id:06d} {marker_text}{self.frame_name(index)}"
+
+    def format_image_list_entry(self, index):
+        return self.format_frame_list_entry(index)
 
     def populate_image_list(self):
         if not self.image_list_enabled:
             self.image_list_model.set_items([], [])
             return
-        entries = [self.format_image_list_entry(index) for index in range(len(self.imagePaths))]
-        self.image_list_model.set_items(entries, self.imagePaths)
+        self.image_list_model.set_items([], [])
         self.sync_image_list_selection()
 
     def update_image_list_annotations(self, rows=None):
         if not self.image_list_enabled:
             return
         if rows is None:
-            rows = range(len(self.imageNames))
+            rows = range(self.frame_count())
 
         row_data = {}
         for row in rows:
-            if not (0 <= row < len(self.imageNames)):
+            if not (0 <= row < self.frame_count()):
                 continue
-            row_data[row] = (self.format_image_list_entry(row), self.imagePaths[row])
+            row_data[row] = (self.format_frame_list_entry(row), self.frame_tooltip(row))
 
         self.image_list_model.update_items(row_data)
 
@@ -6309,7 +6553,7 @@ class IceScopy(QMainWindow):
         if selection_model is None:
             return
 
-        if not self.imagePaths or not (0 <= self.image_index < len(self.imagePaths)):
+        if not self.has_frames() or not (0 <= self.image_index < self.frame_count()):
             self.syncing_image_list_selection = True
             try:
                 selection_model.clearSelection()
@@ -6356,7 +6600,7 @@ class IceScopy(QMainWindow):
             return
 
         row = index.row()
-        if 0 <= row < len(self.imagePaths) and row != self.image_index:
+        if 0 <= row < self.frame_count() and row != self.image_index:
             self.navigate_to_image(row)
 
     def handle_image_list_current_changed(self, current, previous):
@@ -6368,37 +6612,43 @@ class IceScopy(QMainWindow):
 
     def update_session_actions_state(self):
         session_active = bool(getattr(self, "session_active", False))
-        has_images = session_active and bool(self.imagePaths)
+        has_frames = session_active and self.has_frames()
+        has_image_files = has_frames and self.supports_image_file_operations()
         has_results = session_active and bool(
             self.grayscale_results_headers
             or self.freeze_results_headers
             or self.freeze_count_timeseries_headers
         )
         interactive = session_active and (not self.output_state)
+        video_source_loaded = has_frames and self.is_video_source()
+        can_add_image_source = interactive and not video_source_loaded
+        can_open_video_source = interactive and not has_frames
 
-        self.add_images_action.setEnabled(interactive)
-        self.add_folder_action.setEnabled(interactive)
-        self.remove_selected_action.setEnabled(self.image_list_enabled and has_images and not self.output_state)
-        self.clear_images_action.setEnabled(has_images and not self.output_state)
-        self.sort_images_action.setEnabled(has_images and not self.output_state)
-        self.relink_images_action.setEnabled(has_images and not self.output_state)
+        self.add_source_action.setEnabled(can_add_image_source)
+        self.add_images_action.setEnabled(can_add_image_source)
+        self.add_folder_action.setEnabled(can_add_image_source)
+        self.open_video_action.setEnabled(can_open_video_source)
+        self.remove_selected_action.setEnabled(self.image_list_enabled and has_image_files and not self.output_state)
+        self.clear_images_action.setEnabled(has_frames and not self.output_state)
+        self.sort_images_action.setEnabled(has_image_files and not self.output_state)
+        self.relink_images_action.setEnabled(has_image_files and not self.output_state)
         self.sample_manager_action.setEnabled(interactive)
         self.new_session_action.setEnabled(not self.output_state)
         self.open_session_action.setEnabled(not self.output_state)
         self.save_session_action.setEnabled(session_active and not self.output_state)
         self.save_session_as_action.setEnabled(session_active and not self.output_state)
         self.edit_session_metadata_action.setEnabled(session_active and not self.output_state)
-        self.run_analysis_action.setEnabled(has_images and not self.output_state)
+        self.run_analysis_action.setEnabled(has_frames and not self.output_state)
         self.output_results_action.setEnabled(has_results and not self.output_state)
-        self.import_csu_is_dat_action.setEnabled(has_images and not self.output_state)
-        self.import_tamu_linkam_xlsx_action.setEnabled(has_images and not self.output_state)
-        self.import_pku_linksys32_iml_action.setEnabled(has_images and not self.output_state)
-        self.import_temperature_csv_action.setEnabled(has_images and not self.output_state)
+        self.import_csu_is_dat_action.setEnabled(has_frames and not self.output_state)
+        self.import_tamu_linkam_xlsx_action.setEnabled(has_frames and not self.output_state)
+        self.import_pku_linksys32_iml_action.setEnabled(has_frames and not self.output_state)
+        self.import_temperature_csv_action.setEnabled(has_frames and not self.output_state)
         self.viewer_single_action.setEnabled(interactive)
         self.viewer_double_action.setEnabled(interactive)
         self.viewer_triple_action.setEnabled(interactive)
         self.viewer_orientation_toggle_action.setEnabled(interactive and self.viewer_image_count in (2, 3))
-        self.image_edit_action.setEnabled(has_images and not self.output_state)
+        self.image_edit_action.setEnabled(has_frames and not self.output_state)
 
         if session_active:
             self.set_undo_status()
@@ -6411,8 +6661,8 @@ class IceScopy(QMainWindow):
 
     def update_document_interface_state(self):
         session_active = bool(getattr(self, "session_active", False))
-        has_images = session_active and bool(self.imagePaths)
-        interactive_images = has_images and (not self.output_state)
+        has_frames = session_active and self.has_frames()
+        interactive_images = has_frames and (not self.output_state)
 
         viewer_widget = getattr(self, "view_slider_widget", None)
         if viewer_widget is not None and shiboken6.isValid(viewer_widget):
@@ -6469,17 +6719,17 @@ class IceScopy(QMainWindow):
         })
 
     def navigate_to_image(self, index, history_text="Change Frame"):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
 
         try:
             index = int(index)
         except (TypeError, ValueError):
             return
-        index = max(0, min(index, len(self.imagePaths) - 1))
+        index = max(0, min(index, self.frame_count() - 1))
         committed_index = max(
             0,
-            min(int(getattr(self, "last_committed_image_index", self.image_index)), len(self.imagePaths) - 1),
+            min(int(getattr(self, "last_committed_image_index", self.image_index)), self.frame_count() - 1),
         )
         if index == committed_index and not self.image_slider.isSliderDown():
             return
@@ -6502,11 +6752,11 @@ class IceScopy(QMainWindow):
         self.image_slider.setValue(index)
 
     def commit_slider_release_navigation(self):
-        if self.history_restoring or not self.imagePaths:
+        if self.history_restoring or not self.has_frames():
             return
         before_index = max(
             0,
-            min(int(getattr(self, "last_committed_image_index", self.image_index)), len(self.imagePaths) - 1),
+            min(int(getattr(self, "last_committed_image_index", self.image_index)), self.frame_count() - 1),
         )
         self.finalize_frame_update(self.image_index)
         if self.analysis_progress_navigation_suppressed:
@@ -6620,6 +6870,7 @@ class IceScopy(QMainWindow):
     def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
         count_mode = str(count_mode or "cumulative").strip().casefold()
         image_counts_by_sample = {}
+        total_frame_count = self.frame_count()
         for group_key, group in sample_groups.items():
             if count_mode == "state":
                 state_counts = {}
@@ -6634,13 +6885,13 @@ class IceScopy(QMainWindow):
                             frame_index = int(frame_value)
                         except (TypeError, ValueError):
                             continue
-                        if 0 <= frame_index < len(self.imageNames):
+                        if 0 <= frame_index < total_frame_count:
                             resolved_frames.append(frame_index)
                     per_cell_events.append(sorted(set(resolved_frames)))
 
                 event_pointers = [0] * len(per_cell_events)
                 cell_states = [0] * len(per_cell_events)
-                for image_index in range(len(self.imageNames)):
+                for image_index in range(total_frame_count):
                     frozen_count = 0
                     for cell_position, event_frames in enumerate(per_cell_events):
                         while event_pointers[cell_position] < len(event_frames) and event_frames[event_pointers[cell_position]] <= image_index:
@@ -6667,7 +6918,7 @@ class IceScopy(QMainWindow):
             freeze_frames.sort()
             cumulative_counts = {}
             freeze_pointer = 0
-            for image_index in range(len(self.imageNames)):
+            for image_index in range(total_frame_count):
                 while freeze_pointer < len(freeze_frames) and freeze_frames[freeze_pointer] <= image_index:
                     freeze_pointer += 1
                 cumulative_counts[image_index] = int(freeze_pointer)
@@ -6769,7 +7020,8 @@ class IceScopy(QMainWindow):
         image_cycle_ids = []
         parsed_image_count = 0
         unparsed_images = []
-        for image_name in self.imageNames:
+        for image_index in range(self.frame_count()):
+            image_name = self.frame_name(image_index)
             basename = os.path.basename(str(image_name or ""))
             image_timestamp = parse_tamu_image_timestamp(basename)
             if image_timestamp is None or start_timestamp is None:
@@ -6814,7 +7066,7 @@ class IceScopy(QMainWindow):
             )
 
         image_records = list(getattr(parsed_timeseries, "image_records", []))
-        loaded_image_count = len(self.imageNames)
+        loaded_image_count = self.frame_count()
         if len(image_records) != loaded_image_count:
             raise TemperatureImportError(
                 "The PKU Linksys32 .iml image record count does not match the loaded image count. "
@@ -6869,7 +7121,7 @@ class IceScopy(QMainWindow):
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(sum(1 for value in parsed_image_timestamps if value is not None)),
             "unparsed_images": [
-                os.path.basename(str(self.imageNames[index] or ""))
+                os.path.basename(str(self.frame_name(index) or ""))
                 for index, value in enumerate(parsed_image_timestamps)
                 if value is None
             ],
@@ -6880,7 +7132,7 @@ class IceScopy(QMainWindow):
 
     def build_tamu_cycle_reset_image_counts(self, sample_groups, image_cycle_ids):
         image_counts_by_sample = {}
-        total_image_count = len(self.imageNames)
+        total_image_count = self.frame_count()
         for group_key, group in sample_groups.items():
             first_freeze_frame_by_cell_cycle = {}
             for cell_id in group["cell_ids"]:
@@ -6993,17 +7245,47 @@ class IceScopy(QMainWindow):
             if 0 <= int(index) < len(timeseries_seconds)
         ] or [0.0]
 
-        resolved_timestamps = resolve_image_timestamps(
-            self.imagePaths,
-            self.imageNames,
-            source=image_timestamp_source,
-            timestamp_style=image_timestamp_style,
-            generated_start_text=generated_start_text,
-            frame_interval_seconds=frame_interval_seconds,
-        )
+        if self.is_video_source():
+            start_timestamp = parse_timestamp_text(generated_start_text, image_timestamp_style)
+            if start_timestamp is None:
+                raise TemperatureImportError("Enter a valid first frame timestamp for the video source.")
+            parsed_image_timestamps = []
+            unparsed_images = []
+            parsed_count = 0
+            for frame_index in range(self.frame_count()):
+                if image_timestamp_source == IMAGE_TIMESTAMP_SOURCE_GENERATED:
+                    try:
+                        interval = float(frame_interval_seconds)
+                    except (TypeError, ValueError):
+                        interval = 0.0
+                    if interval <= 0:
+                        parsed_image_timestamps.append(None)
+                        unparsed_images.append(self.frame_name(frame_index))
+                        continue
+                    image_timestamp = start_timestamp + timedelta(seconds=float(frame_index) * interval)
+                else:
+                    frame_time_seconds = self.active_frame_source().frame_time_seconds(frame_index)
+                    if frame_time_seconds is None:
+                        parsed_image_timestamps.append(None)
+                        unparsed_images.append(self.frame_name(frame_index))
+                        continue
+                    image_timestamp = start_timestamp + timedelta(seconds=float(frame_time_seconds))
+                parsed_image_timestamps.append(image_timestamp)
+                parsed_count += 1
+        else:
+            resolved_timestamps = resolve_image_timestamps(
+                self.imagePaths,
+                self.imageNames,
+                source=image_timestamp_source,
+                timestamp_style=image_timestamp_style,
+                generated_start_text=generated_start_text,
+                frame_interval_seconds=frame_interval_seconds,
+            )
+            parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
+            unparsed_images = list(resolved_timestamps.unparsed_images)
+            parsed_count = int(resolved_timestamps.parsed_count)
         image_elapsed_seconds = []
         image_cycle_ids = []
-        parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
         for image_timestamp in parsed_image_timestamps:
             if image_timestamp is None:
                 image_elapsed_seconds.append(None)
@@ -7022,8 +7304,8 @@ class IceScopy(QMainWindow):
             "cycle_start_seconds": cycle_start_seconds,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(resolved_timestamps.parsed_count),
-            "unparsed_images": list(resolved_timestamps.unparsed_images),
+            "parsed_image_count": int(parsed_count),
+            "unparsed_images": list(unparsed_images),
             "parsed_image_timestamps": parsed_image_timestamps,
         }
 
@@ -7056,7 +7338,7 @@ class IceScopy(QMainWindow):
         )
         if int(timing_context["parsed_image_count"]) <= 0:
             raise TemperatureImportError(
-                "No loaded images produced a parseable timestamp for standard freeze count timeseries."
+                "No loaded frames produced a parseable timestamp for standard freeze count timeseries."
             )
 
         image_elapsed_seconds = timing_context["image_elapsed_seconds"]
@@ -7068,7 +7350,7 @@ class IceScopy(QMainWindow):
         blank_correction_by_image = compute_blank_correction_by_index(
             [sample["group_key"] for sample in blank_samples],
             image_counts_by_sample,
-            len(self.imageNames),
+            self.frame_count(),
         )
 
         timeseries_seconds = np.asarray(
@@ -7094,8 +7376,8 @@ class IceScopy(QMainWindow):
         rows = []
         in_range_image_count = 0
         out_of_range_image_count = 0
-        for image_index, image_name in enumerate(self.imageNames):
-            basename = os.path.basename(str(image_name or ""))
+        for image_index in range(self.frame_count()):
+            basename = os.path.basename(str(self.frame_name(image_index) or ""))
             image_timestamp = parsed_image_timestamps[image_index]
             raw_temperature = None
             elapsed_seconds = (
@@ -7172,7 +7454,7 @@ class IceScopy(QMainWindow):
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
             "cycle_count": int(len(timing_context["cycle_start_seconds"])),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(len(self.imageNames)),
+            "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
             "in_range_image_count": int(in_range_image_count),
             "out_of_range_image_count": int(out_of_range_image_count),
@@ -7287,7 +7569,10 @@ class IceScopy(QMainWindow):
 
         image_index_by_name = {
             os.path.basename(str(image_name)).casefold(): index
-            for index, image_name in enumerate(self.imageNames)
+            for index, image_name in (
+                (frame_index, self.frame_name(frame_index))
+                for frame_index in range(self.frame_count())
+            )
         }
         parsed_rows = list(parsed_data.get("rows", []))
         row_temperatures = [
@@ -7299,7 +7584,7 @@ class IceScopy(QMainWindow):
             reset_temperature,
         )
         row_cycle_ids = self.build_cycle_ids_from_start_indexes(len(parsed_rows), row_cycle_start_indexes)
-        image_cycle_ids = [None] * len(self.imageNames)
+        image_cycle_ids = [None] * self.frame_count()
         picture_rows_matched = 0
         for row in parsed_rows:
             picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
@@ -7429,7 +7714,7 @@ class IceScopy(QMainWindow):
         blank_correction_by_image = compute_blank_correction_by_index(
             [sample["group_key"] for sample in blank_samples],
             image_counts_by_sample,
-            len(self.imageNames),
+            self.frame_count(),
         )
 
         timeseries_seconds = np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float)
@@ -7459,7 +7744,8 @@ class IceScopy(QMainWindow):
         rows = []
         in_range_image_count = 0
         out_of_range_image_count = 0
-        for image_index, image_name in enumerate(self.imageNames):
+        for image_index in range(self.frame_count()):
+            image_name = self.frame_name(image_index)
             basename = os.path.basename(str(image_name or ""))
             image_timestamp = parse_tamu_image_timestamp(basename)
             raw_temperature = None
@@ -7529,7 +7815,7 @@ class IceScopy(QMainWindow):
             "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
             "cycle_count": int(len(cycle_start_seconds)),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(len(self.imageNames)),
+            "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
             "in_range_image_count": int(in_range_image_count),
             "out_of_range_image_count": int(out_of_range_image_count),
@@ -7566,7 +7852,7 @@ class IceScopy(QMainWindow):
         blank_correction_by_image = compute_blank_correction_by_index(
             [sample["group_key"] for sample in blank_samples],
             image_counts_by_sample,
-            len(self.imageNames),
+            self.frame_count(),
         )
 
         headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
@@ -7581,7 +7867,8 @@ class IceScopy(QMainWindow):
 
         rows = []
         tagged_temperature_count = 0
-        for image_index, image_name in enumerate(self.imageNames):
+        for image_index in range(self.frame_count()):
+            image_name = self.frame_name(image_index)
             basename = os.path.basename(str(image_name or ""))
             image_timestamp = (
                 parsed_image_timestamps[image_index]
@@ -7642,7 +7929,7 @@ class IceScopy(QMainWindow):
             "linksys32_version": str(getattr(parsed_timeseries, "version", "") or ""),
             "cycle_count": int(len(cycle_start_seconds)),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(len(self.imageNames)),
+            "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
             "temperature_source": "pku_linksys32_image_record",
             "tagged_temperature_count": int(tagged_temperature_count),
@@ -7653,15 +7940,16 @@ class IceScopy(QMainWindow):
         return headers, rows, summary
 
     def import_standard_temperature_csv(self, checked=False):
-        if not self.imagePaths:
+        if not self.has_frames():
             QMessageBox.information(
                 self,
                 "Standard temperature CSV import",
-                "Load images before importing a temperature CSV.",
+                "Load images or a video before importing a temperature CSV.",
             )
             return
 
         available_sample_names = self.available_sample_names()
+        video_mode = self.is_video_source()
 
         dialog = StandardTemperatureImportDialog(
             self,
@@ -7669,13 +7957,18 @@ class IceScopy(QMainWindow):
             available_sample_names,
             getattr(self, "last_temperature_reset_temperature", None),
             getattr(self, "last_temperature_blank_sample_names", []),
-            getattr(self, "last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME),
+            (
+                IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS
+                if video_mode
+                else getattr(self, "last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
+            ),
             getattr(self, "last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO),
             getattr(self, "last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO),
-            getattr(self, "last_standard_temperature_use_image_timestamp_style", True),
+            False if video_mode else getattr(self, "last_standard_temperature_use_image_timestamp_style", True),
             getattr(self, "last_standard_temperature_generated_start_text", ""),
             getattr(self, "last_standard_temperature_frame_interval_seconds", 1.0),
             getattr(self, "last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS),
+            video_mode,
             self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -7751,6 +8044,8 @@ class IceScopy(QMainWindow):
         unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
+        frame_label = "Frames" if video_mode else "Images"
+        timestamp_label = "Frame timestamp" if video_mode else "Image timestamp"
         in_range_image_count = int(summary.get("in_range_image_count", 0))
         out_of_range_image_count = int(summary.get("out_of_range_image_count", 0))
         unparsed_image_count = int(summary.get("unparsed_image_count", 0))
@@ -7765,8 +8060,8 @@ class IceScopy(QMainWindow):
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"Images with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7775,8 +8070,8 @@ class IceScopy(QMainWindow):
             message_lines.append(
                 f"Reset threshold: {float(reset_temperature):.1f} °C"
             )
-        message_lines.append("Image timestamp source: " + str(summary.get("image_timestamp_source", "")))
-        message_lines.append("Image timestamp style: " + str(summary.get("image_timestamp_style", "")))
+        message_lines.append(f"{timestamp_label} source: " + str(summary.get("image_timestamp_source", "")))
+        message_lines.append(f"{timestamp_label} style: " + str(summary.get("image_timestamp_style", "")))
         message_lines.append("Temperature timestamp style: " + str(summary.get("temperature_timestamp_style", "")))
         message_lines.append("Temperature column unit: " + str(summary.get("temperature_unit", "")))
         if matched_samples:
@@ -7787,23 +8082,23 @@ class IceScopy(QMainWindow):
             message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if out_of_range_image_count:
             message_lines.append(
-                f"Images outside the timeseries range: {out_of_range_image_count}"
+                f"{frame_label} outside the timeseries range: {out_of_range_image_count}"
             )
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
                 message_lines.append(
-                    f"Images with unparseable timestamps: {unparsed_image_count} ({preview})"
+                    f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})"
                 )
             else:
                 message_lines.append(
-                    f"Images with unparseable timestamps: {unparsed_image_count}"
+                    f"{frame_label} with unparseable timestamps: {unparsed_image_count}"
                 )
 
         self.show_detailed_information_dialog(
             "Standard temperature CSV import",
             "Standard temperature CSV import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed image timestamps.",
+            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
             "\n".join(message_lines),
         )
         self.log(f"Imported standard temperature CSV: {file_path}")
@@ -7816,8 +8111,11 @@ class IceScopy(QMainWindow):
             self.log("Standard temperature unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_csu_is_dat(self, checked=False):
-        if not self.imagePaths:
+        if not self.has_frames():
             QMessageBox.information(self, "CSU IS .dat import", "Load images before importing a CSU .dat file.")
+            return
+        if self.is_video_source():
+            QMessageBox.information(self, "CSU IS .dat import", "The CSU importer requires image files and is not available for video sources.")
             return
 
         available_sample_names = self.available_sample_names()
@@ -7916,8 +8214,11 @@ class IceScopy(QMainWindow):
             self.log("CSU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_tamu_linkam_xlsx(self, checked=False):
-        if not self.imagePaths:
+        if not self.has_frames():
             QMessageBox.information(self, "TAMU Linkam .xlsx import", "Load images before importing a TAMU workbook.")
+            return
+        if self.is_video_source():
+            QMessageBox.information(self, "TAMU Linkam .xlsx import", "The TAMU importer requires image files and is not available for video sources.")
             return
 
         available_sample_names = self.available_sample_names()
@@ -8039,8 +8340,11 @@ class IceScopy(QMainWindow):
             self.log(f"TAMU calibration applied to {calibrated_cell_count} cell(s): {calibration_path}")
 
     def import_pku_linksys32_iml(self, checked=False):
-        if not self.imagePaths:
+        if not self.has_frames():
             QMessageBox.information(self, "PKU Linksys32 .iml import", "Load images before importing a PKU Linksys32 .iml file.")
+            return
+        if self.is_video_source():
+            QMessageBox.information(self, "PKU Linksys32 .iml import", "The PKU importer requires image files and is not available for video sources.")
             return
 
         available_sample_names = self.available_sample_names()
@@ -8150,7 +8454,7 @@ class IceScopy(QMainWindow):
         if not self.grayscale_results_headers or not self.grayscale_results_rows:
             raise ValueError("No grayscale results available")
 
-        image_folder = os.path.dirname(self.imagePaths[0]) if self.imagePaths else ""
+        image_folder = self.active_frame_source().source_path() if self.has_frames() else ""
         temp_file = tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".csv",
@@ -8527,7 +8831,7 @@ class IceScopy(QMainWindow):
 
     def zoom_slider_set_maximum(self):
         #set max zoom value so at max zoom each step is about 10 pixel
-        original_range = len(self.imagePaths)
+        original_range = self.frame_count()
         maximum_zoom_value = int(original_range * self.slider_maxzoom_pixel_interval / self.image_slider.width())
         if maximum_zoom_value <= 1:
             maximum_zoom_value = 2
@@ -8576,7 +8880,7 @@ class IceScopy(QMainWindow):
 
     def restore_after_edit_mode(self):
         """Restore controls that are temporarily disabled during single-edit."""
-        self.image_slider.setEnabled(bool(self.imagePaths) and (not self.output_state))
+        self.image_slider.setEnabled(self.has_frames() and (not self.output_state))
         self.updateButtonStates()
         self.set_undo_status()
         self.set_redo_status()
@@ -8885,6 +9189,9 @@ class IceScopy(QMainWindow):
         return paths
 
     def openSortImagesDialog(self):
+        if not self.supports_image_file_operations():
+            QMessageBox.information(self, "Sort Images", "Sorting is only available for image-file sources.")
+            return
         availability = self.get_sort_availability()
         dialog = SortImagesDialog(self, availability, self.sort_mode, self)
         if dialog.exec() != QDialog.Accepted:
@@ -8904,7 +9211,7 @@ class IceScopy(QMainWindow):
         self.log(f"Sort mode: {selected_mode.replace('_', ' ')}")
 
     def resort_current_session(self):
-        if not self.imagePaths:
+        if not self.imagePaths or not self.supports_image_file_operations():
             return
 
         self.reset_pending_frame_navigation_state(stop_timer=True)
@@ -8928,7 +9235,7 @@ class IceScopy(QMainWindow):
 
         old_to_new = {old_index: new_index for new_index, (_, _, _, old_index) in enumerate(sorted_entries)}
         self.imagePaths = [entry[0] for entry in sorted_entries]
-        self.imageNames = [entry[1] for entry in sorted_entries]
+        self.rebuild_image_sequence_frame_source()
         self.image_list_entry_ids = [entry[2] for entry in sorted_entries]
         self.keyframe_list = sorted(old_to_new[index] for index in self.keyframe_list if index in old_to_new)
         self.flagframe_list = sorted(old_to_new[index] for index in self.flagframe_list if index in old_to_new)
@@ -8943,11 +9250,24 @@ class IceScopy(QMainWindow):
         self.invalidate_analysis_results("image order changed")
 
     def open_add_images_dialog(self):
+        if self.has_frames() and self.is_video_source():
+            QMessageBox.information(
+                self,
+                "Add Source",
+                "A video source is already loaded. Clear the current source before adding images or opening another video.",
+            )
+            return
+
         source_dialog = QMessageBox(self)
         source_dialog.setWindowTitle("Add Images")
         source_dialog.setText("Choose what to add to this session.")
         add_files_button = source_dialog.addButton("Images...", QMessageBox.AcceptRole)
-        add_folder_button = source_dialog.addButton("Folder...", QMessageBox.ActionRole)
+        # On macOS, QMessageBox action-role buttons are laid out in reverse insertion order.
+        open_video_button = source_dialog.addButton("Video...", QMessageBox.ActionRole)
+        add_folder_button = source_dialog.addButton("Image Folder...", QMessageBox.ActionRole)
+        if self.has_frames():
+            open_video_button.setEnabled(False)
+            open_video_button.setToolTip("Clear the current source before opening a video.")
         source_dialog.addButton(QMessageBox.Cancel)
         source_dialog.exec()
 
@@ -8956,6 +9276,8 @@ class IceScopy(QMainWindow):
             self.loadImages()
         elif clicked_button == add_folder_button:
             self.loadFolder()
+        elif clicked_button == open_video_button:
+            self.open_video()
 
     def loadFolder(self):
         input_dirpath = QFileDialog.getExistingDirectory(
@@ -8977,6 +9299,92 @@ class IceScopy(QMainWindow):
         )
         if input_imagePath:
             self.load_aux(self.sort_image_paths(input_imagePath))
+
+    def open_video(self):
+        if self.has_frames():
+            QMessageBox.information(
+                self,
+                "Open Video",
+                "A source is already loaded. Clear the current source before opening a video.",
+            )
+            return
+
+        if not VideoFrameSource.available():
+            QMessageBox.warning(
+                self,
+                "Open Video",
+                "Video input requires PyAV. Install the 'av' package in the Icescopy environment, then rebuild the app.",
+            )
+            return
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Video",
+            "",
+            "Video Files (*.mp4 *.mov *.avi *.mkv *.m4v);;All Files (*)",
+            options=self.file_dialog_options(),
+        )
+        if file_path:
+            self.load_video(file_path)
+
+    def load_video(self, file_path):
+        if self.has_frames():
+            QMessageBox.information(
+                self,
+                "Open Video",
+                "A source is already loaded. Clear the current source before opening a video.",
+            )
+            return
+
+        before_state = self.capture_loaded_images_state()
+        try:
+            frame_source = VideoFrameSource(file_path)
+        except Exception as err:
+            QMessageBox.warning(self, "Open Video Failed", str(err))
+            self.log(f"Failed to open video: {err}")
+            return
+        if frame_source.frame_count() <= 0:
+            QMessageBox.warning(self, "Open Video Failed", "The selected video does not contain decoded frames.")
+            return
+
+        self.reset_transient_interaction_state()
+        self.reset_pending_frame_navigation_state(stop_timer=True)
+        self.clear_image_caches()
+        self.keyframe_list = []
+        self.flagframe_list = []
+        self.keyframe_cell_items_dict = {}
+        self.image_width = None
+        self.image_index = 0
+        self.last_committed_image_index = 0
+        self.set_frame_source(frame_source, reset_frame_ids=True)
+        self.invalidate_analysis_results("frame source changed")
+
+        if hasattr(self, 'pixmap_item'):
+            self.scene.removeItem(self.pixmap_item)
+            del(self.pixmap_item)
+
+        self.image_slider.blockSignals(True)
+        self.image_slider.setMinimum(0)
+        self.image_slider.setMaximum(self.frame_count() - 1)
+        self.image_slider.setValue(0)
+        self.image_slider.blockSignals(False)
+        self.image_slider.setEnabled(True)
+        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+        self.image_textbox.setText("0")
+        self.populate_image_list()
+        self.updateImage(0)
+        self.finalize_frame_update(0)
+
+        self.select_tool_action.setEnabled(True)
+        self.grid_tool_action.setEnabled(True)
+        self.pan_tool_action.setEnabled(True)
+        self.deselect_tool_action.setEnabled(True)
+        self.edit_tool_action.setEnabled(True)
+        self.update_session_actions_state()
+        self.updateButtonStates()
+        self.image_slider.set_custom_ticks()
+        self.zoom_slider_set_maximum()
+        self.log(f"Loaded video with {self.frame_count()} frames")
+        self.push_loaded_images_history("Open Video", before_state)
 
     def openSession(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -9051,7 +9459,7 @@ class IceScopy(QMainWindow):
         return missing_paths
 
     def relink_images_folder(self, checked=False):
-        if not self.imagePaths:
+        if not self.imagePaths or not self.supports_image_file_operations():
             QMessageBox.information(self, "Relink Images Folder", "No session images are loaded.")
             return
 
@@ -9133,8 +9541,12 @@ class IceScopy(QMainWindow):
         }
         remapped_offsets = {}
         for old_path, new_path in zip(old_image_paths, new_image_paths):
-            if str(old_path) in offset_map:
-                remapped_offsets[str(new_path)] = float(offset_map[str(old_path)])
+            old_key = os.path.normcase(os.path.normpath(str(old_path)))
+            new_key = os.path.normcase(os.path.normpath(str(new_path)))
+            if old_key in offset_map:
+                remapped_offsets[new_key] = float(offset_map[old_key])
+            elif str(old_path) in offset_map:
+                remapped_offsets[new_key] = float(offset_map[str(old_path)])
 
         resolved_indexes = []
         for index, image_path in enumerate(new_image_paths):
@@ -9145,7 +9557,7 @@ class IceScopy(QMainWindow):
                 continue
 
         self.imagePaths = list(new_image_paths)
-        self.imageNames = [os.path.basename(path) for path in self.imagePaths]
+        self.rebuild_image_sequence_frame_source()
         self.image_edit_uniform_exposure_offsets = remapped_offsets
         self.raw_image_size_cache = {}
         self.clear_image_caches()
@@ -9307,8 +9719,15 @@ class IceScopy(QMainWindow):
         return self.persist_session_to_path(file_path, show_errors=True)
 
     def load_aux(self, input_imagePath):
+        if self.has_frames() and not self.supports_image_file_operations():
+            QMessageBox.warning(
+                self,
+                "Add Images",
+                "Image files cannot be added to a video source. Clear the current source before loading image files.",
+            )
+            return
         if not input_imagePath:
-            if not self.imagePaths:
+            if not self.has_frames():
                 self.log("No image loaded")
             return
 
@@ -9330,11 +9749,11 @@ class IceScopy(QMainWindow):
             self.log("No new images added")
             return
 
-        is_first_load = not self.imagePaths
+        is_first_load = not self.has_frames()
         new_entry_ids = list(range(self.next_image_list_entry_id, self.next_image_list_entry_id + len(unique_new_paths)))
         self.next_image_list_entry_id += len(unique_new_paths)
         self.imagePaths.extend(unique_new_paths)
-        self.imageNames.extend([os.path.basename(path) for path in unique_new_paths])
+        self.rebuild_image_sequence_frame_source()
         self.image_list_entry_ids.extend(new_entry_ids)
 
         if is_first_load:
@@ -9347,7 +9766,7 @@ class IceScopy(QMainWindow):
 
         self.image_slider.blockSignals(True)
         self.image_slider.setMinimum(0)
-        self.image_slider.setMaximum(len(self.imagePaths) - 1)
+        self.image_slider.setMaximum(self.frame_count() - 1)
         if is_first_load:
             self.image_slider.setValue(0)
         self.image_slider.blockSignals(False)
@@ -9364,7 +9783,7 @@ class IceScopy(QMainWindow):
         self.set_undo_status()
         self.image_slider.set_custom_ticks()
         self.zoom_slider_set_maximum()
-        new_rows = range(len(self.imagePaths) - len(unique_new_paths), len(self.imagePaths))
+        new_rows = range(self.frame_count() - len(unique_new_paths), self.frame_count())
         new_entries = [self.format_image_list_entry(index) for index in new_rows]
         if is_first_load:
             self.image_list_model.set_items(new_entries, unique_new_paths)
@@ -9383,7 +9802,7 @@ class IceScopy(QMainWindow):
         self.push_loaded_images_history("Add Images", before_state)
 
     def remove_selected_image(self):
-        if not self.imagePaths:
+        if not self.has_frames() or not self.supports_image_file_operations():
             return
 
         if self.active_image_panel == "list":
@@ -9392,7 +9811,7 @@ class IceScopy(QMainWindow):
             self.remove_current_viewer_image()
 
     def remove_selected_list_images(self):
-        if not self.imagePaths:
+        if not self.has_frames() or not self.supports_image_file_operations():
             return
 
         selected_rows = self.get_selected_image_rows()
@@ -9406,11 +9825,14 @@ class IceScopy(QMainWindow):
         self.remove_images_from_session(selected_rows)
 
     def remove_current_viewer_image(self):
-        if not self.imagePaths:
+        if not self.has_frames() or not self.supports_image_file_operations():
             return
         self.remove_images_from_session([self.image_index])
 
     def remove_images_from_session(self, rows):
+        if not self.supports_image_file_operations():
+            QMessageBox.information(self, "Remove Frames", "Individual frame removal is not available for video sources.")
+            return
         rows_to_remove = sorted({row for row in rows if 0 <= row < len(self.imagePaths)})
         if not rows_to_remove:
             return
@@ -9429,7 +9851,7 @@ class IceScopy(QMainWindow):
         current_removed = old_image_index in removed_rows
 
         self.imagePaths = [path for index, path in enumerate(self.imagePaths) if index not in removed_rows]
-        self.imageNames = [name for index, name in enumerate(self.imageNames) if index not in removed_rows]
+        self.rebuild_image_sequence_frame_source()
         self.image_list_entry_ids = [entry_id for index, entry_id in enumerate(self.image_list_entry_ids) if index not in removed_rows]
 
         self.keyframe_cell_items_dict = {
@@ -9452,16 +9874,16 @@ class IceScopy(QMainWindow):
 
         self.image_slider.blockSignals(True)
         self.image_slider.setMinimum(0)
-        self.image_slider.setMaximum(len(self.imagePaths) - 1)
+        self.image_slider.setMaximum(self.frame_count() - 1)
         self.image_slider.setValue(new_image_index)
         self.image_slider.blockSignals(False)
         self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
         self.image_textbox.setText(str(new_image_index))
 
         self.image_list_model.remove_rows(rows_to_remove)
-        if self.imagePaths:
+        if self.has_frames():
             annotation_start = min(rows_to_remove)
-            self.update_image_list_annotations(range(annotation_start, len(self.imagePaths)))
+            self.update_image_list_annotations(range(annotation_start, self.frame_count()))
         else:
             self.populate_image_list()
         # Always refresh frame display/interpolation after image removal because
@@ -9478,7 +9900,7 @@ class IceScopy(QMainWindow):
         self.push_image_session_history("Remove Images", before_state)
 
     def clear_loaded_images(self, checked=False, confirm=True, log_message="Cleared all loaded images from this session"):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
 
         if confirm:
@@ -9504,8 +9926,17 @@ class IceScopy(QMainWindow):
         self.flagframe_list = []
         self.keyframe_cell_items_dict = {}
         self.image_width = None
+        stop_video_preview_decoder = getattr(self, "stop_video_preview_decoder", None)
+        if callable(stop_video_preview_decoder):
+            stop_video_preview_decoder()
+        old_frame_source = getattr(self, "frame_source", None)
+        if old_frame_source is not None:
+            close_source = getattr(old_frame_source, "close", None)
+            if callable(close_source):
+                close_source()
         self.imagePaths = []
         self.imageNames = []
+        self.frame_source = ImageSequenceFrameSource([])
         self.image_index = 0
         self.last_committed_image_index = 0
         self.image_list_entry_ids = []
@@ -9551,7 +9982,7 @@ class IceScopy(QMainWindow):
             or self.freeze_results_headers
             or self.freeze_count_timeseries_headers
         )
-        if confirm and (self.imagePaths or has_results):
+        if confirm and (self.has_frames() or has_results):
             reply = QMessageBox.question(
                 self,
                 "Clear Session",
@@ -9611,29 +10042,39 @@ class IceScopy(QMainWindow):
         self.slider_drag_start_index = None
         self.pending_preview_image_index = None
         self.preview_frame_update_in_progress = False
+        self.video_preview_target_index = None
         if stop_timer and hasattr(self, "image_preview_timer"):
             self.image_preview_timer.stop()
 
     def clear_image_caches(self):
+        if hasattr(self, "raw_image_cache"):
+            self.raw_image_cache.clear()
+        if hasattr(self, "raw_image_size_cache"):
+            self.raw_image_size_cache.clear()
+        if hasattr(self, "preview_raw_frame_keys"):
+            self.preview_raw_frame_keys.clear()
         if hasattr(self, "image_cache"):
             self.image_cache.clear()
         if hasattr(self, "pixmap_cache"):
             self.pixmap_cache.clear()
         self.displayed_image_edit_crop_applied = None
 
-    def get_cached_raw_image(self, image_path):
-        image_path = str(image_path)
-        cached_image = self.raw_image_cache.get(image_path)
+    def get_cached_raw_image(self, index):
+        index = int(index)
+        frame_key = self.frame_key(index)
+        cached_image = self.raw_image_cache.get(frame_key)
         if cached_image is not None:
-            self.raw_image_cache.move_to_end(image_path)
+            self.raw_image_cache.move_to_end(frame_key)
             return cached_image
 
-        cached_image = QImage(image_path)
-        self.raw_image_cache[image_path] = cached_image
-        self.raw_image_cache.move_to_end(image_path)
+        cached_image = self.active_frame_source().get_qimage(index)
+        self.raw_image_cache[frame_key] = cached_image
+        self.raw_image_cache.move_to_end(frame_key)
+        if hasattr(self, "preview_raw_frame_keys"):
+            self.preview_raw_frame_keys.discard(frame_key)
 
         if hasattr(self, "raw_image_size_cache"):
-            self.raw_image_size_cache[image_path] = (int(cached_image.width()), int(cached_image.height()))
+            self.raw_image_size_cache[frame_key] = (int(cached_image.width()), int(cached_image.height()))
 
         while len(self.raw_image_cache) > self.raw_image_cache_size:
             evicted_path, _ = self.raw_image_cache.popitem(last=False)
@@ -9642,14 +10083,114 @@ class IceScopy(QMainWindow):
 
         return cached_image
 
-    def handle_preview_image_slider_value(self, index):
-        if not self.imagePaths:
+    def cache_raw_frame_image(self, index, q_image, frame_key=None, *, preview_cache=False):
+        index = int(index)
+        if frame_key is None:
+            frame_key = self.frame_key(index)
+        if q_image is None or q_image.isNull():
+            return
+        self.raw_image_cache[frame_key] = q_image
+        self.raw_image_cache.move_to_end(frame_key)
+        if hasattr(self, "preview_raw_frame_keys"):
+            if preview_cache:
+                self.preview_raw_frame_keys.add(frame_key)
+            else:
+                self.preview_raw_frame_keys.discard(frame_key)
+        if hasattr(self, "raw_image_size_cache"):
+            self.raw_image_size_cache[frame_key] = (int(q_image.width()), int(q_image.height()))
+        while len(self.raw_image_cache) > self.raw_image_cache_size:
+            evicted_path, _ = self.raw_image_cache.popitem(last=False)
+            if hasattr(self, "raw_image_size_cache"):
+                self.raw_image_size_cache.pop(evicted_path, None)
+            if hasattr(self, "preview_raw_frame_keys"):
+                self.preview_raw_frame_keys.discard(evicted_path)
+
+    def discard_preview_raw_frame_cache(self, index):
+        frame_key = self.frame_key(index)
+        if frame_key not in getattr(self, "preview_raw_frame_keys", set()):
+            return
+        self.preview_raw_frame_keys.discard(frame_key)
+        self.raw_image_cache.pop(frame_key, None)
+        self.raw_image_size_cache.pop(frame_key, None)
+        for cache_key in list(self.image_cache):
+            if cache_key[0] == frame_key:
+                self.image_cache.pop(cache_key, None)
+        for cache_key in list(self.pixmap_cache):
+            if cache_key[0] == frame_key:
+                self.pixmap_cache.pop(cache_key, None)
+
+    def raw_frame_image_is_cached(self, index):
+        try:
+            frame_key = self.frame_key(index)
+        except Exception:
+            return False
+        return frame_key in self.raw_image_cache
+
+    def request_video_preview_frame(self, index):
+        if not self.is_video_source():
             return
         try:
             index = int(index)
         except (TypeError, ValueError):
             return
-        if index < 0 or index >= len(self.imagePaths):
+        if index < 0 or index >= self.frame_count():
+            return
+
+        self.video_preview_target_index = index
+        self.pending_preview_image_index = index
+        self.image_textbox.setText(str(index))
+        self.image_name_label.setText(self.frame_name(index))
+        self.update_grayscale_plot_current_frame()
+
+        if self.raw_frame_image_is_cached(index):
+            self.updateImage(index, preview=True)
+            return
+
+        if self.video_preview_worker is None or self.video_preview_thread is None:
+            self.start_video_preview_decoder()
+        if self.video_preview_worker is None or self.video_preview_decode_in_flight:
+            return
+
+        self.video_preview_decode_in_flight = True
+        self.video_preview_decode_requested.emit(index)
+
+    def handle_video_preview_decoded(self, index, q_image, frame_key, video_path):
+        self.video_preview_decode_in_flight = False
+        if not self.is_video_source() or self.active_frame_source().source_path() != video_path:
+            return
+
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return
+        if not (0 <= index < self.frame_count()):
+            return
+
+        self.cache_raw_frame_image(index, q_image, frame_key=frame_key, preview_cache=True)
+        if self.image_slider.isSliderDown() and self.video_preview_target_index == index:
+            self.updateImage(index, preview=True)
+
+        target_index = self.video_preview_target_index
+        if (
+            self.image_slider.isSliderDown()
+            and target_index is not None
+            and target_index != index
+        ):
+            self.request_video_preview_frame(target_index)
+
+    def handle_video_preview_failed(self, index, message, video_path):
+        self.video_preview_decode_in_flight = False
+        if self.is_video_source() and self.active_frame_source().source_path() == video_path:
+            self.log(f"Video preview decode failed at frame {index}: {message}")
+
+    def handle_preview_image_slider_value(self, index):
+        if not self.has_frames():
+            return
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return
+        if index < 0 or index >= self.frame_count():
             return
 
         self.pending_preview_image_index = index
@@ -9659,11 +10200,11 @@ class IceScopy(QMainWindow):
             self.image_preview_timer.start(self.get_preview_frame_interval_ms())
 
     def handle_image_slider_pressed(self):
-        if not self.imagePaths or self.history_restoring:
+        if not self.has_frames() or self.history_restoring:
             return
         committed_index = max(
             0,
-            min(int(getattr(self, "last_committed_image_index", self.image_index)), len(self.imagePaths) - 1),
+            min(int(getattr(self, "last_committed_image_index", self.image_index)), self.frame_count() - 1),
         )
         self.slider_drag_start_index = committed_index
         self.pending_navigation_before_index = committed_index
@@ -9689,10 +10230,12 @@ class IceScopy(QMainWindow):
             )
         )
         self.reset_pending_frame_navigation_state(stop_timer=True)
-        if preview_diverged and self.imagePaths:
+        if preview_diverged and self.has_frames():
             self.updateImage(restore_index, preview=False)
 
     def get_preview_frame_interval_ms(self):
+        if self.is_video_source():
+            return 80
         return 16
 
     def flush_pending_preview_image(self):
@@ -9700,11 +10243,15 @@ class IceScopy(QMainWindow):
             return
         pending_index = int(self.pending_preview_image_index)
         self.pending_preview_image_index = None
-        if not self.imagePaths:
+        if not self.has_frames():
             return
-        if pending_index < 0 or pending_index >= len(self.imagePaths):
+        if pending_index < 0 or pending_index >= self.frame_count():
             return
         if pending_index == self.image_index:
+            return
+
+        if self.is_video_source():
+            self.request_video_preview_frame(pending_index)
             return
 
         self.preview_frame_update_in_progress = True
@@ -9732,7 +10279,12 @@ class IceScopy(QMainWindow):
             before_index = drag_start_index
         if before_index is None and not self.history_restoring:
             before_index = self.last_committed_image_index
-        if self.imagePaths and self.image_index == index:
+        needs_full_video_frame = (
+            self.is_video_source()
+            and self.has_frames()
+            and self.frame_key(index) in getattr(self, "preview_raw_frame_keys", set())
+        )
+        if self.has_frames() and self.image_index == index and not needs_full_video_frame:
             self.finalize_frame_update(index)
         else:
             self.updateImage(index, preview=False)
@@ -9743,7 +10295,7 @@ class IceScopy(QMainWindow):
             self.push_navigation_history(history_text, before_index, self.image_index)
 
     def finalize_frame_update(self, index):
-        if not self.imagePaths or not (0 <= index < len(self.imagePaths)):
+        if not self.has_frames() or not (0 <= index < self.frame_count()):
             return
         self.last_committed_image_index = int(index)
         if not self.image_slider.isSliderDown():
@@ -9752,7 +10304,7 @@ class IceScopy(QMainWindow):
                 self.image_slider.blockSignals(True)
                 self.image_slider.setValue(index)
                 self.image_slider.blockSignals(False)
-        self.image_name_label.setText(self.imageNames[index])
+        self.image_name_label.setText(self.frame_name(index))
         self.resize_image_textbox()
         self.updateButtonStates()
         self.update_toggle_keyframe_button_icon()
@@ -9761,10 +10313,10 @@ class IceScopy(QMainWindow):
         self.update_grayscale_plot_current_frame()
 
     def ensure_slider_window_contains_index(self, index):
-        if not self.imagePaths:
+        if not self.has_frames():
             return
 
-        target_index = max(0, min(int(index), len(self.imagePaths) - 1))
+        target_index = max(0, min(int(index), self.frame_count() - 1))
         slider_min = self.image_slider.minimum()
         slider_max = self.image_slider.maximum()
         if slider_min <= target_index <= slider_max:
@@ -9778,7 +10330,7 @@ class IceScopy(QMainWindow):
             new_max = target_index
             new_min = target_index - window_size
 
-        max_index = len(self.imagePaths) - 1
+        max_index = self.frame_count() - 1
         new_min = max(0, int(new_min))
         new_max = min(max_index, int(new_max))
         if new_max - new_min < window_size:
@@ -9793,12 +10345,12 @@ class IceScopy(QMainWindow):
         self.image_slider.blockSignals(False)
 
     def updateImage(self, index, preview=False):
-            if self.imagePaths:
+            if self.has_frames():
                 try:
                     index = int(index)
                 except (TypeError, ValueError):
                     index = int(getattr(self, "last_committed_image_index", self.image_index))
-                index = max(0, min(index, len(self.imagePaths) - 1))
+                index = max(0, min(index, self.frame_count() - 1))
                 current_transform = self.view.transform()
                 current_hscroll = self.view.horizontalScrollBar().value()
                 current_vscroll = self.view.verticalScrollBar().value()
@@ -9808,7 +10360,9 @@ class IceScopy(QMainWindow):
                 try:
                     self.image_index = index
                     self.image_textbox.setText(str(index))
-                    q_image = self.update_display_pixmaps(index)
+                    if (not preview) and self.is_video_source():
+                        self.discard_preview_raw_frame_cache(index)
+                    q_image = self.update_display_pixmaps(index, preview=preview)
                     if not had_pixmap_item:
                         self.view.fitInView(self.view.sceneRect(), Qt.KeepAspectRatio)
 
@@ -9822,7 +10376,8 @@ class IceScopy(QMainWindow):
                         self.cell_controller.rebase_edit_preview_to_current_frame()
                         self.update_grid_preview()
                     self.update_grayscale_plot_current_frame()
-                    self.request_image_edit_histogram_refresh(q_image)
+                    if (not preview) or self.tool_mode == "image-edit":
+                        self.request_image_edit_histogram_refresh(q_image)
                     if self.tool_mode == "image-edit":
                         self.sync_image_edit_controls()
 
@@ -9848,7 +10403,7 @@ class IceScopy(QMainWindow):
         if current_value < self.image_slider.maximum():
             self.navigate_to_image(current_value + 1)
         
-        elif current_value < (len(self.imagePaths)-1):
+        elif current_value < (self.frame_count()-1):
             self.image_slider.setMinimum(self.image_slider.minimum()+1)
             self.image_slider.setMaximum(self.image_slider.maximum()+1)
             self.navigate_to_image(current_value + 1)
@@ -9872,7 +10427,7 @@ class IceScopy(QMainWindow):
         # Update displayed image based on textbox value by changing the slider value
         try:
             index = int(self.image_textbox.text())
-            index = max(0, min(index, len(self.imagePaths) - 1))  # Ensure valid index
+            index = max(0, min(index, self.frame_count() - 1))  # Ensure valid index
             self.navigate_to_image(index)
         except ValueError:
             pass  # Ignore non-integer input
@@ -9881,8 +10436,8 @@ class IceScopy(QMainWindow):
         font_metrics = self.image_textbox.fontMetrics()
         current_text = self.image_textbox.text() or "0"
         text_width = font_metrics.horizontalAdvance(current_text)
-        if self.imagePaths:
-            max_index_text = str(max(0, len(self.imagePaths) - 1))
+        if self.has_frames():
+            max_index_text = str(max(0, self.frame_count() - 1))
         else:
             max_index_text = "000"
         range_width = font_metrics.horizontalAdvance(max_index_text)
@@ -9894,18 +10449,18 @@ class IceScopy(QMainWindow):
     def get_cached_image(self, index, *, apply_crop=None):
         if apply_crop is None:
             apply_crop = self.should_apply_crop_in_display()
-        image_path = self.imagePaths[index]
-        cache_key = (image_path, bool(apply_crop))
+        frame_key = self.frame_key(index)
+        cache_key = (frame_key, bool(apply_crop))
         cached_image = self.image_cache.get(cache_key)
         if cached_image is not None:
             self.image_cache.move_to_end(cache_key)
             return cached_image
 
-        raw_q_image = self.get_cached_raw_image(image_path)
+        raw_q_image = self.get_cached_raw_image(index)
         crop_state = self.current_image_edit_crop_state(index=index)
         cached_image = apply_image_adjustments_to_qimage(
             raw_q_image,
-            self.current_image_edit_total_exposure(index=index, image_path=image_path),
+            self.current_image_edit_total_exposure(index=index, image_path=frame_key),
             self.image_edit_contrast,
             crop_state,
             apply_crop=bool(apply_crop),
@@ -9921,8 +10476,8 @@ class IceScopy(QMainWindow):
     def get_cached_pixmap(self, index, *, apply_crop=None):
         if apply_crop is None:
             apply_crop = self.should_apply_crop_in_display()
-        image_path = self.imagePaths[index]
-        cache_key = (image_path, bool(apply_crop))
+        frame_key = self.frame_key(index)
+        cache_key = (frame_key, bool(apply_crop))
         cached_pixmap = self.pixmap_cache.get(cache_key)
         if cached_pixmap is not None:
             self.pixmap_cache.move_to_end(cache_key)
@@ -9938,7 +10493,7 @@ class IceScopy(QMainWindow):
         return cached_pixmap
 
     def get_display_slots(self, current_index):
-        total_images = len(self.imagePaths)
+        total_images = self.frame_count()
         if total_images <= 0:
             return []
 
@@ -9964,10 +10519,10 @@ class IceScopy(QMainWindow):
             self.scene.removeItem(item)
         self.placeholder_items = []
 
-    def update_display_pixmaps(self, current_index, *, apply_crop=None):
+    def update_display_pixmaps(self, current_index, *, apply_crop=None, preview=False):
         if apply_crop is None:
             apply_crop = self.should_apply_crop_in_display()
-        display_slots = self.get_display_slots(current_index)
+        display_slots = [current_index] if (preview and self.is_video_source()) else self.get_display_slots(current_index)
         if not display_slots:
             return None
 
@@ -10100,19 +10655,21 @@ class IceScopy(QMainWindow):
             pass  # Ignore non-numeric input
     
     def updateButtonStates(self):
+        frame_count = self.frame_count()
+        has_frames = frame_count > 0
         # Update left button state
-        if (self.image_slider.value() <= 0) or self.output_state or (not self.imagePaths):
+        if (self.image_slider.value() <= 0) or self.output_state or (not has_frames):
             self.leftButton.setEnabled(False)
         else:
             self.leftButton.setEnabled(True)
 
         # Update right button state
-        if (self.image_slider.value() >= len(self.imagePaths)-1) or self.output_state or (not self.imagePaths):
+        if (self.image_slider.value() >= frame_count - 1) or self.output_state or (not has_frames):
             self.rightButton.setEnabled(False)
         else:
             self.rightButton.setEnabled(True)
 
-        if self.output_state or (not self.imagePaths):
+        if self.output_state or (not has_frames):
             self.keyframe_toggle_button.setEnabled(False)
             self.flag_toggle_button.setEnabled(False)
             self.zoom_slider.setEnabled(False)
@@ -10229,7 +10786,7 @@ class IceScopy(QMainWindow):
         elif (event.key() == Qt.Key_Space) and (self.space_held == False) and no_modifiers:
             # Temporarily switch to zoom and pan
 
-            if self.imagePaths:
+            if self.has_frames():
                 # Store original_tool_mode in temporary data
                 self.temporary_event_data["original_tool_mode"] = self.tool_mode
 
@@ -10253,7 +10810,7 @@ class IceScopy(QMainWindow):
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Space:
 
-            if self.imagePaths:
+            if self.has_frames():
                 # Retrieve the original tool mode from the temporary data dict
                 self.space_held = False
 
@@ -10294,7 +10851,7 @@ class IceScopy(QMainWindow):
             super().keyReleaseEvent(event)
 
     def outputData(self):
-        if not self.imagePaths:
+        if not self.has_frames():
             self.log("No images loaded")
             return
 
@@ -10321,6 +10878,7 @@ class IceScopy(QMainWindow):
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
             freeze_finder_detect_brightening=self.freeze_finder_detect_brightening,
+            frame_source=self.active_frame_source(),
         )
         self.worker.analysis_done.connect(self.onAnalysisDone)
         self.updateButtonStates()
@@ -10344,7 +10902,7 @@ class IceScopy(QMainWindow):
 
     def out_put_interpolation(self):
         list_of_cell_items = []
-        for an_image_index in range(len(self.imagePaths)):
+        for an_image_index in range(self.frame_count()):
             list_of_cell_items.append(self.keyframe_interpolation(an_image_index))
         
         return list_of_cell_items
@@ -10521,7 +11079,9 @@ class IceScopy(QMainWindow):
     def reset_toolbar_icon(self, theme=None):
         mode_folder = "dark-mode" if darkdetect.isDark() else "light-mode"
         self.preferences_action.setIcon(self.toolbar_icon(mode_folder, "gear.svg"))
+        self.add_source_action.setIcon(self.toolbar_icon(mode_folder, "image-multiple-add.svg"))
         self.add_images_action.setIcon(self.toolbar_icon(mode_folder, "image-multiple-add.svg"))
+        self.add_folder_action.setIcon(self.toolbar_icon(mode_folder, "folder-document.svg"))
         self.new_session_action.setIcon(self.toolbar_icon(mode_folder, "document-new-filled.svg"))
         self.open_session_action.setIcon(self.toolbar_icon(mode_folder, "folder-document.svg"))
         self.remove_selected_action.setIcon(self.toolbar_icon(mode_folder, "image-multiple-remove.svg"))
@@ -10573,7 +11133,7 @@ class IceScopy(QMainWindow):
         self.viewer_image_count = count
         self.update_viewer_mode_actions()
         self.log(f"Viewer layout: show {count} image(s)")
-        if self.imagePaths:
+        if self.has_frames():
             self.updateImage(self.image_index)
 
     def toggle_viewer_split_orientation(self):
@@ -10581,7 +11141,7 @@ class IceScopy(QMainWindow):
         self.update_viewer_orientation_toggle_action()
         layout_label = "top-down" if self.is_viewer_split_vertical() else "left-right"
         self.log(f"Viewer split layout: {layout_label}")
-        if self.imagePaths and self.viewer_image_count in (2, 3):
+        if self.has_frames() and self.viewer_image_count in (2, 3):
             self.updateImage(self.image_index)
 
     def update_toggle_keyframe_button_icon(self, theme=None):
@@ -10644,6 +11204,12 @@ class IceScopy(QMainWindow):
         self.zoom_slider_set_maximum()
 
     def closeEvent(self, event):
+        self.stop_video_preview_decoder()
+        frame_source = getattr(self, "frame_source", None)
+        if frame_source is not None:
+            close_source = getattr(frame_source, "close", None)
+            if callable(close_source):
+                close_source()
         super().closeEvent(event)
 
     def load_preferences_from_xml(self):

@@ -176,6 +176,7 @@ def build_session_payload(main_window):
         "session_metadata": main_window.serialize_session_metadata(),
         "image_edit_state": main_window.serialize_image_edit_state(),
         "image_width": main_window.image_width,
+        "frame_source": main_window.frame_source_session_payload(),
         "image_paths": main_window.imagePaths.copy(),
         "image_names": main_window.imageNames.copy(),
         "image_index": main_window.image_index,
@@ -240,6 +241,10 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
         "flagframe_list": payload["flagframe_list"],
         "keyframe_cell_items_dict": keyframe_cell_items_dict,
         "image_width": payload["image_width"],
+        "frame_source": payload.get("frame_source", {
+            "kind": "image_sequence",
+            "image_paths": payload["image_paths"],
+        }),
         "imagePaths": payload["image_paths"],
         "imageNames": payload["image_names"],
         "image_index": payload["image_index"],

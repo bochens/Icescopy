@@ -34,11 +34,22 @@ from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_CREATED,
     IMAGE_TIMESTAMP_SOURCE_GENERATED,
     IMAGE_TIMESTAMP_SOURCE_MODIFIED,
+    IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
     TEMPERATURE_UNIT_CELSIUS,
     TEMPERATURE_UNIT_KELVIN,
     TIMESTAMP_STYLE_AUTO,
     TIMESTAMP_STYLE_CHOICES,
+    parse_timestamp_text,
     resolve_image_timestamp,
+)
+
+
+TEMPERATURE_RESET_LABEL = "Reset After Warmed To (°C)"
+TEMPERATURE_RESET_DESCRIPTION = (
+    "If reset is enabled, a new cycle starts once temperature warms back to the selected threshold."
+)
+WATER_BLANK_CORRECTION_DESCRIPTION = (
+    "If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group."
 )
 
 
@@ -236,12 +247,12 @@ class CSUTemperatureImportDialog(QDialog):
         reset_row.addStretch(1)
         reset_row_widget = QWidget(self)
         reset_row_widget.setLayout(reset_row)
-        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
+        form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
 
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            "Water blank correction is applied within each cycle. If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group. If reset is enabled, a new cycle starts once temperature warms back to the selected threshold.",
+            f"Water blank correction is applied within each cycle. {WATER_BLANK_CORRECTION_DESCRIPTION} {TEMPERATURE_RESET_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -260,6 +271,9 @@ class CSUTemperatureImportDialog(QDialog):
             initial_dir = os.path.dirname(existing_path)
         elif getattr(self.main_window, "last_temperature_import_path", None):
             initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
+        elif getattr(self.main_window, "active_frame_source", None):
+            source_path = str(self.main_window.active_frame_source().source_path() or "")
+            initial_dir = source_path if os.path.isdir(source_path) else os.path.dirname(source_path)
         elif getattr(self.main_window, "imagePaths", None):
             initial_dir = os.path.dirname(self.main_window.imagePaths[0])
         file_path, _ = QFileDialog.getOpenFileName(
@@ -411,14 +425,14 @@ class TAMUTemperatureImportDialog(QDialog):
         reset_row.addStretch(1)
         reset_row_widget = QWidget(self)
         reset_row_widget.setLayout(reset_row)
-        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
+        form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
 
         scroll_layout.addLayout(form)
 
         hint_label = QLabel(
             "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. "
-            "If water blank samples are selected, their frozen counts and total counts are subtracted from every non-blank output group. "
-            "If reset is enabled, counts restart once temperature warms back to the selected threshold.",
+            f"{WATER_BLANK_CORRECTION_DESCRIPTION} "
+            f"{TEMPERATURE_RESET_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -599,12 +613,14 @@ class PKUTemperatureImportDialog(QDialog):
         reset_row.addStretch(1)
         reset_row_widget = QWidget(self)
         reset_row_widget.setLayout(reset_row)
-        form.addRow("Reset After Warmed To (°C)", reset_row_widget)
+        form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
 
         scroll_layout.addLayout(form)
 
         hint_label = QLabel(
-            "The .iml image record count must match the loaded image count so image order can be used without guessing.",
+            "The .iml image record count must match the loaded image count so image order can be used without guessing. "
+            f"{WATER_BLANK_CORRECTION_DESCRIPTION} "
+            f"{TEMPERATURE_RESET_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -682,10 +698,12 @@ class StandardTemperatureImportDialog(QDialog):
         initial_generated_start_text="",
         initial_frame_interval_seconds=1.0,
         initial_temperature_unit=TEMPERATURE_UNIT_CELSIUS,
+        video_mode=False,
         parent=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
+        self.video_mode = bool(video_mode)
         self.setWindowTitle("Standard temperature CSV import")
         self.resize(640, 620)
         self.setMinimumWidth(640)
@@ -722,7 +740,7 @@ class StandardTemperatureImportDialog(QDialog):
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             return label
 
-        image_section_label = QLabel("Image timestamps", self)
+        image_section_label = QLabel("Video frame timestamps" if self.video_mode else "Image timestamps", self)
         image_section_label.setStyleSheet("font-weight: 600;")
         self.scroll_contents_layout.addWidget(image_section_label)
 
@@ -776,7 +794,15 @@ class StandardTemperatureImportDialog(QDialog):
         self.image_timestamp_source_combo = QComboBox(self)
         self.image_timestamp_source_combo.setMinimumContentsLength(18)
         self.image_timestamp_source_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        for source_value, source_label in IMAGE_TIMESTAMP_SOURCE_CHOICES:
+        source_choices = (
+            (
+                (IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS, "First timestamp + video time"),
+                (IMAGE_TIMESTAMP_SOURCE_GENERATED, "First timestamp + fixed interval"),
+            )
+            if self.video_mode
+            else IMAGE_TIMESTAMP_SOURCE_CHOICES
+        )
+        for source_value, source_label in source_choices:
             self.image_timestamp_source_combo.addItem(source_label, source_value)
         source_index = max(
             0,
@@ -910,7 +936,7 @@ class StandardTemperatureImportDialog(QDialog):
         reset_row.addStretch(1)
         reset_row_widget = QWidget(self)
         reset_row_widget.setLayout(reset_row)
-        self.temperature_form.addRow(make_form_label("Reset above (°C)"), reset_row_widget)
+        self.temperature_form.addRow(make_form_label(TEMPERATURE_RESET_LABEL), reset_row_widget)
 
         self.scroll_contents_layout.addLayout(self.temperature_form)
 
@@ -920,7 +946,8 @@ class StandardTemperatureImportDialog(QDialog):
             "YYYYMMDD_HHMMSS, YYYYMMDD HHMMSS, YYMMDD_HHMMSS, YYMMDD HHMMSS, YYMMDD HHMM, YYMMDD-HHMMSS, "
             "YY/MM/DD HH:MM:SS, and EXIF text YYYY:MM:DD HH:MM:SS.</li>"
             "<li>Use the explicit Unix epoch options for 10-digit seconds or 13-digit milliseconds since 1970-01-01 00:00:00 UTC.</li>"
-            "<li>If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group.</li>"
+            f"<li>{WATER_BLANK_CORRECTION_DESCRIPTION}</li>"
+            f"<li>{TEMPERATURE_RESET_DESCRIPTION}</li>"
             "</ul>",
             self,
         )
@@ -992,11 +1019,12 @@ class StandardTemperatureImportDialog(QDialog):
             IMAGE_TIMESTAMP_SOURCE_MODIFIED,
         }
         generated_source = source_value == IMAGE_TIMESTAMP_SOURCE_GENERATED
+        video_pts_source = source_value == IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS
 
         self.image_timestamp_style_combo.setEnabled(image_text_style_available)
-        self.generated_start_edit.setEnabled(generated_source)
+        self.generated_start_edit.setEnabled(generated_source or video_pts_source)
         self.generated_frame_interval_widget.setEnabled(generated_source)
-        self.image_form.setRowVisible(self.generated_start_edit, generated_source)
+        self.image_form.setRowVisible(self.generated_start_edit, generated_source or video_pts_source)
         self.image_form.setRowVisible(self.generated_frame_interval_widget, generated_source)
         if not image_text_style_available and self.use_image_timestamp_style_checkbox.isChecked():
             with QSignalBlocker(self.use_image_timestamp_style_checkbox):
@@ -1012,6 +1040,22 @@ class StandardTemperatureImportDialog(QDialog):
             self.ok_button.setEnabled(bool(is_valid))
 
     def evaluate_image_timestamp_test(self):
+        if self.video_mode:
+            display_name = "frame 0"
+            first_timestamp = parse_timestamp_text(
+                self.generated_start_edit.text().strip(),
+                self.selected_image_timestamp_style(),
+            )
+            if first_timestamp is None:
+                return False, f"{display_name}: first timestamp not found"
+            if self.selected_image_timestamp_source() == IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS:
+                frame_source = self.main_window.active_frame_source()
+                first_frame_time = frame_source.frame_time_seconds(0)
+                if first_frame_time is None:
+                    return False, "frame 0: video timing not found; use fixed interval"
+                return True, f"{display_name}: video time -> {first_timestamp.isoformat(timespec='milliseconds')}"
+            return True, f"{display_name}: fixed interval -> {first_timestamp.isoformat(timespec='milliseconds')}"
+
         if not getattr(self.main_window, "imagePaths", None):
             return False, "Not found: no loaded images."
 
@@ -1062,14 +1106,18 @@ class StandardTemperatureImportDialog(QDialog):
                 "The selected temperature CSV does not exist.",
             )
             return
-        if self.selected_image_timestamp_source() == IMAGE_TIMESTAMP_SOURCE_GENERATED:
+        if self.selected_image_timestamp_source() in {
+            IMAGE_TIMESTAMP_SOURCE_GENERATED,
+            IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
+        }:
             if not self.generated_start_edit.text().strip():
                 QMessageBox.warning(
                     self,
                     "Standard temperature CSV import",
-                    "Enter the first image timestamp when using generated image timestamps.",
+                    "Enter the first frame timestamp.",
                 )
                 return
+        if self.selected_image_timestamp_source() == IMAGE_TIMESTAMP_SOURCE_GENERATED:
             if self.frame_interval_spinbox.value() <= 0:
                 QMessageBox.warning(
                     self,
@@ -1079,10 +1127,11 @@ class StandardTemperatureImportDialog(QDialog):
                 return
         image_timestamp_valid, image_timestamp_message = self.evaluate_image_timestamp_test()
         if not image_timestamp_valid:
+            frame_label = "frame" if self.video_mode else "image"
             QMessageBox.warning(
                 self,
                 "Standard temperature CSV import",
-                "The selected image timestamp source/style does not resolve a valid timestamp for the first image.\n\n"
+                f"The selected timestamp source/style does not resolve a valid timestamp for the first {frame_label}.\n\n"
                 + image_timestamp_message,
             )
             return

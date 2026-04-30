@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
@@ -16,6 +19,7 @@ if str(SRC_DIR) not in sys.path:
 
 import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
 from icescopy_temperature_import import TemperatureImportError  # noqa: E402
 from icescopy_session_io import (  # noqa: E402
     FREEZE_COUNT_TIMESERIES_CSV_FILENAME,
@@ -31,6 +35,103 @@ from icescopy_session_io import (  # noqa: E402
 
 
 class SessionIoTests(unittest.TestCase):
+    def make_action_state_window(self, *, source_kind="image", frame_count=1):
+        class DummyAction:
+            def __init__(self):
+                self.enabled = None
+
+            def setEnabled(self, enabled):
+                self.enabled = bool(enabled)
+
+        fake_window = SimpleNamespace(
+            session_active=True,
+            output_state=False,
+            image_list_enabled=True,
+            grayscale_results_headers=[],
+            freeze_results_headers=[],
+            freeze_count_timeseries_headers=[],
+            viewer_image_count=1,
+            has_frames=lambda: frame_count > 0,
+            supports_image_file_operations=lambda: source_kind == "image",
+            is_video_source=lambda: source_kind == "video",
+            set_undo_status=lambda: None,
+            set_redo_status=lambda: None,
+            update_document_interface_state=lambda: None,
+        )
+        action_names = (
+            "add_source_action",
+            "add_images_action",
+            "add_folder_action",
+            "open_video_action",
+            "remove_selected_action",
+            "clear_images_action",
+            "sort_images_action",
+            "relink_images_action",
+            "sample_manager_action",
+            "new_session_action",
+            "open_session_action",
+            "save_session_action",
+            "save_session_as_action",
+            "edit_session_metadata_action",
+            "run_analysis_action",
+            "output_results_action",
+            "import_csu_is_dat_action",
+            "import_tamu_linkam_xlsx_action",
+            "import_pku_linksys32_iml_action",
+            "import_temperature_csv_action",
+            "viewer_single_action",
+            "viewer_double_action",
+            "viewer_triple_action",
+            "viewer_orientation_toggle_action",
+            "image_edit_action",
+            "undo_action",
+            "redo_action",
+        )
+        for action_name in action_names:
+            setattr(fake_window, action_name, DummyAction())
+        return fake_window
+
+    def test_update_session_actions_disables_add_source_actions_for_video_source(self):
+        fake_window = self.make_action_state_window(source_kind="video", frame_count=5)
+
+        IceScopy.update_session_actions_state(fake_window)
+
+        self.assertFalse(fake_window.add_source_action.enabled)
+        self.assertFalse(fake_window.add_images_action.enabled)
+        self.assertFalse(fake_window.add_folder_action.enabled)
+        self.assertFalse(fake_window.open_video_action.enabled)
+        self.assertTrue(fake_window.clear_images_action.enabled)
+
+    def test_update_session_actions_keeps_add_source_actions_enabled_for_image_source(self):
+        fake_window = self.make_action_state_window(source_kind="image", frame_count=5)
+
+        IceScopy.update_session_actions_state(fake_window)
+
+        self.assertTrue(fake_window.add_source_action.enabled)
+        self.assertTrue(fake_window.add_images_action.enabled)
+        self.assertTrue(fake_window.add_folder_action.enabled)
+        self.assertFalse(fake_window.open_video_action.enabled)
+
+    def test_update_session_actions_allows_open_video_only_before_source_is_loaded(self):
+        fake_window = self.make_action_state_window(source_kind="image", frame_count=0)
+
+        IceScopy.update_session_actions_state(fake_window)
+
+        self.assertTrue(fake_window.add_source_action.enabled)
+        self.assertTrue(fake_window.add_images_action.enabled)
+        self.assertTrue(fake_window.add_folder_action.enabled)
+        self.assertTrue(fake_window.open_video_action.enabled)
+
+    def test_load_video_refuses_to_replace_existing_image_source(self):
+        fake_window = SimpleNamespace(
+            has_frames=lambda: True,
+        )
+
+        with patch.object(icescopy_module.QMessageBox, "information") as information:
+            IceScopy.load_video(fake_window, "/tmp/example.mp4")
+
+        information.assert_called_once()
+
     def test_grid_scroll_shortcut_labels_match_platform_modifier_handlers(self):
         fake_window = SimpleNamespace()
 
@@ -56,6 +157,8 @@ class SessionIoTests(unittest.TestCase):
         fake_window.allocate_sample_id = lambda: IceScopy.allocate_sample_id(fake_window)
 
     def bind_pku_temperature_methods(self, fake_window):
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
         fake_window.ensure_cell_record = lambda cell_id: None
         fake_window.build_freeze_count_timeseries_sample_groups = (
@@ -208,6 +311,8 @@ class SessionIoTests(unittest.TestCase):
             icescopy_module.PKUTemperatureImportDialog = FakePKUDialog
             fake_window = SimpleNamespace(
                 imagePaths=["/tmp/frame_001.jpg"],
+                has_frames=lambda: True,
+                is_video_source=lambda: False,
                 last_temperature_import_path="/tmp/sample.iml",
                 last_temperature_reset_temperature=None,
                 last_temperature_blank_sample_names=[],
@@ -223,6 +328,63 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(captured_kwargs["initial_blank_sample_names"], [])
         self.assertEqual(captured_kwargs["parent"], fake_window)
         self.assertNotIn("initial_calibration_path", captured_kwargs)
+
+    def test_update_results_tables_refreshes_selected_cursor_freeze_frame_text(self):
+        self._qt_app = QApplication.instance() or QApplication([])
+
+        class DummyWidget:
+            def __init__(self):
+                self.visible = None
+                self.enabled = None
+
+            def setVisible(self, visible):
+                self.visible = bool(visible)
+
+            def setEnabled(self, enabled):
+                self.enabled = bool(enabled)
+
+        record = SimpleNamespace(freeze_event_indices=[1])
+        line_edit = QLineEdit()
+        line_edit.setText("1")
+        row_widget = DummyWidget()
+        apply_button = DummyWidget()
+
+        fake_window = SimpleNamespace(
+            data_table=object(),
+            freeze_table=object(),
+            grayscale_results_headers=[],
+            grayscale_results_rows=[],
+            freeze_results_headers=["cell", "image_index", "image_name"],
+            freeze_results_rows=[["cell_0", "9", "frame_009.png"]],
+            cursor_freeze_lineedit=line_edit,
+            cursor_freeze_row=row_widget,
+            cursor_freeze_apply_button=apply_button,
+            cursor_sample_combo=object(),
+            cursor_edit_section_label=DummyWidget(),
+            cursor_info_edit_separator=DummyWidget(),
+            cursor_sample_row=DummyWidget(),
+            cursor_sample_button_row=DummyWidget(),
+        )
+        fake_window.get_selected_cell_items = lambda: [SimpleNamespace(cell_id=0)]
+        fake_window.ensure_cell_record = lambda cell_id: record
+        fake_window.format_integer_list_csv = lambda values: IceScopy.format_integer_list_csv(fake_window, values)
+        fake_window.sync_cell_analysis_from_results = (
+            lambda: setattr(record, "freeze_event_indices", [9])
+        )
+        fake_window.set_table_data = lambda *_args, **_kwargs: None
+        fake_window.update_results_table_visibility = lambda: None
+        fake_window.refresh_grayscale_plot = lambda: None
+        fake_window.refresh_cells_panel = lambda: None
+        fake_window.update_cursor_record_edit_state = (
+            lambda: IceScopy.update_cursor_record_edit_state(fake_window)
+        )
+
+        IceScopy.update_results_tables(fake_window)
+
+        self.assertEqual(line_edit.text(), "9")
+        self.assertTrue(row_widget.visible)
+        self.assertTrue(line_edit.isEnabled())
+        self.assertTrue(apply_button.enabled)
 
     def test_sample_id_allocator_reuses_lowest_deleted_catalog_id(self):
         fake_window = SimpleNamespace(
@@ -458,6 +620,8 @@ class SessionIoTests(unittest.TestCase):
             },
         )
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
         fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
         fake_window.sample_record_for_id = lambda sample_id: fake_window.sample_catalog[int(sample_id)]
 
@@ -500,6 +664,8 @@ class SessionIoTests(unittest.TestCase):
             },
         )
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
         fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
         fake_window.sample_record_for_id = lambda sample_id: fake_window.sample_catalog[int(sample_id)]
 
@@ -623,6 +789,8 @@ class SessionIoTests(unittest.TestCase):
             temperature_cycle_warmup_hysteresis_c=0.02,
         )
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
         fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
         fake_window.sample_record_for_id = lambda sample_id: fake_window.sample_catalog[int(sample_id)]
         fake_window.build_freeze_count_timeseries_sample_groups = (
@@ -880,6 +1048,10 @@ class SessionIoTests(unittest.TestCase):
         fake_window = SimpleNamespace(
             serialize_session_metadata=lambda: {},
             serialize_image_edit_state=lambda: {},
+            frame_source_session_payload=lambda: {
+                "kind": "image_sequence",
+                "image_paths": ["/tmp/example.png"],
+            },
             image_width=100,
             imagePaths=["/tmp/example.png"],
             imageNames=["example.png"],
@@ -940,6 +1112,13 @@ class SessionIoTests(unittest.TestCase):
 
         payload = build_session_payload(fake_window)
 
+        self.assertEqual(
+            payload["frame_source"],
+            {
+                "kind": "image_sequence",
+                "image_paths": ["/tmp/example.png"],
+            },
+        )
         self.assertEqual(
             payload["tool_settings"],
             {
@@ -1018,6 +1197,13 @@ class SessionIoTests(unittest.TestCase):
                 "grid_horizontal_pitch": 60.0,
                 "grid_vertical_pitch": 60.0,
                 "grid_rotation_degrees": 0.0,
+            },
+        )
+        self.assertEqual(
+            state["frame_source"],
+            {
+                "kind": "image_sequence",
+                "image_paths": ["/tmp/example.png"],
             },
         )
 
@@ -1233,6 +1419,7 @@ class SessionIoTests(unittest.TestCase):
             no_image_redraw_fit_view=None,
         )
         fake_window.capture_image_session_state = lambda: {}
+        fake_window.has_frames = lambda: bool(fake_window.imagePaths)
         fake_window.serialize_cell_records = lambda: dict(serialized_records)
         fake_window.deserialize_cell_records = lambda payload: dict(payload)
         fake_window.reset_transient_interaction_state = lambda: None

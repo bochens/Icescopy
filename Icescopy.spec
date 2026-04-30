@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import importlib.util
 import sys
+
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
 
 project_root = Path(SPECPATH).resolve()
@@ -46,15 +49,26 @@ def patch_cv2_loader_configs(collect_root):
             )
 
 
+def optional_pyav_bundle_entries():
+    if importlib.util.find_spec("av") is None:
+        return [], []
+    try:
+        return collect_dynamic_libs("av"), collect_submodules("av")
+    except Exception:
+        return [], []
+
+
+pyav_binaries, pyav_hiddenimports = optional_pyav_bundle_entries()
+
 a = Analysis(
     ['src/Icescopy.py'],
     pathex=[str(project_root / 'src')],
-    binaries=[],
+    binaries=pyav_binaries,
     datas=[
         (str(resources_dir), 'resources'),
         (str(document_icon), '.'),
     ],
-    hiddenimports=[],
+    hiddenimports=pyav_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
