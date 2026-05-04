@@ -22,6 +22,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QColorDialog,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QMessageBox,
+    QAbstractItemView,
 )
 from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QColor
 from PySide6.QtCore import QRectF, QThread, Signal, QTimer
@@ -53,6 +58,16 @@ from icescopy_image_edit import (
     crop_state_is_identity,
 )
 from icescopy_session_io import SORT_MODE_LABELS
+from icescopy_sample_metadata import (
+    CUSTOM_SAMPLE_METADATA_FIELD_TYPES,
+    FIXED_SAMPLE_METADATA_KEYS,
+    SampleMetadataSchemaError,
+    append_sample_metadata_schema_xml,
+    default_sample_metadata_schema,
+    dropped_sample_metadata_keys,
+    normalize_sample_metadata_schema,
+    sample_metadata_schema_from_payload,
+)
 
 DEFAULT_VISUAL_COLORS = {
     "CircleDefaultColor": "255,0,0,255",
@@ -114,6 +129,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "CircleLabelFontSize": 12.0,
     "CircleLabelOffsetX": 6.0,
     "CircleLabelOffsetY": 6.0,
+    "SampleMetadataSchema": default_sample_metadata_schema(),
     **DEFAULT_VISUAL_COLORS,
 }
 
@@ -738,6 +754,14 @@ class AboutDialog(QDialog):
 
 
 class PreferencesDialog(QDialog):
+    SAMPLE_FIELD_COLUMN_LABEL = 0
+    SAMPLE_FIELD_COLUMN_KEY = 1
+    SAMPLE_FIELD_COLUMN_TYPE = 2
+    SAMPLE_FIELD_COLUMN_EXPORT = 3
+    SAMPLE_FIELD_ORIGINAL_KEY_ROLE = Qt.UserRole
+    SAMPLE_FIELD_REQUIRED_TYPES_ROLE = Qt.UserRole + 1
+    SAMPLE_FIELD_FIXED_ROLE = Qt.UserRole + 2
+
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -763,6 +787,36 @@ class PreferencesDialog(QDialog):
         self.slider_tick_pixel_interval_field = self.make_double_spinbox(1.0, 1000.0, self.pref_value("SliderTickPixelInterval"), 1)
         self.undo_limit_field = self.make_spinbox(1, 1000, self.pref_value("UndoLimit"))
         self.sample_name_pattern_field = QLineEdit(str(self.pref_value("SampleNamePattern")))
+        self.sample_metadata_schema_table = QTableWidget(0, 4)
+        self.sample_metadata_schema_table.setHorizontalHeaderLabels(
+            ["Label", "Key", "Type", "Export"]
+        )
+        self.sample_metadata_schema_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.sample_metadata_schema_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.sample_metadata_schema_table.setEditTriggers(
+            QAbstractItemView.DoubleClicked
+            | QAbstractItemView.EditKeyPressed
+            | QAbstractItemView.SelectedClicked
+        )
+        self.sample_metadata_schema_table.verticalHeader().setVisible(False)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.sample_metadata_schema_table.setMinimumHeight(210)
+        self.sample_metadata_schema_table.setAlternatingRowColors(True)
+        self.populate_sample_metadata_schema_table(self.pref_value("SampleMetadataSchema"))
+        self.sample_add_field_button = QPushButton("Add Field")
+        self.sample_delete_field_button = QPushButton("Delete Field")
+        self.sample_move_field_up_button = QPushButton("Move Up")
+        self.sample_move_field_down_button = QPushButton("Move Down")
+        self.sample_restore_default_fields_button = QPushButton("Restore Default Sample Fields")
+        self.sample_add_field_button.clicked.connect(self.add_sample_metadata_field)
+        self.sample_delete_field_button.clicked.connect(self.delete_sample_metadata_field)
+        self.sample_move_field_up_button.clicked.connect(self.move_sample_metadata_field_up)
+        self.sample_move_field_down_button.clicked.connect(self.move_sample_metadata_field_down)
+        self.sample_restore_default_fields_button.clicked.connect(self.restore_default_sample_metadata_fields)
+        self.sample_metadata_schema_table.itemSelectionChanged.connect(self.update_sample_metadata_field_buttons)
         self.viewer_image_count_field = QComboBox()
         self.viewer_image_count_field.addItems(["1", "2", "3"])
         self.viewer_image_count_field.setMinimumContentsLength(10)
@@ -876,11 +930,12 @@ class PreferencesDialog(QDialog):
 
         self.category_list = QListWidget()
         self.category_list.setFixedWidth(160)
-        self.category_list.addItems(["General", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline"])
+        self.category_list.addItems(["General", "Samples", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline"])
         self.category_list.setCurrentRow(0)
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self.build_general_page())
+        self.pages.addWidget(self.build_samples_page())
         self.pages.addWidget(self.build_viewer_page())
         self.pages.addWidget(self.build_drawing_page())
         self.pages.addWidget(self.build_analysis_page())
@@ -1072,11 +1127,69 @@ class PreferencesDialog(QDialog):
                     ("Undo History Limit", self.undo_limit_field),
                     ("Default Sort", self.sort_mode_field),
                 ]),
-                ("Samples", [
+            ],
+        )
+
+    def build_sample_metadata_editor(self):
+        section = QWidget()
+        section.setMaximumWidth(self.preference_page_width)
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(8)
+
+        title_label = QLabel("Sample Metadata Fields", section)
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_font.setPointSize(title_font.pointSize() + 1)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        section_layout.addWidget(title_label)
+
+        body = QWidget(section)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(16, 0, 0, 0)
+        body_layout.setSpacing(8)
+        body_layout.addWidget(self.sample_metadata_schema_table)
+        body_layout.addSpacing(12)
+
+        button_row = QWidget(body)
+        button_layout = QHBoxLayout(button_row)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(8)
+        for button in [
+            self.sample_add_field_button,
+            self.sample_delete_field_button,
+            self.sample_move_field_up_button,
+            self.sample_move_field_down_button,
+        ]:
+            button_layout.addWidget(button)
+        button_layout.addStretch(1)
+        body_layout.addWidget(button_row)
+        body_layout.addWidget(self.sample_restore_default_fields_button, 0, Qt.AlignLeft)
+        body_layout.addWidget(
+            self.make_help_label(
+                "Fixed identity fields are always present. Custom keys must be lowercase snake_case. "
+                "Exported fields appear as metadata rows in exported freeze count timeseries CSV files."
+            )
+        )
+
+        section_layout.addWidget(body)
+        return section
+
+    def build_samples_page(self):
+        page = self.build_preferences_page(
+            "Samples",
+            "Configure default sample names and metadata fields for new sessions.",
+            [
+                ("Naming", [
                     ("Sample Name Pattern", self.sample_name_pattern_field),
                 ]),
             ],
         )
+        insert_index = max(0, page.content_layout.count() - 1)
+        page.content_layout.insertWidget(insert_index, self.build_section_separator())
+        page.content_layout.insertWidget(insert_index + 1, self.build_sample_metadata_editor())
+        return page
 
     def build_viewer_page(self):
         return self.build_preferences_page(
@@ -1239,7 +1352,297 @@ class PreferencesDialog(QDialog):
             ],
         )
 
+    def sample_metadata_default_required_types(self):
+        return {
+            field["key"]: tuple(field.get("required_for_sample_types", ()) or ())
+            for field in default_sample_metadata_schema()
+        }
+
+    def sample_metadata_table_selected_row(self):
+        indexes = self.sample_metadata_schema_table.selectionModel().selectedRows()
+        if not indexes:
+            return -1
+        return int(indexes[0].row())
+
+    def make_sample_metadata_table_item(self, text, *, editable=True, enabled=True, checkable=False, checked=False):
+        item = QTableWidgetItem(str(text))
+        flags = Qt.ItemIsSelectable
+        if enabled:
+            flags |= Qt.ItemIsEnabled
+        if editable:
+            flags |= Qt.ItemIsEditable
+        if checkable:
+            flags |= Qt.ItemIsUserCheckable
+            item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+        item.setFlags(flags)
+        return item
+
+    def populate_sample_metadata_schema_table(self, schema):
+        normalized_schema = normalize_sample_metadata_schema(schema)
+        self.sample_metadata_schema_table.setRowCount(0)
+        for field in normalized_schema:
+            self.append_sample_metadata_schema_row(field, original_key=field["key"])
+        self.sample_metadata_schema_table.resizeRowsToContents()
+        self.update_sample_metadata_field_buttons()
+
+    def append_sample_metadata_schema_row(self, field, *, original_key=""):
+        row = self.sample_metadata_schema_table.rowCount()
+        self.sample_metadata_schema_table.insertRow(row)
+        fixed = bool(field.get("fixed", False))
+        key = str(field.get("key", ""))
+        field_type = str(field.get("type", "text") or "text")
+
+        label_item = self.make_sample_metadata_table_item(
+            field.get("label", ""),
+            editable=not fixed,
+            enabled=True,
+        )
+        label_item.setData(self.SAMPLE_FIELD_ORIGINAL_KEY_ROLE, str(original_key or key))
+        label_item.setData(
+            self.SAMPLE_FIELD_REQUIRED_TYPES_ROLE,
+            tuple(field.get("required_for_sample_types", ()) or ()),
+        )
+        label_item.setData(self.SAMPLE_FIELD_FIXED_ROLE, fixed)
+        self.sample_metadata_schema_table.setItem(row, self.SAMPLE_FIELD_COLUMN_LABEL, label_item)
+
+        key_item = self.make_sample_metadata_table_item(
+            key,
+            editable=not fixed,
+            enabled=True,
+        )
+        key_item.setData(self.SAMPLE_FIELD_ORIGINAL_KEY_ROLE, str(original_key or key))
+        key_item.setData(
+            self.SAMPLE_FIELD_REQUIRED_TYPES_ROLE,
+            tuple(field.get("required_for_sample_types", ()) or ()),
+        )
+        key_item.setData(self.SAMPLE_FIELD_FIXED_ROLE, fixed)
+        self.sample_metadata_schema_table.setItem(row, self.SAMPLE_FIELD_COLUMN_KEY, key_item)
+
+        if fixed:
+            type_item = self.make_sample_metadata_table_item(field_type, editable=False, enabled=True)
+            self.sample_metadata_schema_table.setItem(row, self.SAMPLE_FIELD_COLUMN_TYPE, type_item)
+        else:
+            type_combo = QComboBox(self.sample_metadata_schema_table)
+            for type_name in CUSTOM_SAMPLE_METADATA_FIELD_TYPES:
+                type_combo.addItem(type_name, type_name)
+            type_combo.setCurrentIndex(max(0, type_combo.findData(field_type)))
+            self.sample_metadata_schema_table.setCellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE, type_combo)
+
+        export_item = self.make_sample_metadata_table_item(
+            "",
+            editable=False,
+            enabled=not fixed,
+            checkable=True,
+            checked=bool(field.get("export", True)),
+        )
+        self.sample_metadata_schema_table.setItem(row, self.SAMPLE_FIELD_COLUMN_EXPORT, export_item)
+
+    def next_custom_sample_metadata_key(self):
+        existing_keys = set()
+        for row in range(self.sample_metadata_schema_table.rowCount()):
+            key_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_KEY)
+            if key_item is not None:
+                existing_keys.add(str(key_item.text() or "").strip())
+        base_key = "custom_field"
+        if base_key not in existing_keys:
+            return base_key
+        suffix = 2
+        while f"{base_key}_{suffix}" in existing_keys:
+            suffix += 1
+        return f"{base_key}_{suffix}"
+
+    def add_sample_metadata_field(self):
+        key = self.next_custom_sample_metadata_key()
+        self.append_sample_metadata_schema_row(
+            {
+                "key": key,
+                "label": "Custom field",
+                "type": "text",
+                "fixed": False,
+                "export": True,
+                "required_for_sample_types": (),
+            },
+            original_key="",
+        )
+        row = self.sample_metadata_schema_table.rowCount() - 1
+        self.sample_metadata_schema_table.selectRow(row)
+        self.update_sample_metadata_field_buttons()
+
+    def delete_sample_metadata_field(self):
+        row = self.sample_metadata_table_selected_row()
+        if row < 0:
+            return
+        if self.sample_metadata_row_is_fixed(row):
+            return
+        self.sample_metadata_schema_table.removeRow(row)
+        if self.sample_metadata_schema_table.rowCount():
+            self.sample_metadata_schema_table.selectRow(min(row, self.sample_metadata_schema_table.rowCount() - 1))
+        self.update_sample_metadata_field_buttons()
+
+    def sample_metadata_row_is_fixed(self, row):
+        item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_LABEL)
+        return bool(item.data(self.SAMPLE_FIELD_FIXED_ROLE)) if item is not None else False
+
+    def move_sample_metadata_field(self, direction):
+        row = self.sample_metadata_table_selected_row()
+        target_row = row + int(direction)
+        if row < 0 or target_row < 0 or target_row >= self.sample_metadata_schema_table.rowCount():
+            return
+        if self.sample_metadata_row_is_fixed(row) or self.sample_metadata_row_is_fixed(target_row):
+            return
+        schema, _rename_map = self.collect_sample_metadata_schema(skip_validation=True)
+        schema[row], schema[target_row] = schema[target_row], schema[row]
+        original_keys = [
+            str(
+                self.sample_metadata_schema_table.item(index, self.SAMPLE_FIELD_COLUMN_KEY).data(
+                    self.SAMPLE_FIELD_ORIGINAL_KEY_ROLE
+                )
+                or ""
+            )
+            for index in range(self.sample_metadata_schema_table.rowCount())
+        ]
+        original_keys[row], original_keys[target_row] = original_keys[target_row], original_keys[row]
+        self.sample_metadata_schema_table.setRowCount(0)
+        for field, original_key in zip(schema, original_keys):
+            self.append_sample_metadata_schema_row(field, original_key=original_key)
+        self.sample_metadata_schema_table.selectRow(target_row)
+        self.update_sample_metadata_field_buttons()
+
+    def move_sample_metadata_field_up(self):
+        self.move_sample_metadata_field(-1)
+
+    def move_sample_metadata_field_down(self):
+        self.move_sample_metadata_field(1)
+
+    def restore_default_sample_metadata_fields(self):
+        self.populate_sample_metadata_schema_table(default_sample_metadata_schema())
+
+    def update_sample_metadata_field_buttons(self):
+        if not hasattr(self, "sample_delete_field_button"):
+            return
+        row = self.sample_metadata_table_selected_row()
+        has_row = row >= 0
+        is_fixed = self.sample_metadata_row_is_fixed(row) if has_row else False
+        can_move_up = has_row and not is_fixed and row > 0 and not self.sample_metadata_row_is_fixed(row - 1)
+        can_move_down = (
+            has_row
+            and not is_fixed
+            and row < self.sample_metadata_schema_table.rowCount() - 1
+            and not self.sample_metadata_row_is_fixed(row + 1)
+        )
+        self.sample_delete_field_button.setEnabled(has_row and not is_fixed)
+        self.sample_move_field_up_button.setEnabled(can_move_up)
+        self.sample_move_field_down_button.setEnabled(can_move_down)
+
+    def collect_sample_metadata_schema(self, *, skip_validation=False):
+        fields = []
+        rename_map = {}
+        default_required_types = self.sample_metadata_default_required_types()
+        for row in range(self.sample_metadata_schema_table.rowCount()):
+            label_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_LABEL)
+            key_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_KEY)
+            export_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_EXPORT)
+            if label_item is None or key_item is None:
+                continue
+
+            original_key = str(key_item.data(self.SAMPLE_FIELD_ORIGINAL_KEY_ROLE) or "").strip()
+            key = str(key_item.text() or "").strip()
+            label = str(label_item.text() or "").strip()
+            fixed = self.sample_metadata_row_is_fixed(row)
+            type_widget = self.sample_metadata_schema_table.cellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE)
+            if isinstance(type_widget, QComboBox):
+                field_type = str(type_widget.currentData() or "text")
+            else:
+                type_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_TYPE)
+                field_type = str(type_item.text() if type_item is not None else "text")
+
+            if fixed:
+                expected_key = FIXED_SAMPLE_METADATA_KEYS[row] if row < len(FIXED_SAMPLE_METADATA_KEYS) else key
+                if key != expected_key:
+                    raise SampleMetadataSchemaError(
+                        f"Fixed sample metadata field '{expected_key}' cannot be renamed."
+                    )
+                export = True
+            else:
+                export = export_item is None or export_item.checkState() == Qt.Checked
+
+            required_types = default_required_types.get(key, ())
+            field = {
+                "key": key,
+                "label": label,
+                "type": field_type,
+                "fixed": fixed,
+                "export": export,
+                "required_for_sample_types": required_types,
+            }
+            fields.append(field)
+            if original_key and original_key != key:
+                rename_map[original_key] = key
+
+        if skip_validation:
+            return fields, rename_map
+        return normalize_sample_metadata_schema(fields), rename_map
+
+    def sample_metadata_fields_with_values(self, field_keys):
+        field_key_set = {str(field_key) for field_key in field_keys}
+        affected = []
+        sample_catalog = getattr(self.main_window, "sample_catalog", {}) or {}
+        for sample_id, sample_record in sorted(sample_catalog.items(), key=lambda pair: int(pair[0])):
+            if not isinstance(sample_record, dict):
+                continue
+            present_keys = [
+                field_key
+                for field_key in sorted(field_key_set)
+                if str(sample_record.get(field_key, "") or "").strip()
+            ]
+            if present_keys:
+                affected.append((int(sample_id), present_keys))
+        return affected
+
+    def confirm_dropped_sample_metadata_fields(self, dropped_keys):
+        affected = self.sample_metadata_fields_with_values(dropped_keys)
+        if not affected:
+            return True
+        field_text = ", ".join(str(key) for key in dropped_keys)
+        affected_preview = "\n".join(
+            f"Sample {sample_id}: {', '.join(keys)}"
+            for sample_id, keys in affected[:10]
+        )
+        if len(affected) > 10:
+            affected_preview += "\n..."
+        response = QMessageBox.question(
+            self,
+            "Delete Sample Metadata Fields",
+            "Saving these preferences will remove sample metadata values from the current session.\n\n"
+            f"Deleted field(s): {field_text}\n\n"
+            f"Affected samples:\n{affected_preview}\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return response == QMessageBox.Yes
+
     def save_preferences(self):
+        try:
+            new_sample_metadata_schema, sample_metadata_rename_map = self.collect_sample_metadata_schema()
+        except SampleMetadataSchemaError as exc:
+            QMessageBox.warning(self, "Sample Metadata Fields", str(exc))
+            return
+
+        if hasattr(self.main_window, "active_sample_metadata_schema"):
+            current_sample_metadata_schema = self.main_window.active_sample_metadata_schema()
+        else:
+            current_sample_metadata_schema = sample_metadata_schema_from_payload(
+                self.pref_value("SampleMetadataSchema")
+            )
+        dropped_keys = dropped_sample_metadata_keys(
+            current_sample_metadata_schema,
+            new_sample_metadata_schema,
+            sample_metadata_rename_map,
+        )
+        if dropped_keys and not self.confirm_dropped_sample_metadata_fields(dropped_keys):
+            return
+
         root = Element('Preferences')
 
         SubElement(root, "DefaultCircleRadius").text = str(self.default_circle_radius_field.value())
@@ -1288,10 +1691,17 @@ class PreferencesDialog(QDialog):
         SubElement(root, "CirclePressedColor").text = self.circle_pressed_color_field.color_value()
         SubElement(root, "GridPreviewOutlineColor").text = self.grid_preview_outline_color_field.color_value()
         SubElement(root, "GridPreviewFillColor").text = self.grid_preview_fill_color_field.color_value()
+        append_sample_metadata_schema_xml(root, new_sample_metadata_schema)
 
         tree = ElementTree(root)
         tree.write(os.path.join(resources_dir,"preferences.xml"))
         self.main_window.set_preferences(preserve_session_tool_state=True)
+        if getattr(self.main_window, "session_active", False) and hasattr(self.main_window, "apply_sample_metadata_schema"):
+            self.main_window.apply_sample_metadata_schema(
+                new_sample_metadata_schema,
+                rename_map=sample_metadata_rename_map,
+                record_history=True,
+            )
         self.accept()
 
     def restore_visual_defaults(self):

@@ -3,9 +3,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
                                QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
-                               QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory, QStyledItemDelegate)
-from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPalette, QDoubleValidator
-from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF, QObject, QThread, Signal, Slot
+                               QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory)
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence
+from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
 import os
@@ -48,6 +48,9 @@ from icescopy_frame_source import (
     VideoFrameSource,
     frame_source_from_session_payload,
 )
+from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
+from icescopy_sample_catalog import SampleCatalogPanelMixin
+from icescopy_video_preview import VideoPreviewDecodeController
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -68,27 +71,16 @@ from icescopy_plot import GrayscalePlotWidget
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
-    IMAGE_TIMESTAMP_SOURCE_GENERATED,
     IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
-    apply_blank_correction_counts,
-    build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
-    compute_blank_correction_by_index,
-    detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
     normalize_sample_name,
-    normalize_temperature_reset_threshold as normalize_temperature_reset_threshold_value,
     parse_ice_array_calibration_csv,
     parse_csu_is_dat,
     parse_linksys32_iml,
     parse_standard_temperature_csv,
-    parse_timestamp_text,
-    parse_tamu_image_timestamp,
     parse_tamu_linkam_xlsx,
-    reconcile_cumulative_counts,
-    reconcile_counts_by_cycle as reconcile_temperature_counts_by_cycle,
-    resolve_image_timestamps,
 )
 from icescopy_session import (
     FrameNavigationCommand,
@@ -102,9 +94,6 @@ from icescopy_session import (
     SessionTimelineMarkersCommand,
 )
 from icescopy_session_io import (
-    ALLOWED_SAMPLE_TYPES,
-    FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES,
-    SAMPLE_CATALOG_FIELD_NAMES,
     build_restore_state,
     build_session_payload,
     build_freeze_count_timeseries_csv_text,
@@ -113,6 +102,15 @@ from icescopy_session_io import (
     normalize_sample_catalog_record,
     save_session_bundle,
     serialize_sample_catalog_payload,
+)
+from icescopy_sample_metadata import (
+    default_sample_metadata_schema,
+    dropped_sample_metadata_keys,
+    export_sample_metadata_field_keys,
+    migrate_sample_catalog_for_schema,
+    sample_metadata_schema_from_payload,
+    sample_metadata_schema_from_xml,
+    sample_metadata_schema_to_payload,
 )
 from icescopy_tool_options import (
     TOOL_OPTIONS_BUTTON_SPACING,
@@ -136,37 +134,7 @@ IS_WINDOWS = platform.system() == "Windows"
 IS_MACOS = platform.system() == "Darwin"
 ui_images_dir = os.path.join(resources_dir, 'ui_images')
 SIDE_PANEL_DEFAULT_WIDTH = 280
-SAMPLE_CATALOG_TREE_HEADERS = ("Sample Number", "Sample Name")
-SAMPLE_CATALOG_TREE_ROW_HEIGHT = 30
-SAMPLE_CATALOG_TREE_EDITOR_HEIGHT = 26
-SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH = 146
-SAMPLE_CATALOG_TREE_INDENTATION = 8
-SAMPLE_CATALOG_TREE_FIELDS = (
-    ("sample_name", "Sample name"),
-    ("sample_long_name", "Sample long name"),
-    ("sampling_site", "Sampling site"),
-    ("collection_start", "Collection start"),
-    ("collection_end", "Collection end"),
-    ("sample_type", "Sample type"),
-    ("dilution", "Dilution factor"),
-    ("air_volume_L", "Air volume (L)"),
-    ("filter_fraction_used", "Filter fraction used (0-1)"),
-    ("suspension_volume_mL", "Suspension volume (mL)"),
-    ("dry_mass_g", "Dry mass (g)"),
-)
-SAMPLE_CATALOG_TREE_FIELD_LABELS = {
-    field_name: label_text for field_name, label_text in SAMPLE_CATALOG_TREE_FIELDS
-}
-SAMPLE_CATALOG_DATETIME_FIELDS = {"collection_start", "collection_end"}
-SAMPLE_CATALOG_DATETIME_INPUT_FORMAT = "%Y-%m-%d %H:%M:%S"
-SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT = "%Y-%m-%d %H:%M:%S"
-SAMPLE_CATALOG_DATETIME_INPUT_MASK = "0000-00-00 00:00:00;_"
-SAMPLE_CATALOG_DATETIME_HINT = "YYYY-MM-DD HH:MM:SS"
-SAMPLE_CATALOG_TYPE_REQUIRED_FIELDS = {
-    "air": {"dilution", "air_volume_L", "filter_fraction_used", "suspension_volume_mL"},
-    "soil": {"dilution", "suspension_volume_mL", "dry_mass_g"},
-    "other": {"dilution"},
-}
+
 
 class IcescopyApplication(QApplication):
     """QApplication that opens .icescopy documents sent by the operating system."""
@@ -223,51 +191,6 @@ class IcescopyApplication(QApplication):
             self.open_session_path(file_path)
 
 
-class VideoPreviewDecodeWorker(QObject):
-    decoded = Signal(int, object, str, str)
-    failed = Signal(int, str, str)
-
-    def __init__(self, video_path, preview_cache_dir, frame_metadata, frame_size, parent=None):
-        super().__init__(parent)
-        self.video_path = str(video_path)
-        self.preview_cache_dir = str(preview_cache_dir)
-        self.frame_metadata = list(frame_metadata or [])
-        self.frame_size = tuple(frame_size or (0, 0))
-        self.frame_source = None
-        self.closed = False
-
-    @Slot(int)
-    def decode(self, index):
-        if self.closed:
-            return
-        requested_index = 0
-        try:
-            index = int(index)
-            requested_index = index
-            if self.frame_source is None:
-                self.frame_source = VideoFrameSource(
-                    self.video_path,
-                    cache_size=4,
-                    preview_cache_dir=self.preview_cache_dir,
-                    frame_metadata=self.frame_metadata,
-                    frame_size=self.frame_size,
-                )
-            q_image = self.frame_source.get_preview_qimage(index)
-            frame_key = self.frame_source.frame_key(index)
-        except Exception as err:
-            self.failed.emit(requested_index, str(err), self.video_path)
-            return
-        if not self.closed:
-            self.decoded.emit(index, q_image, frame_key, self.video_path)
-
-    @Slot()
-    def close(self):
-        self.closed = True
-        if self.frame_source is not None:
-            self.frame_source.close()
-            self.frame_source = None
-
-
 DEFAULT_VISUAL_COLORS = {
     "CircleDefaultColor": "255,0,0,255",
     "CircleHoverColor": "0,0,255,255",
@@ -290,146 +213,8 @@ SAMPLE_VISUAL_PALETTE = (
 )
 
 
-class SampleCatalogTreeDelegate(QStyledItemDelegate):
-    SAMPLE_ID_ROLE = Qt.UserRole
-    FIELD_NAME_ROLE = Qt.UserRole + 1
-    EDITABLE_ROLE = Qt.UserRole + 2
-    NUMERIC_FIELDS = {
-        "dilution",
-        "air_volume_L",
-        "filter_fraction_used",
-        "suspension_volume_mL",
-        "dry_mass_g",
-    }
 
-    def createEditor(self, parent, option, index):
-        if int(index.column()) != 1:
-            return None
-        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
-        if not field_name:
-            return None
-        if field_name == "sample_type":
-            editor = QComboBox(parent)
-            editor.addItem("", "")
-            for sample_type in ALLOWED_SAMPLE_TYPES:
-                editor.addItem(sample_type, sample_type)
-            editor.setEditable(True)
-            editor.setInsertPolicy(QComboBox.NoInsert)
-            editor.lineEdit().setReadOnly(True)
-            editor.lineEdit().setFocusPolicy(Qt.NoFocus)
-            editor.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
-            editor.setFocusPolicy(Qt.NoFocus)
-            editor.activated.connect(self.commit_combo_data)
-            return editor
-        editor = QLineEdit(parent)
-        editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
-        if field_name in self.NUMERIC_FIELDS:
-            validator = QDoubleValidator(editor)
-            validator.setNotation(QDoubleValidator.StandardNotation)
-            editor.setValidator(validator)
-            editor.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            editor.setPlaceholderText("number")
-        elif field_name in SAMPLE_CATALOG_DATETIME_FIELDS:
-            editor.setInputMask(SAMPLE_CATALOG_DATETIME_INPUT_MASK)
-            editor.setPlaceholderText("")
-            editor.setToolTip(SAMPLE_CATALOG_DATETIME_HINT)
-        else:
-            editor.setPlaceholderText("text")
-        editor.editingFinished.connect(self.commit_line_edit_data)
-        return editor
-
-    def commit_combo_data(self, *_args):
-        editor = self.sender()
-        if isinstance(editor, QComboBox):
-            self.commitData.emit(editor)
-
-    def commit_line_edit_data(self):
-        editor = self.sender()
-        if isinstance(editor, QLineEdit):
-            self.commitData.emit(editor)
-
-    def setEditorData(self, editor, index):
-        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
-        if field_name == "sample_type":
-            value_text = str(index.data(Qt.EditRole) or "")
-            combo_index = editor.findData(value_text)
-            editor.setCurrentIndex(combo_index if combo_index >= 0 else 0)
-            return
-        if field_name in SAMPLE_CATALOG_DATETIME_FIELDS and isinstance(editor, QLineEdit):
-            value_text = str(index.data(Qt.EditRole) or "").strip()
-            if not value_text:
-                editor.clear()
-                return
-            try:
-                parsed_value = datetime.strptime(value_text, SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT)
-            except ValueError:
-                editor.clear()
-                return
-            editor.setText(parsed_value.strftime(SAMPLE_CATALOG_DATETIME_INPUT_FORMAT))
-            return
-        if isinstance(editor, QLineEdit):
-            editor.setText(str(index.data(Qt.EditRole) or ""))
-            return
-        super().setEditorData(editor, index)
-
-    def setModelData(self, editor, model, index):
-        field_name = str(index.data(self.FIELD_NAME_ROLE) or "")
-        if field_name == "sample_type":
-            model.setData(index, str(editor.currentData() or ""), Qt.EditRole)
-            return
-        if field_name in SAMPLE_CATALOG_DATETIME_FIELDS and isinstance(editor, QLineEdit):
-            raw_text = str(editor.text() or "")
-            normalized_input = raw_text.replace("_", "").strip()
-            if not normalized_input:
-                model.setData(index, "", Qt.EditRole)
-                return
-            try:
-                parsed_value = datetime.strptime(raw_text, SAMPLE_CATALOG_DATETIME_INPUT_FORMAT)
-            except ValueError:
-                return
-            model.setData(index, parsed_value.strftime(SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT), Qt.EditRole)
-            return
-        if isinstance(editor, QLineEdit):
-            model.setData(index, str(editor.text() or "").strip(), Qt.EditRole)
-            return
-        super().setModelData(editor, model, index)
-
-
-class SampleCatalogTreeWidget(QTreeWidget):
-    def drawBranches(self, painter, rect, index):
-        super().drawBranches(painter, rect, index)
-        item = self.itemFromIndex(index)
-        if item is None:
-            return
-        parent_item = item.parent()
-        if parent_item is None:
-            return
-
-        child_index = parent_item.indexOfChild(item)
-        child_count = parent_item.childCount()
-        if child_index < 0 or child_count <= 0:
-            return
-
-        x = rect.center().x()
-        center_y = rect.center().y()
-        top_y = center_y if child_index == 0 else rect.top()
-        bottom_y = center_y if child_index == (child_count - 1) else rect.bottom()
-
-        painter.save()
-        line_color = self.palette().color(QPalette.Mid)
-        line_color.setAlpha(180)
-        pen = QPen(line_color)
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.drawLine(x, top_y, x, bottom_y)
-        painter.drawLine(x, center_y, rect.right() - 2, center_y)
-        painter.restore()
-
-
-class IceScopy(QMainWindow):
-    video_preview_decode_requested = Signal(int)
-
+class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin):
     def __init__(self):
 
         # SETTINGS
@@ -477,6 +262,7 @@ class IceScopy(QMainWindow):
         self.circle_label_font_size = 12.0
         self.circle_label_offset_x = 6.0
         self.circle_label_offset_y = 6.0
+        self.default_sample_metadata_schema = default_sample_metadata_schema()
         self.default_circle_radius = self.circle_radius
         self.default_grid_rows = self.grid_rows
         self.default_grid_columns = self.grid_columns
@@ -548,6 +334,13 @@ class IceScopy(QMainWindow):
         self.sample_name_pattern = str(
             preferences.get('SampleNamePattern', getattr(self, "sample_name_pattern", "Sample_#"))
         )
+        self.default_sample_metadata_schema = sample_metadata_schema_from_payload(
+            preferences.get("SampleMetadataSchema", default_sample_metadata_schema())
+        )
+        if not preserve_session_tool_state and not getattr(self, "session_active", False):
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                self.default_sample_metadata_schema
+            )
         self.viewer_image_count = int(preferences.get('ViewerImageCount', self.viewer_image_count))
         self.sort_mode = preferences.get('SortMode', self.sort_mode)
         self.default_grid_rows = int(preferences.get('GridRows', self.default_grid_rows))
@@ -789,10 +582,45 @@ class IceScopy(QMainWindow):
         return self.cell_state.prune_analysis_results_for_deleted_cells(deleted_cell_ids)
 
     def serialize_sample_catalog(self):
-        return serialize_sample_catalog_payload(getattr(self, "sample_catalog", {}))
+        return serialize_sample_catalog_payload(
+            getattr(self, "sample_catalog", {}),
+            self.active_sample_metadata_schema(),
+        )
 
     def deserialize_sample_catalog(self, payload):
-        return deserialize_sample_catalog_payload(payload)
+        return deserialize_sample_catalog_payload(payload, self.active_sample_metadata_schema())
+
+    def active_sample_metadata_schema(self):
+        return sample_metadata_schema_from_payload(
+            getattr(self, "sample_metadata_schema", None)
+        )
+
+    def serialize_sample_metadata_schema(self):
+        return sample_metadata_schema_to_payload(self.active_sample_metadata_schema())
+
+    def sample_metadata_field_names(self):
+        return tuple(field["key"] for field in self.active_sample_metadata_schema())
+
+    def freeze_count_timeseries_sample_metadata_field_names(self):
+        return export_sample_metadata_field_keys(self.active_sample_metadata_schema())
+
+    def apply_sample_metadata_schema(self, new_schema, rename_map=None, *, record_history=True):
+        old_schema = self.active_sample_metadata_schema()
+        normalized_new_schema = sample_metadata_schema_from_payload(new_schema)
+        before_state = self.capture_data_state() if record_history else None
+        self.sample_catalog = migrate_sample_catalog_for_schema(
+            getattr(self, "sample_catalog", {}),
+            old_schema,
+            normalized_new_schema,
+            rename_map=rename_map,
+        )
+        self.sample_metadata_schema = normalized_new_schema
+        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog(relabel_headers=True)
+        self.refresh_sample_catalog_tree(preserve_selection=True)
+        self.update_cursor_sample_controls()
+        self.refresh_cells_panel()
+        if record_history and before_state is not None:
+            self.push_data_history("Update Sample Metadata Fields", before_state)
 
     def used_sample_ids(self):
         used_ids = set()
@@ -865,24 +693,32 @@ class IceScopy(QMainWindow):
 
     def sample_record_for_id(self, sample_id):
         if sample_id in (None, ""):
-            return normalize_sample_catalog_record({})
+            return normalize_sample_catalog_record({}, self.active_sample_metadata_schema())
         try:
             sample_key = int(sample_id)
         except (TypeError, ValueError):
-            return normalize_sample_catalog_record({})
-        return normalize_sample_catalog_record(self.sample_catalog.get(sample_key, {}))
+            return normalize_sample_catalog_record({}, self.active_sample_metadata_schema())
+        return normalize_sample_catalog_record(
+            self.sample_catalog.get(sample_key, {}),
+            self.active_sample_metadata_schema(),
+        )
 
     def default_sample_record(self, sample_id):
-        record = normalize_sample_catalog_record({})
+        record = normalize_sample_catalog_record({}, self.active_sample_metadata_schema())
         record["sample_name"] = self.default_sample_name(sample_id)
         return record
 
     def build_freeze_count_timeseries_sample_column_metadata(self, sample):
+        active_schema = (
+            self.active_sample_metadata_schema()
+            if hasattr(self, "active_sample_metadata_schema")
+            else sample_metadata_schema_from_payload(getattr(self, "sample_metadata_schema", None))
+        )
         sample_id = str(sample.get("sample_id", "") or "").strip()
         if sample_id:
             record = self.sample_record_for_id(sample_id)
         else:
-            record = normalize_sample_catalog_record({})
+            record = normalize_sample_catalog_record({}, active_schema)
             record["sample_name"] = str(sample.get("sample_name", "") or "")
         sample_cell_count = None
         if sample.get("total_cells", "") not in (None, ""):
@@ -902,7 +738,9 @@ class IceScopy(QMainWindow):
             "cell_number": cell_number,
             **{
                 field_name: str(record.get(field_name, "") or "")
-                for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                for field_name in export_sample_metadata_field_keys(
+                    active_schema
+                )
             },
         }
 
@@ -933,7 +771,9 @@ class IceScopy(QMainWindow):
             seen_sample_ids.add(sample_id)
             missing_fields = [
                 field_name
-                for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
+                for field_name in export_sample_metadata_field_keys(
+                    getattr(self, "sample_metadata_schema", None)
+                )
                 if field_name != "sample_name"
                 and not str(sample_metadata.get(field_name, "") or "").strip()
             ]
@@ -1006,13 +846,27 @@ class IceScopy(QMainWindow):
 
     def cursor_sample_catalog_signature(self):
         return tuple(
-            (str(int(sample_id)), str(normalize_sample_catalog_record(sample_record).get("sample_name", "")))
+            (
+                str(int(sample_id)),
+                str(
+                    normalize_sample_catalog_record(
+                        sample_record,
+                        self.active_sample_metadata_schema(),
+                    ).get("sample_name", "")
+                ),
+            )
             for sample_id, sample_record in sorted(self.sample_catalog.items(), key=lambda pair: int(pair[0]))
         )
 
     def ordered_sample_catalog_records(self):
         return [
-            (int(sample_id), normalize_sample_catalog_record(sample_record))
+            (
+                int(sample_id),
+                normalize_sample_catalog_record(
+                    sample_record,
+                    self.active_sample_metadata_schema(),
+                ),
+            )
             for sample_id, sample_record in sorted(
                 getattr(self, "sample_catalog", {}).items(),
                 key=lambda pair: int(pair[0]),
@@ -1025,6 +879,31 @@ class IceScopy(QMainWindow):
             for _, sample_record in self.ordered_sample_catalog_records()
             if str(sample_record.get("sample_name", "") or "").strip()
         ]
+
+    def available_sample_choices(self):
+        records = [
+            (sample_id, str(sample_record.get("sample_name", "") or "").strip())
+            for sample_id, sample_record in self.ordered_sample_catalog_records()
+            if str(sample_record.get("sample_name", "") or "").strip()
+        ]
+        name_counts = {}
+        for _sample_id, sample_name in records:
+            normalized_name = normalize_sample_name(sample_name)
+            name_counts[normalized_name] = name_counts.get(normalized_name, 0) + 1
+
+        choices = []
+        for sample_id, sample_name in records:
+            label = sample_name
+            if name_counts.get(normalize_sample_name(sample_name), 0) > 1:
+                label = f"{sample_name} (sample {int(sample_id)})"
+            choices.append(
+                {
+                    "sample_id": str(int(sample_id)),
+                    "sample_name": sample_name,
+                    "label": label,
+                }
+            )
+        return choices
 
     def invalidate_cursor_sample_combo_cache(self):
         self.cursor_sample_combo_catalog_signature = None
@@ -1544,6 +1423,9 @@ class IceScopy(QMainWindow):
         self.rendered_cell_items = [] # currently drawn QGraphics items for cells
         self.next_cell_id = 0
         self.cell_records_by_id = {}
+        self.sample_metadata_schema = sample_metadata_schema_from_payload(
+            getattr(self, "default_sample_metadata_schema", default_sample_metadata_schema())
+        )
         self.sample_catalog = {}
         self.invalidate_cursor_sample_combo_cache()
         self.next_sample_id = 0
@@ -1573,8 +1455,7 @@ class IceScopy(QMainWindow):
         self.last_committed_image_index = 0
         self.pending_preview_image_index = None
         self.preview_frame_update_in_progress = False
-        self.video_preview_thread = None
-        self.video_preview_worker = None
+        self.video_preview_decoder = None
         self.video_preview_decode_in_flight = False
         self.video_preview_target_index = None
         self.pending_image_edit_preview_state = None
@@ -1685,36 +1566,24 @@ class IceScopy(QMainWindow):
         if not preview_cache_dir:
             return
 
-        self.video_preview_worker = VideoPreviewDecodeWorker(
+        self.video_preview_decoder = VideoPreviewDecodeController(
             frame_source.source_path(),
             preview_cache_dir,
             getattr(frame_source, "frame_metadata", lambda: [])(),
             getattr(frame_source, "frame_size", lambda: (0, 0))(),
+            parent=self,
         )
-        self.video_preview_thread = QThread(self)
-        self.video_preview_worker.moveToThread(self.video_preview_thread)
-        self.video_preview_decode_requested.connect(self.video_preview_worker.decode)
-        self.video_preview_worker.decoded.connect(self.handle_video_preview_decoded)
-        self.video_preview_worker.failed.connect(self.handle_video_preview_failed)
-        self.video_preview_thread.finished.connect(self.video_preview_worker.deleteLater)
-        self.video_preview_thread.start()
+        self.video_preview_decoder.decoded.connect(self.handle_video_preview_decoded)
+        self.video_preview_decoder.failed.connect(self.handle_video_preview_failed)
+        self.video_preview_decoder.start()
 
     def stop_video_preview_decoder(self):
         self.video_preview_decode_in_flight = False
         self.video_preview_target_index = None
-        worker = getattr(self, "video_preview_worker", None)
-        thread = getattr(self, "video_preview_thread", None)
-        if worker is not None:
-            try:
-                self.video_preview_decode_requested.disconnect(worker.decode)
-            except (TypeError, RuntimeError):
-                pass
-            worker.close()
-        if thread is not None:
-            thread.quit()
-            thread.wait(1000)
-        self.video_preview_worker = None
-        self.video_preview_thread = None
+        decoder = getattr(self, "video_preview_decoder", None)
+        if decoder is not None:
+            decoder.close(timeout_ms=1000)
+        self.video_preview_decoder = None
 
     def supports_image_file_operations(self):
         try:
@@ -4086,323 +3955,6 @@ class IceScopy(QMainWindow):
         self.refresh_cells_panel()
         return panel
 
-    def build_sample_catalog_panel(self):
-        panel = QWidget(self)
-        panel.setMinimumWidth(SIDE_PANEL_DEFAULT_WIDTH)
-        panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        self.sample_catalog_tree_syncing = False
-        self.sample_catalog_tree = SampleCatalogTreeWidget(panel)
-        self.sample_catalog_tree.setColumnCount(len(SAMPLE_CATALOG_TREE_HEADERS))
-        self.sample_catalog_tree.setHeaderLabels(list(SAMPLE_CATALOG_TREE_HEADERS))
-        self.sample_catalog_tree.setHeaderHidden(True)
-        self.sample_catalog_tree.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.sample_catalog_tree.setEditTriggers(
-            QAbstractItemView.DoubleClicked
-            | QAbstractItemView.EditKeyPressed
-            | QAbstractItemView.SelectedClicked
-        )
-        self.sample_catalog_tree.setRootIsDecorated(True)
-        self.sample_catalog_tree.setUniformRowHeights(True)
-        self.sample_catalog_tree.setAlternatingRowColors(False)
-        self.sample_catalog_tree.setAllColumnsShowFocus(True)
-        self.sample_catalog_tree.setIndentation(SAMPLE_CATALOG_TREE_INDENTATION)
-        self.sample_catalog_tree.header().setStretchLastSection(False)
-        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.sample_catalog_tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.sample_catalog_tree.header().resizeSection(1, SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH)
-        self.sample_catalog_tree.setStyleSheet(
-            f"QTreeView::item {{ min-height: {SAMPLE_CATALOG_TREE_ROW_HEIGHT}px; }}"
-        )
-        self.sample_catalog_tree_delegate = SampleCatalogTreeDelegate(self.sample_catalog_tree)
-        self.sample_catalog_tree.setItemDelegate(self.sample_catalog_tree_delegate)
-        self.sample_catalog_tree.itemChanged.connect(self.handle_sample_catalog_item_changed)
-        self.sample_catalog_tree.itemSelectionChanged.connect(self.update_sample_catalog_buttons)
-        layout.addWidget(self.sample_catalog_tree, 1)
-
-        button_row = QWidget(panel)
-        button_layout = QHBoxLayout(button_row)
-        button_layout.setContentsMargins(0, 0, 0, 0)
-        button_layout.setSpacing(TOOL_OPTIONS_BUTTON_SPACING)
-        self.sample_add_button = QPushButton("Add", button_row)
-        self.sample_add_button.clicked.connect(self.add_sample_catalog_entry)
-        self.sample_delete_button = QPushButton("Delete", button_row)
-        self.sample_delete_button.clicked.connect(self.delete_selected_sample_catalog_entry)
-        button_layout.addWidget(self.sample_add_button)
-        button_layout.addWidget(self.sample_delete_button)
-        button_layout.addStretch(1)
-        layout.addWidget(button_row)
-
-        hint = QLabel(
-            "Expand a sample to edit metadata. Text fields use text boxes and numeric fields use number-only boxes. Cursor mode only assigns selected cells to a sample or creates a new sample.",
-            panel,
-        )
-        hint.setWordWrap(True)
-        hint.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        layout.addWidget(hint)
-
-        self.refresh_sample_catalog_tree(preserve_selection=False)
-        return panel
-
-    def selected_sample_catalog_id(self):
-        if not hasattr(self, "sample_catalog_tree"):
-            return None
-        current_item = self.sample_catalog_tree.currentItem()
-        if current_item is None:
-            return None
-        top_item = current_item if current_item.parent() is None else current_item.parent()
-        sample_id = top_item.data(0, Qt.UserRole)
-        if sample_id is None:
-            return None
-        try:
-            return int(sample_id)
-        except (TypeError, ValueError):
-            return None
-
-    def sample_catalog_field_is_relevant(self, field_name, sample_record):
-        if field_name in ("sample_name", "sample_long_name", "sampling_site", "collection_start", "collection_end", "sample_type"):
-            return True
-        sample_type = str(sample_record.get("sample_type", "") or "").strip().casefold()
-        if not sample_type:
-            return False
-        return field_name in SAMPLE_CATALOG_TYPE_REQUIRED_FIELDS.get(sample_type, set())
-
-    def apply_sample_catalog_tree_field_state(self, child_item, field_name, sample_record):
-        if child_item is None:
-            return
-
-        value_item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
-        is_editable = field_name == "sample_type" or self.sample_catalog_field_is_relevant(field_name, sample_record)
-
-        child_item.setFlags(value_item_flags)
-        child_item.setData(1, SampleCatalogTreeDelegate.EDITABLE_ROLE, bool(is_editable))
-
-        enabled_brush = QBrush(self.sample_catalog_tree.palette().color(QPalette.Active, QPalette.Text))
-        disabled_brush = QBrush(self.sample_catalog_tree.palette().color(QPalette.Disabled, QPalette.Text))
-        brush = enabled_brush if is_editable else disabled_brush
-        child_item.setForeground(0, brush)
-        child_item.setForeground(1, brush)
-        self.sample_catalog_tree.openPersistentEditor(child_item, 1)
-        editor = self.sample_catalog_tree.indexWidget(self.sample_catalog_tree.indexFromItem(child_item, 1))
-        if editor is None:
-            return
-        if isinstance(editor, QLineEdit):
-            with QSignalBlocker(editor):
-                editor.setEnabled(bool(is_editable))
-                editor.setReadOnly(not bool(is_editable))
-                editor.setCursorPosition(0)
-        elif isinstance(editor, QComboBox):
-            with QSignalBlocker(editor):
-                editor.setEnabled(bool(is_editable))
-
-    def apply_sample_catalog_tree_item_state(self, top_item, sample_id, sample_record):
-        if top_item is None:
-            return
-
-        top_item.setText(0, str(sample_id))
-        top_item.setText(1, "")
-        top_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-        top_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-
-        for child_index in range(top_item.childCount()):
-            child_item = top_item.child(child_index)
-            field_name = str(child_item.data(0, SampleCatalogTreeDelegate.FIELD_NAME_ROLE) or "")
-            if not field_name:
-                continue
-            child_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-            child_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-            self.apply_sample_catalog_tree_field_state(child_item, field_name, sample_record)
-            if field_name != "sample_type":
-                child_item.setText(1, str(sample_record.get(field_name, "") or ""))
-
-    def sample_catalog_top_item_by_id(self, sample_id):
-        if not hasattr(self, "sample_catalog_tree"):
-            return None
-        for index in range(self.sample_catalog_tree.topLevelItemCount()):
-            top_item = self.sample_catalog_tree.topLevelItem(index)
-            if int(top_item.data(0, Qt.UserRole)) == int(sample_id):
-                return top_item
-        return None
-
-    def refresh_sample_catalog_tree(self, select_sample_id=None, preserve_selection=True):
-        if not hasattr(self, "sample_catalog_tree"):
-            return
-
-        self.ensure_sample_catalog_matches_cell_records()
-
-        if select_sample_id is None and preserve_selection:
-            select_sample_id = self.selected_sample_catalog_id()
-
-        expanded_sample_ids = set()
-        if hasattr(self, "sample_catalog_tree"):
-            for index in range(self.sample_catalog_tree.topLevelItemCount()):
-                top_item = self.sample_catalog_tree.topLevelItem(index)
-                if top_item.isExpanded():
-                    expanded_sample_ids.add(int(top_item.data(0, Qt.UserRole)))
-
-        self.sample_catalog_tree_syncing = True
-        self.sample_catalog_tree.blockSignals(True)
-        try:
-            ordered_samples = sorted(
-                (
-                    (int(sample_id), normalize_sample_catalog_record(sample_record))
-                    for sample_id, sample_record in self.sample_catalog.items()
-                ),
-                key=lambda pair: pair[0],
-            )
-            self.sample_catalog_tree.clear()
-            for sample_id, sample_record in ordered_samples:
-                top_item = QTreeWidgetItem(self.sample_catalog_tree)
-                top_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-                top_item.setData(0, Qt.UserRole, int(sample_id))
-                top_item.setData(1, Qt.UserRole, int(sample_id))
-                self.apply_sample_catalog_tree_item_state(top_item, sample_id, sample_record)
-
-                for field_name, label_text in SAMPLE_CATALOG_TREE_FIELDS:
-                    child_item = QTreeWidgetItem(top_item)
-                    child_item.setText(0, label_text)
-                    child_item.setText(1, str(sample_record.get(field_name, "") or ""))
-                    child_item.setData(0, Qt.UserRole, int(sample_id))
-                    child_item.setData(1, Qt.UserRole, int(sample_id))
-                    child_item.setData(0, SampleCatalogTreeDelegate.FIELD_NAME_ROLE, field_name)
-                    child_item.setData(1, SampleCatalogTreeDelegate.FIELD_NAME_ROLE, field_name)
-                    child_item.setSizeHint(0, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-                    child_item.setSizeHint(1, QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT))
-                    self.apply_sample_catalog_tree_field_state(child_item, field_name, sample_record)
-
-                should_expand = int(sample_id) in expanded_sample_ids
-                if select_sample_id is not None and int(sample_id) == int(select_sample_id):
-                    should_expand = True
-                top_item.setExpanded(should_expand)
-        finally:
-            self.sample_catalog_tree.blockSignals(False)
-            self.sample_catalog_tree_syncing = False
-
-        if select_sample_id is not None:
-            target_top_item = self.sample_catalog_top_item_by_id(select_sample_id)
-            if target_top_item is not None:
-                self.sample_catalog_tree.setCurrentItem(target_top_item)
-                target_top_item.setSelected(True)
-
-        self.update_sample_catalog_buttons()
-        self.update_cursor_sample_controls()
-        self.refresh_cells_panel()
-
-    def update_sample_catalog_buttons(self):
-        if not hasattr(self, "sample_delete_button"):
-            return
-        self.sample_delete_button.setEnabled(self.selected_sample_catalog_id() is not None)
-
-    def add_sample_catalog_entry(self):
-        before_state = self.capture_data_state()
-        sample_id = self.allocate_sample_id()
-        self.sample_catalog[int(sample_id)] = self.default_sample_record(sample_id)
-        self.recompute_next_sample_id(preserve_if_larger=False)
-        self.refresh_sample_catalog_tree(select_sample_id=sample_id, preserve_selection=False)
-        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
-        self.push_data_history("Add Sample", before_state)
-        self.log(f"Add sample {sample_id}")
-
-    def delete_selected_sample_catalog_entry(self):
-        sample_id = self.selected_sample_catalog_id()
-        if sample_id is None:
-            return
-
-        used_by_cells = sorted(
-            cell_id
-            for cell_id, record in self.cell_records_by_id.items()
-            if str(getattr(record, "sample_id", "")) == str(sample_id)
-        )
-        if used_by_cells:
-            preview = ", ".join(str(cell_id) for cell_id in used_by_cells[:8])
-            if len(used_by_cells) > 8:
-                preview += ", ..."
-            sample_name = self.sample_name_for_id(sample_id) or self.default_sample_name(sample_id)
-            QMessageBox.warning(
-                self,
-                "Delete Sample",
-                f"{sample_name} is assigned to cell(s): {preview}. Reassign those cells first.",
-            )
-            return
-
-        if sample_id not in self.sample_catalog:
-            return
-
-        before_state = self.capture_data_state()
-        self.sample_catalog.pop(sample_id, None)
-        self.recompute_next_sample_id(preserve_if_larger=False)
-        self.refresh_sample_catalog_tree(preserve_selection=False)
-        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
-        self.push_data_history("Delete Sample", before_state)
-        self.log(f"Delete sample {sample_id}")
-
-    def handle_sample_catalog_item_changed(self, item, column):
-        if item is None or self.sample_catalog_tree_syncing or int(column) != 1:
-            return
-        if item.parent() is None:
-            return
-        field_name = str(item.data(1, SampleCatalogTreeDelegate.FIELD_NAME_ROLE) or "")
-        if not field_name:
-            return
-
-        sample_id = item.data(1, Qt.UserRole)
-        try:
-            sample_id = int(sample_id)
-        except (TypeError, ValueError):
-            return
-
-        sample_record = normalize_sample_catalog_record(
-            self.sample_catalog.get(sample_id, self.default_sample_record(sample_id))
-        )
-        new_value = str(item.text(1)).strip()
-        if field_name == "sample_name" and not new_value:
-            new_value = self.default_sample_name(sample_id)
-        elif field_name == "sample_type":
-            normalized_type = new_value.casefold()
-            if normalized_type not in ("",) + ALLOWED_SAMPLE_TYPES:
-                self.sample_catalog_tree_syncing = True
-                try:
-                    item.setText(str(sample_record.get("sample_type", "") or ""))
-                finally:
-                    self.sample_catalog_tree_syncing = False
-                QMessageBox.warning(
-                    self,
-                    "Sample Catalog",
-                    "Sample type must be one of: air, soil, other.",
-                )
-                return
-            new_value = normalized_type
-
-        canonical_text = str(new_value)
-        if item.text(1) != canonical_text:
-            self.sample_catalog_tree_syncing = True
-            try:
-                item.setText(1, canonical_text)
-            finally:
-                self.sample_catalog_tree_syncing = False
-
-        old_value = str(sample_record.get(field_name, "") or "")
-        if old_value == new_value:
-            return
-
-        before_state = self.capture_data_state()
-        sample_record[field_name] = new_value
-        self.sample_catalog[sample_id] = sample_record
-        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog(
-            relabel_headers=(field_name == "sample_name")
-        )
-        self.push_data_history("Update Sample Metadata", before_state)
-        self.log(f"Update sample {sample_id} {field_name} to {new_value}")
-        top_item = item.parent()
-        self.apply_sample_catalog_tree_item_state(top_item, sample_id, sample_record)
-        if field_name == "sample_name":
-            self.update_cursor_sample_controls()
-            self.refresh_cells_panel()
-
     def update_cursor_sample_controls(self):
         if not hasattr(self, "cursor_tool_page") or not hasattr(self, "cursor_sample_combo") or not hasattr(self, "cursor_sample_new_button"):
             return
@@ -5231,6 +4783,10 @@ class IceScopy(QMainWindow):
             for row in (rows or [])
         ]
         self.freeze_count_timeseries_summary = dict(summary or {})
+        self.freeze_count_timeseries_summary.setdefault(
+            "sample_metadata_schema",
+            self.serialize_sample_metadata_schema(),
+        )
         self.update_freeze_count_timeseries_table()
         if self.freeze_count_timeseries_headers:
             if hasattr(self, "results_table_tabs"):
@@ -5258,6 +4814,11 @@ class IceScopy(QMainWindow):
             return False
 
         summary = dict(self.freeze_count_timeseries_summary or {})
+        summary["sample_metadata_schema"] = (
+            self.serialize_sample_metadata_schema()
+            if hasattr(self, "serialize_sample_metadata_schema")
+            else sample_metadata_schema_to_payload(getattr(self, "sample_metadata_schema", None))
+        )
         sample_column_metadata = list(summary.get("sample_column_metadata") or [])
         if not sample_column_metadata:
             return False
@@ -5448,6 +5009,7 @@ class IceScopy(QMainWindow):
             "cell_items": copy.deepcopy(self.cell_items),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "sample_metadata_schema": self.serialize_sample_metadata_schema(),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
@@ -5486,6 +5048,7 @@ class IceScopy(QMainWindow):
             "cell_items": copy.deepcopy(self.cell_items),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "sample_metadata_schema": self.serialize_sample_metadata_schema(),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
@@ -5524,6 +5087,7 @@ class IceScopy(QMainWindow):
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "sample_metadata_schema": self.serialize_sample_metadata_schema(),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "last_grayscale_output_path": self.last_grayscale_output_path,
@@ -5561,6 +5125,7 @@ class IceScopy(QMainWindow):
             "cell_items": copy.deepcopy(self.cell_items),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "sample_metadata_schema": self.serialize_sample_metadata_schema(),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
@@ -5607,6 +5172,7 @@ class IceScopy(QMainWindow):
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "sample_metadata_schema": self.serialize_sample_metadata_schema(),
             "sample_catalog": copy.deepcopy(self.serialize_sample_catalog()),
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "frame_source": copy.deepcopy(self.frame_source_session_payload()),
@@ -5723,6 +5289,9 @@ class IceScopy(QMainWindow):
             self.cell_items = copy.deepcopy(state["cell_items"])
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", {}))
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+            )
             self.sample_catalog = self.deserialize_sample_catalog(
                 state.get("sample_catalog", self.serialize_sample_catalog())
             )
@@ -5870,6 +5439,9 @@ class IceScopy(QMainWindow):
             self.last_committed_image_index = int(self.image_index)
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", self.serialize_cell_records()))
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+            )
             self.sample_catalog = self.deserialize_sample_catalog(
                 state.get("sample_catalog", self.serialize_sample_catalog())
             )
@@ -5991,6 +5563,9 @@ class IceScopy(QMainWindow):
             self.cell_items = copy.deepcopy(state["cell_items"])
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", {}))
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+            )
             self.sample_catalog = self.deserialize_sample_catalog(
                 state.get("sample_catalog", self.serialize_sample_catalog())
             )
@@ -6139,6 +5714,9 @@ class IceScopy(QMainWindow):
                 self.rendered_cell_items = []
                 self.next_cell_id = int(state.get("next_cell_id", 0))
                 self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", {}))
+                self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                    state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+                )
                 self.sample_catalog = self.deserialize_sample_catalog(
                     state.get("sample_catalog", self.serialize_sample_catalog())
                 )
@@ -6179,6 +5757,9 @@ class IceScopy(QMainWindow):
             self.cell_items = copy.deepcopy(state.get("cell_items", []))
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", {}))
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+            )
             self.sample_catalog = self.deserialize_sample_catalog(
                 state.get("sample_catalog", self.serialize_sample_catalog())
             )
@@ -6372,6 +5953,9 @@ class IceScopy(QMainWindow):
             self.freeze_count_timeseries_summary = dict(state.get("freeze_count_timeseries_summary", {}))
             self.next_cell_id = int(state.get("next_cell_id", getattr(self, "next_cell_id", 0)))
             self.cell_records_by_id = self.deserialize_cell_records(state.get("cell_records_by_id", self.serialize_cell_records()))
+            self.sample_metadata_schema = sample_metadata_schema_from_payload(
+                state.get("sample_metadata_schema", self.serialize_sample_metadata_schema())
+            )
             self.sample_catalog = self.deserialize_sample_catalog(
                 state.get("sample_catalog", self.serialize_sample_catalog())
             )
@@ -6792,1153 +6376,6 @@ class IceScopy(QMainWindow):
             self.show_dock_widget(self.results_tables_dock)
         self.invalidate_freeze_count_timeseries_results("freeze results changed")
 
-    def build_freeze_count_timeseries_sample_groups(self, grouping_mode="samples"):
-        self.ensure_cell_registry_matches_scene_cells()
-        grouping_mode = str(grouping_mode or "samples").strip().casefold()
-        if grouping_mode == "all_cells":
-            all_cell_ids = []
-            for cell_id in sorted(self.cell_records_by_id.keys()):
-                if self.ensure_cell_record(cell_id) is None:
-                    continue
-                all_cell_ids.append(int(cell_id))
-            if not all_cell_ids:
-                return {}
-            return {
-                "__all_cells__": {
-                    "group_key": "__all_cells__",
-                    "sample_id": "",
-                    "sample_name": "All Cells",
-                    **{
-                        field_name: ""
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": all_cell_ids,
-                    "total_cells": len(all_cell_ids),
-                }
-            }
-
-        groups = {}
-        for cell_id in sorted(self.cell_records_by_id.keys()):
-            record = self.ensure_cell_record(cell_id)
-            if record is None:
-                continue
-            raw_sample_id = getattr(record, "sample_id", "")
-            sample_id = "" if raw_sample_id is None else str(raw_sample_id).strip()
-            if not sample_id:
-                group_key = f"__cell_{int(cell_id)}__"
-                groups[group_key] = {
-                    "group_key": group_key,
-                    "group_role": "unassigned_cell",
-                    "sample_id": "",
-                    "sample_name": f"Cell {int(cell_id)}",
-                    **{
-                        field_name: ""
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": [int(cell_id)],
-                    "total_cells": 1,
-                    "sort_index": int(cell_id),
-                }
-                continue
-            sample_record = self.sample_record_for_id(sample_id)
-            sample_name = str(sample_record.get("sample_name", "")).strip()
-            if not sample_name:
-                continue
-            group = groups.setdefault(
-                sample_id,
-                {
-                    "group_key": sample_id,
-                    "group_role": "sample",
-                    "sample_id": sample_id,
-                    "sample_name": sample_name,
-                    **{
-                        field_name: str(sample_record.get(field_name, "") or "")
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": [],
-                    "total_cells": 0,
-                    "sort_index": len(groups),
-                },
-            )
-            group["cell_ids"].append(int(cell_id))
-            group["total_cells"] += 1
-        return groups
-
-    def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
-        count_mode = str(count_mode or "cumulative").strip().casefold()
-        image_counts_by_sample = {}
-        total_frame_count = self.frame_count()
-        for group_key, group in sample_groups.items():
-            if count_mode == "state":
-                state_counts = {}
-                per_cell_events = []
-                for cell_id in group["cell_ids"]:
-                    record = self.ensure_cell_record(cell_id)
-                    if record is None:
-                        continue
-                    resolved_frames = []
-                    for frame_value in getattr(record, "freeze_event_indices", []):
-                        try:
-                            frame_index = int(frame_value)
-                        except (TypeError, ValueError):
-                            continue
-                        if 0 <= frame_index < total_frame_count:
-                            resolved_frames.append(frame_index)
-                    per_cell_events.append(sorted(set(resolved_frames)))
-
-                event_pointers = [0] * len(per_cell_events)
-                cell_states = [0] * len(per_cell_events)
-                for image_index in range(total_frame_count):
-                    frozen_count = 0
-                    for cell_position, event_frames in enumerate(per_cell_events):
-                        while event_pointers[cell_position] < len(event_frames) and event_frames[event_pointers[cell_position]] <= image_index:
-                            cell_states[cell_position] = 1 - cell_states[cell_position]
-                            event_pointers[cell_position] += 1
-                        frozen_count += cell_states[cell_position]
-                    state_counts[image_index] = int(frozen_count)
-                image_counts_by_sample[group_key] = state_counts
-                continue
-
-            freeze_frames = []
-            for cell_id in group["cell_ids"]:
-                record = self.ensure_cell_record(cell_id)
-                if record is None:
-                    continue
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        resolved_frames.append(int(frame_value))
-                    except (TypeError, ValueError):
-                        continue
-                if resolved_frames:
-                    freeze_frames.append(min(resolved_frames))
-            freeze_frames.sort()
-            cumulative_counts = {}
-            freeze_pointer = 0
-            for image_index in range(total_frame_count):
-                while freeze_pointer < len(freeze_frames) and freeze_frames[freeze_pointer] <= image_index:
-                    freeze_pointer += 1
-                cumulative_counts[image_index] = int(freeze_pointer)
-            image_counts_by_sample[group_key] = cumulative_counts
-        return image_counts_by_sample
-
-    def build_tamu_freeze_count_timeseries_sample_groups(self):
-        sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="samples")
-        if sample_groups:
-            return sample_groups, "samples"
-        sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="all_cells")
-        if sample_groups:
-            return sample_groups, "all_cells"
-        return {}, "samples"
-
-    def build_freeze_count_timeseries_blank_selection(self, sample_groups, blank_sample_names=None):
-        blank_name_set = {
-            normalize_sample_name(sample_name)
-            for sample_name in (blank_sample_names or [])
-            if str(sample_name or "").strip()
-        }
-        matched_samples = []
-        for group_key, group in sample_groups.items():
-            normalized_name = normalize_sample_name(group.get("sample_name", ""))
-            matched_samples.append(
-                {
-                    "group_key": str(group_key),
-                    "group_role": str(group.get("group_role", "sample") or "sample"),
-                    "sample_id": str(group.get("sample_id", "") or ""),
-                    "normalized_name": normalized_name,
-                    "sample_name": str(group.get("sample_name", "")),
-                    **{
-                        field_name: str(group.get(field_name, "") or "")
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "total_cells": int(group.get("total_cells", 0)),
-                    "cell_ids": list(group.get("cell_ids", [])),
-                    "is_blank": normalized_name in blank_name_set,
-                    "sort_index": int(group.get("sort_index", 0) or 0),
-                }
-            )
-        matched_samples.sort(
-            key=lambda sample: (
-                1 if sample.get("group_role") == "unassigned_cell" else 0,
-                ""
-                if sample.get("group_role") == "unassigned_cell"
-                else str(sample["sample_name"]).casefold(),
-                int(sample.get("sort_index", 0) or 0)
-                if sample.get("group_role") == "unassigned_cell"
-                else 0,
-                str(sample.get("sample_id", "") or ""),
-                str(sample.get("group_key", "")),
-            )
-        )
-        blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
-        output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
-        matched_names = {sample["normalized_name"] for sample in matched_samples}
-        unmatched_blank_samples = sorted(
-            sample_name
-            for sample_name in (blank_sample_names or [])
-            if normalize_sample_name(sample_name) not in matched_names
-        )
-        return matched_samples, blank_samples, output_samples, unmatched_blank_samples
-
-    def normalize_temperature_reset_threshold(self, reset_temperature):
-        return normalize_temperature_reset_threshold_value(reset_temperature)
-
-    def detect_cycle_start_indexes_from_temperatures(self, temperatures, reset_temperature):
-        return detect_temperature_cycle_start_indexes(
-            temperatures,
-            reset_temperature,
-            warmup_hysteresis_c=float(getattr(self, "temperature_cycle_warmup_hysteresis_c", 0.02)),
-        )
-
-    def build_cycle_ids_from_start_indexes(self, total_count, cycle_start_indexes):
-        return build_cycle_ids_from_temperature_starts(total_count, cycle_start_indexes)
-
-    def cycle_index_for_position(self, position_value, cycle_start_positions):
-        if position_value is None or not cycle_start_positions:
-            return None
-        index = int(np.searchsorted(np.asarray(cycle_start_positions, dtype=float), float(position_value), side="right") - 1)
-        return max(0, index)
-
-    def build_tamu_image_timing_context(self, parsed_timeseries, reset_temperature=None):
-        timeseries_seconds = np.asarray(getattr(parsed_timeseries, "timeseries_seconds", []), dtype=float)
-        temperature_values = np.asarray(getattr(parsed_timeseries, "temperature_values", []), dtype=float)
-        cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
-            temperature_values,
-            reset_temperature,
-        )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        parsed_image_count = 0
-        unparsed_images = []
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = parse_tamu_image_timestamp(basename)
-            if image_timestamp is None or start_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                if image_timestamp is None:
-                    unparsed_images.append(basename)
-                continue
-            parsed_image_count += 1
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
-        return {
-            "cycle_start_seconds": cycle_start_seconds,
-            "cycle_start_indexes": cycle_start_indexes,
-            "image_elapsed_seconds": image_elapsed_seconds,
-            "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(parsed_image_count),
-            "unparsed_images": list(unparsed_images),
-        }
-
-    def build_pku_linksys32_image_timing_context(self, parsed_timeseries, reset_temperature=None):
-        timeseries_datetimes = list(getattr(parsed_timeseries, "timeseries_datetimes", []))
-        temperature_values = np.asarray(
-            list(getattr(parsed_timeseries, "temperature_values", [])),
-            dtype=float,
-        )
-        timeseries_seconds = np.asarray(
-            list(getattr(parsed_timeseries, "timeseries_seconds", [])),
-            dtype=float,
-        )
-        if len(timeseries_datetimes) < 2 or len(timeseries_datetimes) != len(temperature_values):
-            raise TemperatureImportError("The PKU Linksys32 .iml file does not contain enough aligned datetime and temperature rows.")
-        if len(timeseries_seconds) != len(temperature_values):
-            timeseries_origin = timeseries_datetimes[0]
-            timeseries_seconds = np.asarray(
-                [
-                    float((timestamp - timeseries_origin).total_seconds())
-                    for timestamp in timeseries_datetimes
-                ],
-                dtype=float,
-            )
-
-        image_records = list(getattr(parsed_timeseries, "image_records", []))
-        loaded_image_count = self.frame_count()
-        if len(image_records) != loaded_image_count:
-            raise TemperatureImportError(
-                "The PKU Linksys32 .iml image record count does not match the loaded image count. "
-                f"The .iml file contains {len(image_records)} image record(s), but the session has {loaded_image_count} loaded image(s)."
-            )
-
-        cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
-            temperature_values,
-            reset_temperature,
-        )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
-
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        if start_timestamp is None:
-            start_timestamp = timeseries_datetimes[0]
-
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        parsed_image_timestamps = []
-        image_record_temperatures = []
-        for image_record in image_records:
-            image_timestamp = getattr(image_record, "timestamp", None)
-            try:
-                image_temperature = float(getattr(image_record, "temperature_value", None))
-            except (TypeError, ValueError):
-                raise TemperatureImportError(
-                    f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
-                ) from None
-            if not np.isfinite(image_temperature):
-                raise TemperatureImportError(
-                    f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
-                )
-            parsed_image_timestamps.append(image_timestamp)
-            image_record_temperatures.append(image_temperature)
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
-
-        return {
-            "timeseries_seconds": timeseries_seconds,
-            "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
-            "image_elapsed_seconds": image_elapsed_seconds,
-            "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(sum(1 for value in parsed_image_timestamps if value is not None)),
-            "unparsed_images": [
-                os.path.basename(str(self.frame_name(index) or ""))
-                for index, value in enumerate(parsed_image_timestamps)
-                if value is None
-            ],
-            "parsed_image_timestamps": parsed_image_timestamps,
-            "image_record_temperatures": image_record_temperatures,
-            "image_record_count": int(len(image_records)),
-        }
-
-    def build_tamu_cycle_reset_image_counts(self, sample_groups, image_cycle_ids):
-        image_counts_by_sample = {}
-        total_image_count = self.frame_count()
-        for group_key, group in sample_groups.items():
-            first_freeze_frame_by_cell_cycle = {}
-            for cell_id in group["cell_ids"]:
-                record = self.ensure_cell_record(cell_id)
-                if record is None:
-                    continue
-                cycle_first_frames = {}
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        frame_index = int(frame_value)
-                    except (TypeError, ValueError):
-                        continue
-                    if 0 <= frame_index < total_image_count:
-                        resolved_frames.append(frame_index)
-                for frame_index in sorted(set(resolved_frames)):
-                    cycle_id = image_cycle_ids[frame_index] if frame_index < len(image_cycle_ids) else None
-                    if cycle_id is None or cycle_id in cycle_first_frames:
-                        continue
-                    cycle_first_frames[cycle_id] = int(frame_index)
-                first_freeze_frame_by_cell_cycle[int(cell_id)] = cycle_first_frames
-
-            cycle_counts = {}
-            for image_index in range(total_image_count):
-                cycle_id = image_cycle_ids[image_index] if image_index < len(image_cycle_ids) else None
-                frozen_count = 0
-                for cycle_first_frames in first_freeze_frame_by_cell_cycle.values():
-                    first_frame = cycle_first_frames.get(cycle_id)
-                    if first_frame is not None and first_frame <= image_index:
-                        frozen_count += 1
-                cycle_counts[image_index] = int(frozen_count)
-            image_counts_by_sample[group_key] = cycle_counts
-        return image_counts_by_sample
-
-    def reconcile_counts_by_cycle(self, raw_counts, anchor_counts, maximum_count, cycle_ids):
-        return reconcile_temperature_counts_by_cycle(
-            raw_counts,
-            anchor_counts,
-            maximum_count,
-            cycle_ids,
-        )
-
-    def corrected_temperature_for_cell(self, measured_temperature, cell_id, calibration_by_well):
-        if measured_temperature is None or calibration_by_well is None:
-            return None
-        try:
-            calibration_entry = calibration_by_well.get(int(cell_id))
-        except (TypeError, ValueError, AttributeError):
-            calibration_entry = None
-        if not calibration_entry:
-            return None
-        slope_value, intercept_value = calibration_entry
-        try:
-            slope_value = float(slope_value)
-            intercept_value = float(intercept_value)
-            if slope_value == 0:
-                return None
-            return (float(measured_temperature) - intercept_value) / slope_value
-        except (TypeError, ValueError, ZeroDivisionError):
-            return None
-
-    def corrected_temperature_for_group(self, measured_temperature, group, calibration_by_well):
-        if measured_temperature is None or not calibration_by_well or not group:
-            return None
-        corrected_values = []
-        for cell_id in group.get("cell_ids", []):
-            corrected_value = self.corrected_temperature_for_cell(
-                measured_temperature,
-                cell_id,
-                calibration_by_well,
-            )
-            if corrected_value is not None:
-                corrected_values.append(float(corrected_value))
-        if not corrected_values:
-            return None
-        return float(np.mean(corrected_values))
-
-    def build_standard_image_timing_context(
-        self,
-        parsed_timeseries,
-        image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
-        image_timestamp_style=TIMESTAMP_STYLE_AUTO,
-        generated_start_text="",
-        frame_interval_seconds=None,
-        reset_temperature=None,
-    ):
-        timeseries_datetimes = list(getattr(parsed_timeseries, "timeseries_datetimes", []))
-        temperature_values = np.asarray(
-            list(getattr(parsed_timeseries, "temperature_values", [])),
-            dtype=float,
-        )
-        if len(timeseries_datetimes) < 2 or len(timeseries_datetimes) != len(temperature_values):
-            raise TemperatureImportError("The standard temperature CSV does not contain enough aligned datetime and temperature rows.")
-
-        timeseries_origin = timeseries_datetimes[0]
-        timeseries_seconds = np.asarray(
-            [
-                float((timestamp - timeseries_origin).total_seconds())
-                for timestamp in timeseries_datetimes
-            ],
-            dtype=float,
-        )
-        cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
-            temperature_values,
-            reset_temperature,
-        )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
-
-        if self.is_video_source():
-            start_timestamp = parse_timestamp_text(generated_start_text, image_timestamp_style)
-            if start_timestamp is None:
-                raise TemperatureImportError("Enter a valid first frame timestamp for the video source.")
-            parsed_image_timestamps = []
-            unparsed_images = []
-            parsed_count = 0
-            for frame_index in range(self.frame_count()):
-                if image_timestamp_source == IMAGE_TIMESTAMP_SOURCE_GENERATED:
-                    try:
-                        interval = float(frame_interval_seconds)
-                    except (TypeError, ValueError):
-                        interval = 0.0
-                    if interval <= 0:
-                        parsed_image_timestamps.append(None)
-                        unparsed_images.append(self.frame_name(frame_index))
-                        continue
-                    image_timestamp = start_timestamp + timedelta(seconds=float(frame_index) * interval)
-                else:
-                    frame_time_seconds = self.active_frame_source().frame_time_seconds(frame_index)
-                    if frame_time_seconds is None:
-                        parsed_image_timestamps.append(None)
-                        unparsed_images.append(self.frame_name(frame_index))
-                        continue
-                    image_timestamp = start_timestamp + timedelta(seconds=float(frame_time_seconds))
-                parsed_image_timestamps.append(image_timestamp)
-                parsed_count += 1
-        else:
-            resolved_timestamps = resolve_image_timestamps(
-                self.imagePaths,
-                self.imageNames,
-                source=image_timestamp_source,
-                timestamp_style=image_timestamp_style,
-                generated_start_text=generated_start_text,
-                frame_interval_seconds=frame_interval_seconds,
-            )
-            parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
-            unparsed_images = list(resolved_timestamps.unparsed_images)
-            parsed_count = int(resolved_timestamps.parsed_count)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        for image_timestamp in parsed_image_timestamps:
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - timeseries_origin).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(
-                self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds)
-            )
-
-        return {
-            "timeseries_origin": timeseries_origin,
-            "timeseries_seconds": timeseries_seconds,
-            "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
-            "image_elapsed_seconds": image_elapsed_seconds,
-            "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(parsed_count),
-            "unparsed_images": list(unparsed_images),
-            "parsed_image_timestamps": parsed_image_timestamps,
-        }
-
-    def build_standard_freeze_count_timeseries_results(
-        self,
-        parsed_timeseries,
-        blank_sample_names=None,
-        image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
-        image_timestamp_style=TIMESTAMP_STYLE_AUTO,
-        generated_start_text="",
-        frame_interval_seconds=None,
-        temperature_timestamp_style=TIMESTAMP_STYLE_AUTO,
-        temperature_unit=TEMPERATURE_UNIT_CELSIUS,
-        reset_temperature=None,
-    ):
-        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
-        timing_context = self.build_standard_image_timing_context(
-            parsed_timeseries,
-            image_timestamp_source=image_timestamp_source,
-            image_timestamp_style=image_timestamp_style,
-            generated_start_text=generated_start_text,
-            frame_interval_seconds=frame_interval_seconds,
-            reset_temperature=reset_temperature,
-        )
-        if int(timing_context["parsed_image_count"]) <= 0:
-            raise TemperatureImportError(
-                "No loaded frames produced a parseable timestamp for standard freeze count timeseries."
-            )
-
-        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
-        image_cycle_ids = timing_context["image_cycle_ids"]
-        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(
-            sample_groups,
-            image_cycle_ids,
-        )
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
-
-        timeseries_seconds = np.asarray(
-            list(timing_context["timeseries_seconds"]),
-            dtype=float,
-        )
-        temperature_values = np.asarray(
-            list(getattr(parsed_timeseries, "temperature_values", [])),
-            dtype=float,
-        )
-        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
-
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
-        sample_column_metadata = []
-        for sample in output_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        in_range_image_count = 0
-        out_of_range_image_count = 0
-        for image_index in range(self.frame_count()):
-            basename = os.path.basename(str(self.frame_name(image_index) or ""))
-            image_timestamp = parsed_image_timestamps[image_index]
-            raw_temperature = None
-            elapsed_seconds = (
-                image_elapsed_seconds[image_index]
-                if image_index < len(image_elapsed_seconds)
-                else None
-            )
-            if image_timestamp is not None and elapsed_seconds is not None:
-                interpolated_temperature = np.interp(
-                    elapsed_seconds,
-                    timeseries_seconds,
-                    temperature_values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                if np.isnan(interpolated_temperature):
-                    out_of_range_image_count += 1
-                else:
-                    in_range_image_count += 1
-                    raw_temperature = float(interpolated_temperature)
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds")
-                if image_timestamp is not None
-                else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                ""
-                if image_cycle_ids[image_index] is None
-                else str(int(image_cycle_ids[image_index])),
-                basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
-            ]
-            for sample in output_samples:
-                group_key = sample["group_key"]
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(
-                    image_index,
-                    0,
-                )
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
-            rows.append(output_row)
-
-        timeseries_timestamp_texts = list(getattr(parsed_timeseries, "timeseries_timestamp_texts", []))
-        summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "standard_csv",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
-            "timeseries_start_timestamp": (
-                timeseries_timestamp_texts[0]
-                if timeseries_timestamp_texts
-                else timing_context["timeseries_origin"].isoformat(timespec="milliseconds")
-            ),
-            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
-            "cycle_count": int(len(timing_context["cycle_start_seconds"])),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
-            "in_range_image_count": int(in_range_image_count),
-            "out_of_range_image_count": int(out_of_range_image_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "unmatched_blank_samples": unmatched_blank_samples,
-            "image_timestamp_source": str(image_timestamp_source),
-            "image_timestamp_style": str(image_timestamp_style),
-            "temperature_timestamp_style": str(temperature_timestamp_style),
-            "temperature_unit": str(temperature_unit),
-        }
-        return headers, rows, summary
-
-    def build_csu_freeze_count_timeseries_results(self, parsed_data, blank_sample_names=None, reset_temperature=None):
-        sample_groups = self.build_freeze_count_timeseries_sample_groups()
-        dat_sample_columns = list(parsed_data.get("sample_columns", []))
-        dat_columns_by_name = {
-            normalize_sample_name(column_name): column_name
-            for column_name in dat_sample_columns
-        }
-        groups_by_normalized_name = {}
-        for group in sample_groups.values():
-            normalized_name = normalize_sample_name(group.get("sample_name", ""))
-            groups_by_normalized_name.setdefault(normalized_name, []).append(group)
-        blank_name_set = {
-            normalize_sample_name(sample_name)
-            for sample_name in (blank_sample_names or [])
-            if str(sample_name or "").strip()
-        }
-
-        matched_samples = []
-        for dat_column in dat_sample_columns:
-            normalized_name = normalize_sample_name(dat_column)
-            matching_groups = groups_by_normalized_name.get(normalized_name, [])
-            if not matching_groups:
-                continue
-            if len(matching_groups) > 1:
-                duplicate_ids = ", ".join(
-                    str(group.get("sample_id", "") or "")
-                    for group in matching_groups
-                )
-                raise TemperatureImportError(
-                    f"CSU .dat import cannot disambiguate duplicate app sample names for '{dat_column}'. "
-                    f"Rename one of the duplicate samples in Sample Catalog. Sample IDs: {duplicate_ids}."
-                )
-            group = matching_groups[0]
-            matched_samples.append(
-                {
-                    "group_key": str(group.get("group_key", "") or group.get("sample_id", "") or normalized_name),
-                    "group_role": str(group.get("group_role", "sample") or "sample"),
-                    "sample_id": str(group.get("sample_id", "") or ""),
-                    "normalized_name": normalized_name,
-                    "sample_name": group["sample_name"],
-                    "dat_column": dat_column,
-                    **{
-                        field_name: str(group.get(field_name, "") or "")
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": list(group.get("cell_ids", [])),
-                    "total_cells": int(group["total_cells"]),
-                    "is_blank": normalized_name in blank_name_set,
-                }
-            )
-
-        matched_group_keys = {str(sample.get("group_key", "")) for sample in matched_samples}
-        for group in sample_groups.values():
-            if str(group.get("group_role", "")) != "unassigned_cell":
-                continue
-            group_key = str(group.get("group_key", ""))
-            if group_key in matched_group_keys:
-                continue
-            normalized_name = normalize_sample_name(group.get("sample_name", ""))
-            matched_samples.append(
-                {
-                    "group_key": group_key,
-                    "group_role": "unassigned_cell",
-                    "sample_id": "",
-                    "normalized_name": normalized_name,
-                    "sample_name": str(group.get("sample_name", "")),
-                    "dat_column": None,
-                    **{
-                        field_name: str(group.get(field_name, "") or "")
-                        for field_name in FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": list(group.get("cell_ids", [])),
-                    "total_cells": int(group.get("total_cells", 0)),
-                    "is_blank": normalized_name in blank_name_set,
-                }
-            )
-
-        unmatched_app_samples = sorted(
-            group["sample_name"]
-            for normalized_name, groups in groups_by_normalized_name.items()
-            for group in groups
-            if normalized_name not in dat_columns_by_name
-            and str(group.get("group_role", "")) != "unassigned_cell"
-        )
-        unmatched_dat_samples = sorted(
-            column_name
-            for normalized_name, column_name in dat_columns_by_name.items()
-            if normalized_name not in groups_by_normalized_name
-        )
-        unmatched_blank_samples = sorted(
-            sample_name
-            for sample_name in (blank_sample_names or [])
-            if normalize_sample_name(sample_name) not in {
-                sample["normalized_name"] for sample in matched_samples
-            }
-        )
-
-        image_index_by_name = {
-            os.path.basename(str(image_name)).casefold(): index
-            for index, image_name in (
-                (frame_index, self.frame_name(frame_index))
-                for frame_index in range(self.frame_count())
-            )
-        }
-        parsed_rows = list(parsed_data.get("rows", []))
-        row_temperatures = [
-            np.nan if getattr(row, "avg_temp", None) is None else float(row.avg_temp)
-            for row in parsed_rows
-        ]
-        row_cycle_start_indexes = self.detect_cycle_start_indexes_from_temperatures(
-            row_temperatures,
-            reset_temperature,
-        )
-        row_cycle_ids = self.build_cycle_ids_from_start_indexes(len(parsed_rows), row_cycle_start_indexes)
-        image_cycle_ids = [None] * self.frame_count()
-        picture_rows_matched = 0
-        for row in parsed_rows:
-            picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
-            if picture_name and picture_name in image_index_by_name:
-                picture_rows_matched += 1
-                image_index = image_index_by_name[picture_name]
-                image_cycle_ids[image_index] = row_cycle_ids[int(row.row_index)]
-
-        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-
-        corrected_counts_by_sample = {}
-        for sample in matched_samples:
-            group_key = sample["group_key"]
-            dat_column = sample["dat_column"]
-            total_cells = int(sample["total_cells"])
-            if dat_column is None:
-                raw_counts = [0 for _row in parsed_rows]
-            else:
-                raw_counts = [
-                    int(getattr(row, "sample_counts", {}).get(dat_column, 0))
-                    for row in parsed_rows
-                ]
-            anchor_counts = {}
-            image_counts = image_counts_by_sample.get(group_key, {})
-            for row in parsed_rows:
-                picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
-                if not picture_name:
-                    continue
-                image_index = image_index_by_name.get(picture_name)
-                if image_index is None:
-                    continue
-                anchor_counts[int(row.row_index)] = int(image_counts.get(image_index, 0))
-            corrected_counts_by_sample[group_key] = self.reconcile_counts_by_cycle(
-                raw_counts,
-                anchor_counts,
-                total_cells,
-                row_cycle_ids,
-            )
-
-        blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
-        output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
-        blank_correction_by_row = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            corrected_counts_by_sample,
-            len(parsed_rows),
-        )
-
-        headers = ["timestamp", "temperature_C", "cycle", "picture", "water blank correction count"]
-        sample_column_metadata = []
-        for sample in output_samples:
-            sample_name = str(sample["sample_name"])
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        for row in parsed_rows:
-            row_index = int(row.row_index)
-            blank_correction = blank_correction_by_row[row_index] if row_index < len(blank_correction_by_row) else 0
-            output_row = [
-                str(getattr(row, "timestamp_text", "") or ""),
-                "" if getattr(row, "avg_temp", None) is None else f"{float(row.avg_temp):.3f}",
-                str(int(row_cycle_ids[row_index])) if row_index < len(row_cycle_ids) else "0",
-                str(getattr(row, "picture_name", "") or ""),
-                "nan" if blank_correction is None else str(int(blank_correction)),
-            ]
-            for sample in output_samples:
-                group_key = sample["group_key"]
-                total_cells = int(sample["total_cells"])
-                sample_counts = corrected_counts_by_sample.get(group_key, [])
-                frozen_value = sample_counts[row_index] if row_index < len(sample_counts) else 0
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_value,
-                    blank_correction,
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
-            rows.append(output_row)
-
-        summary = {
-            "source_path": str(parsed_data.get("file_path", "")),
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample["sample_id"] or ""),
-                    "sample_name": str(sample["sample_name"]),
-                    "total_cells": int(sample["total_cells"]),
-                    "role": "blank" if bool(sample["is_blank"]) else "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "unmatched_app_samples": unmatched_app_samples,
-            "unmatched_dat_samples": unmatched_dat_samples,
-            "unmatched_blank_samples": unmatched_blank_samples,
-            "matched_picture_rows": int(picture_rows_matched),
-            "matched_sample_count": int(len(output_samples)),
-            "total_picture_rows": int(sum(1 for row in parsed_rows if getattr(row, "picture_name", ""))),
-            "cycle_count": int(max(row_cycle_ids) + 1) if row_cycle_ids else 1,
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-        }
-        return headers, rows, summary
-
-    def build_tamu_freeze_count_timeseries_results(
-        self,
-        parsed_timeseries,
-        calibration_by_well=None,
-        blank_sample_names=None,
-        reset_temperature=None,
-    ):
-        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
-        timing_context = self.build_tamu_image_timing_context(parsed_timeseries, reset_temperature=reset_temperature)
-        cycle_start_seconds = timing_context["cycle_start_seconds"]
-        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
-        image_cycle_ids = timing_context["image_cycle_ids"]
-        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
-
-        timeseries_seconds = np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float)
-        temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        include_corrected_temperature = bool(calibration_by_well)
-
-        calibrated_cell_ids = set()
-        if calibration_by_well:
-            for group in output_samples:
-                for cell_id in group.get("cell_ids", []):
-                    if int(cell_id) in calibration_by_well:
-                        calibrated_cell_ids.add(int(cell_id))
-
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
-        sample_column_metadata = []
-        for sample in output_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            if include_corrected_temperature:
-                headers.append(f"{sample_name} corrected temperature_C")
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        in_range_image_count = 0
-        out_of_range_image_count = 0
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = parse_tamu_image_timestamp(basename)
-            raw_temperature = None
-            elapsed_seconds = image_elapsed_seconds[image_index] if image_index < len(image_elapsed_seconds) else None
-            if image_timestamp is not None and elapsed_seconds is not None:
-                interpolated_temperature = np.interp(
-                    elapsed_seconds,
-                    timeseries_seconds,
-                    temperature_values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                if np.isnan(interpolated_temperature):
-                    out_of_range_image_count += 1
-                else:
-                    in_range_image_count += 1
-                    raw_temperature = float(interpolated_temperature)
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
-                basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
-            ]
-            for sample in output_samples:
-                group_key = sample["group_key"]
-                if include_corrected_temperature:
-                    corrected_temperature = self.corrected_temperature_for_group(
-                        raw_temperature,
-                        sample,
-                        calibration_by_well,
-                    )
-                    output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
-            rows.append(output_row)
-
-        summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "tamu",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
-            "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
-            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
-            "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
-            "cycle_count": int(len(cycle_start_seconds)),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
-            "in_range_image_count": int(in_range_image_count),
-            "out_of_range_image_count": int(out_of_range_image_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
-            "calibrated_cell_count": int(len(calibrated_cell_ids)),
-            "unmatched_blank_samples": unmatched_blank_samples,
-        }
-        return headers, rows, summary
-
-    def build_pku_linksys32_freeze_count_timeseries_results(
-        self,
-        parsed_timeseries,
-        blank_sample_names=None,
-        reset_temperature=None,
-    ):
-        sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
-        timing_context = self.build_pku_linksys32_image_timing_context(
-            parsed_timeseries,
-            reset_temperature=reset_temperature,
-        )
-        cycle_start_seconds = timing_context["cycle_start_seconds"]
-        image_cycle_ids = timing_context["image_cycle_ids"]
-        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
-        image_record_temperatures = timing_context["image_record_temperatures"]
-        image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
-
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
-        sample_column_metadata = []
-        for sample in output_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        tagged_temperature_count = 0
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = (
-                parsed_image_timestamps[image_index]
-                if image_index < len(parsed_image_timestamps)
-                else None
-            )
-            raw_temperature = (
-                image_record_temperatures[image_index]
-                if image_index < len(image_record_temperatures)
-                else None
-            )
-            if raw_temperature is not None:
-                tagged_temperature_count += 1
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
-                basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
-            ]
-            for sample in output_samples:
-                group_key = sample["group_key"]
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
-            rows.append(output_row)
-
-        summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "pku_linksys32_iml",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
-            "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
-            "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
-            "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
-            "image_record_count": int(timing_context.get("image_record_count", 0)),
-            "linksys32_version": str(getattr(parsed_timeseries, "version", "") or ""),
-            "cycle_count": int(len(cycle_start_seconds)),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
-            "temperature_source": "pku_linksys32_image_record",
-            "tagged_temperature_count": int(tagged_temperature_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "unmatched_blank_samples": unmatched_blank_samples,
-        }
-        return headers, rows, summary
-
     def import_standard_temperature_csv(self, checked=False):
         if not self.has_frames():
             QMessageBox.information(
@@ -7948,7 +6385,7 @@ class IceScopy(QMainWindow):
             )
             return
 
-        available_sample_names = self.available_sample_names()
+        available_sample_names = self.available_sample_choices()
         video_mode = self.is_video_source()
 
         dialog = StandardTemperatureImportDialog(
@@ -8118,7 +6555,7 @@ class IceScopy(QMainWindow):
             QMessageBox.information(self, "CSU IS .dat import", "The CSU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_names()
+        available_sample_names = self.available_sample_choices()
         dialog = CSUTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
@@ -8221,7 +6658,7 @@ class IceScopy(QMainWindow):
             QMessageBox.information(self, "TAMU Linkam .xlsx import", "The TAMU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_names()
+        available_sample_names = self.available_sample_choices()
 
         dialog = TAMUTemperatureImportDialog(
             self,
@@ -8347,7 +6784,7 @@ class IceScopy(QMainWindow):
             QMessageBox.information(self, "PKU Linksys32 .iml import", "The PKU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_names()
+        available_sample_names = self.available_sample_choices()
 
         dialog = PKUTemperatureImportDialog(
             main_window=self,
@@ -10146,13 +8583,13 @@ class IceScopy(QMainWindow):
             self.updateImage(index, preview=True)
             return
 
-        if self.video_preview_worker is None or self.video_preview_thread is None:
+        if self.video_preview_decoder is None:
             self.start_video_preview_decoder()
-        if self.video_preview_worker is None or self.video_preview_decode_in_flight:
+        if self.video_preview_decoder is None or self.video_preview_decode_in_flight:
             return
 
         self.video_preview_decode_in_flight = True
-        self.video_preview_decode_requested.emit(index)
+        self.video_preview_decoder.request_decode(index)
 
     def handle_video_preview_decoded(self, index, q_image, frame_key, video_path):
         self.video_preview_decode_in_flight = False
@@ -11249,6 +9686,8 @@ class IceScopy(QMainWindow):
         sample_name_pattern_element = root.find('SampleNamePattern')
         if sample_name_pattern_element is not None and sample_name_pattern_element.text is not None:
             preferences['SampleNamePattern'] = sample_name_pattern_element.text
+
+        preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)
 
         viewer_image_count_element = root.find('ViewerImageCount')
         if viewer_image_count_element is not None and viewer_image_count_element.text is not None:

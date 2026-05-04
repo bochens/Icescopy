@@ -4,30 +4,25 @@ import json
 import zipfile
 
 from icescopy_cell_items import CellCircle
+from icescopy_sample_metadata import (
+    ALLOWED_SAMPLE_TYPES,
+    default_sample_metadata_schema,
+    export_sample_metadata_field_keys,
+    normalize_sample_catalog_record,
+    sample_metadata_field_keys,
+    sample_metadata_schema_from_payload,
+    sample_metadata_schema_to_payload,
+)
 
 
 SESSION_STATE_FILENAME = "session.json"
 GRAYSCALE_CSV_FILENAME = "grayscale.csv"
 FREEZE_CSV_FILENAME = "freeze.csv"
 FREEZE_COUNT_TIMESERIES_CSV_FILENAME = "freeze_count_timeseries.csv"
-SAMPLE_CATALOG_FIELD_NAMES = (
-    "sample_name",
-    "sample_long_name",
-    "sampling_site",
-    "collection_start",
-    "collection_end",
-    "sample_type",
-    "dilution",
-    "air_volume_L",
-    "filter_fraction_used",
-    "suspension_volume_mL",
-    "dry_mass_g",
-    "sample_note",
+SAMPLE_CATALOG_FIELD_NAMES = sample_metadata_field_keys(default_sample_metadata_schema())
+FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES = export_sample_metadata_field_keys(
+    default_sample_metadata_schema()
 )
-FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES = tuple(
-    field_name for field_name in SAMPLE_CATALOG_FIELD_NAMES if field_name != "sample_note"
-)
-ALLOWED_SAMPLE_TYPES = ("air", "soil", "other")
 FREEZE_COUNT_TIMESERIES_PREAMBLE_KEYS = (
     "format_name",
     "file_version",
@@ -56,34 +51,25 @@ SORT_MODE_LABELS = {
 }
 
 
-def normalize_sample_catalog_record(value):
-    record = {field_name: "" for field_name in SAMPLE_CATALOG_FIELD_NAMES}
-    if not isinstance(value, dict):
-        return record
-    for field_name in SAMPLE_CATALOG_FIELD_NAMES:
-        raw_value = value.get(field_name, "")
-        if field_name == "sample_type":
-            normalized_type = str(raw_value or "").strip().casefold()
-            record[field_name] = (
-                normalized_type
-                if normalized_type in ALLOWED_SAMPLE_TYPES
-                else ""
-            )
-        else:
-            record[field_name] = str(raw_value or "").strip()
-    return record
+def freeze_count_timeseries_metadata_row_labels(sample_metadata_schema=None):
+    return ("sample_id", "cell_number") + export_sample_metadata_field_keys(
+        sample_metadata_schema
+    )
 
 
-def serialize_sample_catalog_payload(catalog):
+def serialize_sample_catalog_payload(catalog, sample_metadata_schema=None):
     payload = {}
     if not isinstance(catalog, dict):
         return payload
     for sample_id, sample_record in sorted(catalog.items(), key=lambda pair: int(pair[0])):
-        payload[str(int(sample_id))] = normalize_sample_catalog_record(sample_record)
+        payload[str(int(sample_id))] = normalize_sample_catalog_record(
+            sample_record,
+            sample_metadata_schema,
+        )
     return payload
 
 
-def deserialize_sample_catalog_payload(payload):
+def deserialize_sample_catalog_payload(payload, sample_metadata_schema=None):
     catalog = {}
     if not isinstance(payload, dict):
         return catalog
@@ -92,7 +78,7 @@ def deserialize_sample_catalog_payload(payload):
             sample_id = int(key)
         except (TypeError, ValueError):
             continue
-        catalog[sample_id] = normalize_sample_catalog_record(value)
+        catalog[sample_id] = normalize_sample_catalog_record(value, sample_metadata_schema)
     return catalog
 
 
@@ -105,6 +91,9 @@ def build_freeze_count_timeseries_csv_text(
 ):
     session_metadata = dict(session_metadata or {})
     summary = dict(summary or {})
+    sample_metadata_schema = sample_metadata_schema_from_payload(
+        summary.get("sample_metadata_schema")
+    )
     sample_column_metadata = list(summary.get("sample_column_metadata") or [])
 
     def metadata_text(value):
@@ -129,7 +118,7 @@ def build_freeze_count_timeseries_csv_text(
         buffer.write(f"# {key}: {preamble_values.get(key, '')}\n")
 
     if sample_column_metadata:
-        for row_label in FREEZE_COUNT_TIMESERIES_METADATA_ROW_LABELS:
+        for row_label in freeze_count_timeseries_metadata_row_labels(sample_metadata_schema):
             metadata_row = [row_label]
             for sample_metadata in sample_column_metadata:
                 value_text = metadata_text(sample_metadata.get(row_label, ""))
@@ -186,6 +175,11 @@ def build_session_payload(main_window):
         "cell_items": [cell_circle_to_dict(circle) for circle in main_window.cell_items],
         "next_cell_id": int(main_window.next_cell_id),
         "cell_records_by_id": main_window.serialize_cell_records(),
+        "sample_metadata_schema": (
+            main_window.serialize_sample_metadata_schema()
+            if hasattr(main_window, "serialize_sample_metadata_schema")
+            else sample_metadata_schema_to_payload(default_sample_metadata_schema())
+        ),
         "sample_catalog": main_window.serialize_sample_catalog(),
         "next_sample_id": int(main_window.next_sample_id),
         "keyframe_list": main_window.keyframe_list.copy(),
@@ -235,7 +229,10 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
         "cell_items": cell_items,
         "next_cell_id": payload["next_cell_id"],
         "cell_records_by_id": payload["cell_records_by_id"],
-        "sample_catalog": payload["sample_catalog"],
+        "sample_metadata_schema": sample_metadata_schema_from_payload(
+            payload.get("sample_metadata_schema")
+        ),
+        "sample_catalog": payload.get("sample_catalog", {}),
         "next_sample_id": payload["next_sample_id"],
         "keyframe_list": payload["keyframe_list"],
         "flagframe_list": payload["flagframe_list"],

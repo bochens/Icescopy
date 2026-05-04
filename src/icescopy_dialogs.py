@@ -80,6 +80,76 @@ def _setup_fixed_width_scrolling_dialog(dialog, *, width, initial_height, minimu
     return layout, scroll_area, scroll_contents, scroll_layout
 
 
+def _first_text_value(*values):
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _normalize_sample_choices(sample_choices):
+    normalized = []
+    for sample_choice in sample_choices:
+        if isinstance(sample_choice, dict):
+            sample_id = _first_text_value(
+                sample_choice.get("sample_id"),
+                sample_choice.get("group_key"),
+                sample_choice.get("value"),
+            )
+            sample_name = str(sample_choice.get("sample_name", "") or "").strip()
+            value = sample_id or sample_name
+            label = str(sample_choice.get("label", "") or sample_name or value).strip()
+        else:
+            value = str(sample_choice or "").strip()
+            sample_name = value
+            label = value
+        if not value or not label:
+            continue
+        normalized.append(
+            {
+                "value": value,
+                "sample_name": sample_name,
+                "label": label,
+            }
+        )
+    return normalized
+
+
+def _selected_sample_values(initial_values):
+    if isinstance(initial_values, (str, bytes)):
+        values = [initial_values]
+    else:
+        values = list(initial_values or [])
+    return {str(value).strip() for value in values if str(value).strip()}
+
+
+def _populate_blank_sample_list(list_widget, sample_choices, selected_values, *, auto_select_blank=True):
+    selected_values = set(selected_values or [])
+    for sample_choice in _normalize_sample_choices(sample_choices):
+        item = QListWidgetItem(sample_choice["label"], list_widget)
+        item.setData(Qt.UserRole, sample_choice["value"])
+        sample_name = str(sample_choice.get("sample_name", "") or "")
+        if sample_name and sample_name != sample_choice["label"]:
+            item.setToolTip(sample_name)
+        if sample_choice["value"] in selected_values or (
+            auto_select_blank
+            and not selected_values
+            and "blank" in sample_name.casefold()
+        ):
+            item.setSelected(True)
+
+
+def _selected_blank_sample_values(list_widget):
+    values = []
+    for item in list_widget.selectedItems():
+        value = item.data(Qt.UserRole)
+        values.append(str(value if value is not None else item.text()))
+    return values
+
+
 class NewSessionMetadataDialog(QDialog):
     def __init__(self, parent=None, metadata=None, *, window_title="New Session"):
         super().__init__(parent)
@@ -225,10 +295,7 @@ class CSUTemperatureImportDialog(QDialog):
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.blank_sample_list.setMinimumHeight(132)
-        for sample_name in sample_names:
-            item = QListWidgetItem(str(sample_name), self.blank_sample_list)
-            if "blank" in str(sample_name).casefold():
-                item.setSelected(True)
+        _populate_blank_sample_list(self.blank_sample_list, sample_names, set())
         form.addRow("Water blank samples", self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
@@ -310,9 +377,7 @@ class CSUTemperatureImportDialog(QDialog):
             reset_temperature = None
         return {
             "file_path": self.file_path_edit.text().strip(),
-            "blank_sample_names": [
-                str(item.text()) for item in self.blank_sample_list.selectedItems()
-            ],
+            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "reset_temperature": reset_temperature,
         }
 
@@ -388,25 +453,11 @@ class TAMUTemperatureImportDialog(QDialog):
         calibration_row_widget.setLayout(calibration_row)
         form.addRow("Calibration CSV", calibration_row_widget)
 
-        if isinstance(initial_blank_sample_names, (str, bytes)):
-            blank_name_values = [initial_blank_sample_names]
-        else:
-            blank_name_values = list(initial_blank_sample_names or [])
-        selected_blank_names = {
-            str(sample_name).strip()
-            for sample_name in blank_name_values
-            if str(sample_name).strip()
-        }
+        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.blank_sample_list.setMinimumHeight(132)
-        for sample_name in sample_names:
-            sample_label = str(sample_name)
-            item = QListWidgetItem(sample_label, self.blank_sample_list)
-            if sample_label in selected_blank_names or (
-                not selected_blank_names and "blank" in sample_label.casefold()
-            ):
-                item.setSelected(True)
+        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
         form.addRow("Water blank samples", self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
@@ -517,9 +568,7 @@ class TAMUTemperatureImportDialog(QDialog):
             "file_path": self.file_path_edit.text().strip(),
             "calibration_path": self.calibration_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": [
-                str(item.text()) for item in self.blank_sample_list.selectedItems()
-            ],
+            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
         }
 
 
@@ -576,25 +625,11 @@ class PKUTemperatureImportDialog(QDialog):
         file_row_widget.setLayout(file_row)
         form.addRow("PKU .iml file", file_row_widget)
 
-        if isinstance(initial_blank_sample_names, (str, bytes)):
-            blank_name_values = [initial_blank_sample_names]
-        else:
-            blank_name_values = list(initial_blank_sample_names or [])
-        selected_blank_names = {
-            str(sample_name).strip()
-            for sample_name in blank_name_values
-            if str(sample_name).strip()
-        }
+        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.blank_sample_list.setMinimumHeight(132)
-        for sample_name in sample_names:
-            sample_label = str(sample_name)
-            item = QListWidgetItem(sample_label, self.blank_sample_list)
-            if sample_label in selected_blank_names or (
-                not selected_blank_names and "blank" in sample_label.casefold()
-            ):
-                item.setSelected(True)
+        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
         form.addRow("Water blank samples", self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
@@ -677,9 +712,7 @@ class PKUTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": [
-                str(item.text()) for item in self.blank_sample_list.selectedItems()
-            ],
+            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
         }
 
 
@@ -785,11 +818,7 @@ class StandardTemperatureImportDialog(QDialog):
         file_row_widget = QWidget(self)
         file_row_widget.setLayout(file_row)
 
-        selected_blank_names = {
-            str(sample_name).strip()
-            for sample_name in (initial_blank_sample_names or [])
-            if str(sample_name).strip()
-        }
+        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
 
         self.image_timestamp_source_combo = QComboBox(self)
         self.image_timestamp_source_combo.setMinimumContentsLength(18)
@@ -911,13 +940,7 @@ class StandardTemperatureImportDialog(QDialog):
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.blank_sample_list.setMinimumHeight(132)
-        for sample_name in sample_names:
-            sample_label = str(sample_name)
-            item = QListWidgetItem(sample_label, self.blank_sample_list)
-            if sample_label in selected_blank_names or (
-                not selected_blank_names and "blank" in sample_label.casefold()
-            ):
-                item.setSelected(True)
+        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
         self.temperature_form.addRow(make_form_label("Water blank samples"), self.blank_sample_list)
 
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
@@ -1144,9 +1167,7 @@ class StandardTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": [
-                str(item.text()) for item in self.blank_sample_list.selectedItems()
-            ],
+            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "image_timestamp_source": self.selected_image_timestamp_source(),
             "image_timestamp_style": self.selected_image_timestamp_style(),
             "temperature_timestamp_style": self.selected_temperature_timestamp_style(),

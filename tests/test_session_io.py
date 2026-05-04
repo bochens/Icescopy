@@ -20,7 +20,12 @@ if str(SRC_DIR) not in sys.path:
 import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
-from icescopy_temperature_import import TemperatureImportError  # noqa: E402
+from icescopy_temperature_import import (  # noqa: E402
+    StandardTemperatureTimeseries,
+    TAMULinkamTimeseries,
+    TemperatureImportError,
+    TIMESTAMP_STYLE_YEAR4_COMPACT,
+)
 from icescopy_session_io import (  # noqa: E402
     FREEZE_COUNT_TIMESERIES_CSV_FILENAME,
     FREEZE_CSV_FILENAME,
@@ -316,7 +321,13 @@ class SessionIoTests(unittest.TestCase):
                 last_temperature_import_path="/tmp/sample.iml",
                 last_temperature_reset_temperature=None,
                 last_temperature_blank_sample_names=[],
-                available_sample_names=lambda: ["Sample A"],
+                available_sample_choices=lambda: [
+                    {
+                        "sample_id": "1",
+                        "sample_name": "Sample A",
+                        "label": "Sample A",
+                    }
+                ],
             )
 
             IceScopy.import_pku_linksys32_iml(fake_window)
@@ -324,7 +335,10 @@ class SessionIoTests(unittest.TestCase):
             icescopy_module.PKUTemperatureImportDialog = original_dialog
 
         self.assertEqual(captured_kwargs["main_window"], fake_window)
-        self.assertEqual(captured_kwargs["sample_names"], ["Sample A"])
+        self.assertEqual(
+            captured_kwargs["sample_names"],
+            [{"sample_id": "1", "sample_name": "Sample A", "label": "Sample A"}],
+        )
         self.assertEqual(captured_kwargs["initial_blank_sample_names"], [])
         self.assertEqual(captured_kwargs["parent"], fake_window)
         self.assertNotIn("initial_calibration_path", captured_kwargs)
@@ -638,6 +652,178 @@ class SessionIoTests(unittest.TestCase):
             groups["1"],
         )
         self.assertEqual(metadata["cell_number"], "1")
+
+        _matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
+            IceScopy.build_freeze_count_timeseries_blank_selection(
+                fake_window,
+                groups,
+                blank_sample_names=["1"],
+            )
+        )
+        self.assertEqual([sample["sample_id"] for sample in blank_samples], ["1"])
+        self.assertEqual([sample["sample_id"] for sample in output_samples], ["2"])
+        self.assertEqual(unmatched_blank_samples, [])
+
+    def test_standard_import_rejects_zero_interpolated_frames(self):
+        fake_window = SimpleNamespace(
+            imageNames=["20260101_000000.png"],
+            imagePaths=["/tmp/20260101_000000.png"],
+            cell_records_by_id={},
+            temperature_cycle_warmup_hysteresis_c=0.02,
+        )
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
+        fake_window.is_video_source = lambda: False
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
+        fake_window.build_tamu_freeze_count_timeseries_sample_groups = (
+            lambda: IceScopy.build_tamu_freeze_count_timeseries_sample_groups(fake_window)
+        )
+        fake_window.build_freeze_count_timeseries_sample_groups = (
+            lambda grouping_mode="samples": IceScopy.build_freeze_count_timeseries_sample_groups(
+                fake_window,
+                grouping_mode=grouping_mode,
+            )
+        )
+        fake_window.build_freeze_count_timeseries_blank_selection = (
+            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+                fake_window,
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        fake_window.detect_cycle_start_indexes_from_temperatures = (
+            lambda temperatures, reset_temperature: IceScopy.detect_cycle_start_indexes_from_temperatures(
+                fake_window,
+                temperatures,
+                reset_temperature,
+            )
+        )
+        fake_window.cycle_index_for_position = (
+            lambda position_value, cycle_start_positions: IceScopy.cycle_index_for_position(
+                fake_window,
+                position_value,
+                cycle_start_positions,
+            )
+        )
+        fake_window.build_standard_image_timing_context = (
+            lambda parsed_timeseries, **kwargs: IceScopy.build_standard_image_timing_context(
+                fake_window,
+                parsed_timeseries,
+                **kwargs,
+            )
+        )
+        fake_window.build_tamu_cycle_reset_image_counts = (
+            lambda sample_groups, image_cycle_ids: IceScopy.build_tamu_cycle_reset_image_counts(
+                fake_window,
+                sample_groups,
+                image_cycle_ids,
+            )
+        )
+        fake_window.normalize_temperature_reset_threshold = (
+            lambda reset_temperature: IceScopy.normalize_temperature_reset_threshold(
+                fake_window,
+                reset_temperature,
+            )
+        )
+        parsed_timeseries = StandardTemperatureTimeseries(
+            file_path="/tmp/temperature.csv",
+            timeseries_datetimes=[
+                datetime(2026, 1, 2, 0, 0, 0),
+                datetime(2026, 1, 2, 0, 1, 0),
+            ],
+            timeseries_timestamp_texts=[
+                "2026-01-02 00:00:00",
+                "2026-01-02 00:01:00",
+            ],
+            temperature_values=[-5.0, -6.0],
+            timeseries_row_count=2,
+        )
+
+        with self.assertRaises(TemperatureImportError):
+            IceScopy.build_standard_freeze_count_timeseries_results(
+                fake_window,
+                parsed_timeseries,
+                image_timestamp_style=TIMESTAMP_STYLE_YEAR4_COMPACT,
+            )
+
+    def test_tamu_import_rejects_zero_interpolated_images(self):
+        fake_window = SimpleNamespace(
+            imageNames=["2026-01-01-00-00-00-000000.png"],
+            imagePaths=["/tmp/2026-01-01-00-00-00-000000.png"],
+            cell_records_by_id={},
+            temperature_cycle_warmup_hysteresis_c=0.02,
+            last_temperature_calibration_path="",
+        )
+        fake_window.frame_count = lambda: len(fake_window.imageNames)
+        fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
+        fake_window.build_tamu_freeze_count_timeseries_sample_groups = (
+            lambda: IceScopy.build_tamu_freeze_count_timeseries_sample_groups(fake_window)
+        )
+        fake_window.build_freeze_count_timeseries_sample_groups = (
+            lambda grouping_mode="samples": IceScopy.build_freeze_count_timeseries_sample_groups(
+                fake_window,
+                grouping_mode=grouping_mode,
+            )
+        )
+        fake_window.build_freeze_count_timeseries_blank_selection = (
+            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+                fake_window,
+                sample_groups,
+                blank_sample_names=blank_sample_names,
+            )
+        )
+        fake_window.detect_cycle_start_indexes_from_temperatures = (
+            lambda temperatures, reset_temperature: IceScopy.detect_cycle_start_indexes_from_temperatures(
+                fake_window,
+                temperatures,
+                reset_temperature,
+            )
+        )
+        fake_window.cycle_index_for_position = (
+            lambda position_value, cycle_start_positions: IceScopy.cycle_index_for_position(
+                fake_window,
+                position_value,
+                cycle_start_positions,
+            )
+        )
+        fake_window.build_tamu_image_timing_context = (
+            lambda parsed_timeseries, reset_temperature=None: IceScopy.build_tamu_image_timing_context(
+                fake_window,
+                parsed_timeseries,
+                reset_temperature=reset_temperature,
+            )
+        )
+        fake_window.build_tamu_cycle_reset_image_counts = (
+            lambda sample_groups, image_cycle_ids: IceScopy.build_tamu_cycle_reset_image_counts(
+                fake_window,
+                sample_groups,
+                image_cycle_ids,
+            )
+        )
+        fake_window.normalize_temperature_reset_threshold = (
+            lambda reset_temperature: IceScopy.normalize_temperature_reset_threshold(
+                fake_window,
+                reset_temperature,
+            )
+        )
+        parsed_timeseries = TAMULinkamTimeseries(
+            file_path="/tmp/tamu.xlsx",
+            start_timestamp=datetime(2026, 1, 2, 0, 0, 0),
+            start_timestamp_text="2026-01-02 00:00:00",
+            timeseries_seconds=[0.0, 60.0],
+            temperature_values=[-5.0, -6.0],
+            sample_period_seconds=60.0,
+            timeseries_row_count=2,
+        )
+
+        with self.assertRaises(TemperatureImportError):
+            IceScopy.build_tamu_freeze_count_timeseries_results(
+                fake_window,
+                parsed_timeseries,
+            )
 
     def test_freeze_count_timeseries_grouping_keeps_unassigned_cells_as_single_cell_groups(self):
         fake_window = SimpleNamespace(
