@@ -825,7 +825,7 @@ class SessionIoTests(unittest.TestCase):
                 parsed_timeseries,
             )
 
-    def test_freeze_count_timeseries_grouping_keeps_unassigned_cells_as_single_cell_groups(self):
+    def test_freeze_count_timeseries_grouping_combines_unassigned_cells(self):
         fake_window = SimpleNamespace(
             cell_records_by_id={
                 10: SimpleNamespace(sample_id="1"),
@@ -857,37 +857,54 @@ class SessionIoTests(unittest.TestCase):
 
         groups = IceScopy.build_freeze_count_timeseries_sample_groups(fake_window, grouping_mode="samples")
 
-        self.assertEqual(sorted(groups.keys()), ["1", "__cell_11__", "__cell_12__"])
+        self.assertEqual(sorted(groups.keys()), ["1", "__unassigned_cells__"])
         self.assertEqual(groups["1"]["sample_name"], "Sample_1")
         self.assertEqual(groups["1"]["cell_ids"], [10])
-        self.assertEqual(groups["__cell_11__"]["sample_id"], "")
-        self.assertEqual(groups["__cell_11__"]["sample_name"], "Cell 11")
-        self.assertEqual(groups["__cell_11__"]["cell_ids"], [11])
-        self.assertEqual(groups["__cell_11__"]["total_cells"], 1)
-        self.assertEqual(groups["__cell_12__"]["sample_name"], "Cell 12")
-        self.assertEqual(groups["__cell_12__"]["cell_ids"], [12])
+        self.assertEqual(groups["__unassigned_cells__"]["sample_id"], "")
+        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "Unassigned cells")
+        self.assertEqual(groups["__unassigned_cells__"]["cell_ids"], [11, 12])
+        self.assertEqual(groups["__unassigned_cells__"]["total_cells"], 2)
 
         matched_samples, _blank_samples, output_samples, _unmatched_blank_samples = (
             IceScopy.build_freeze_count_timeseries_blank_selection(fake_window, groups)
         )
         self.assertEqual(
             [sample["sample_name"] for sample in output_samples],
-            ["Sample_1", "Cell 11", "Cell 12"],
+            ["Sample_1", "Unassigned cells"],
         )
         self.assertEqual(
             [sample["group_key"] for sample in matched_samples],
-            ["1", "__cell_11__", "__cell_12__"],
+            ["1", "__unassigned_cells__"],
         )
 
         metadata = IceScopy.build_freeze_count_timeseries_sample_column_metadata(
             fake_window,
-            groups["__cell_11__"],
+            groups["__unassigned_cells__"],
         )
         self.assertEqual(metadata["sample_id"], "")
-        self.assertEqual(metadata["sample_name"], "Cell 11")
-        self.assertEqual(metadata["cell_number"], "1")
+        self.assertEqual(metadata["sample_name"], "Unassigned cells")
+        self.assertEqual(metadata["cell_number"], "2")
 
-    def test_pku_linksys32_import_outputs_unassigned_cells_as_columns(self):
+    def test_freeze_count_timeseries_grouping_treats_no_sample_as_all_cells(self):
+        fake_window = SimpleNamespace(
+            cell_records_by_id={
+                0: SimpleNamespace(sample_id=""),
+                1: SimpleNamespace(sample_id=None),
+                2: SimpleNamespace(sample_id=""),
+            },
+            sample_catalog={},
+        )
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
+
+        groups = IceScopy.build_freeze_count_timeseries_sample_groups(fake_window, grouping_mode="samples")
+
+        self.assertEqual(list(groups.keys()), ["__unassigned_cells__"])
+        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "All cells")
+        self.assertEqual(groups["__unassigned_cells__"]["cell_ids"], [0, 1, 2])
+        self.assertEqual(groups["__unassigned_cells__"]["total_cells"], 3)
+
+    def test_pku_linksys32_import_outputs_unassigned_cells_as_one_group(self):
         fake_window = SimpleNamespace(
             imageNames=["frame_001.jpg", "frame_002.jpg"],
             imagePaths=["/tmp/frame_001.jpg", "/tmp/frame_002.jpg"],
@@ -934,21 +951,21 @@ class SessionIoTests(unittest.TestCase):
                 "water blank correction count",
                 "Sample_1 number total",
                 "Sample_1 number frozen",
-                "Cell 2 number total",
-                "Cell 2 number frozen",
+                "Unassigned cells number total",
+                "Unassigned cells number frozen",
             ],
         )
         self.assertEqual(rows[0][5:], ["1", "0", "1", "1"])
         self.assertEqual(rows[1][5:], ["1", "1", "1", "1"])
-        self.assertEqual(summary["matched_samples"], ["Sample_1", "Cell 2"])
+        self.assertEqual(summary["matched_samples"], ["Sample_1", "Unassigned cells"])
         self.assertEqual(
             [metadata["sample_name"] for metadata in summary["sample_column_metadata"]],
-            ["Sample_1", "Cell 2"],
+            ["Sample_1", "Unassigned cells"],
         )
         self.assertEqual(summary["sample_column_metadata"][1]["sample_id"], "")
         self.assertEqual(summary["sample_column_metadata"][1]["cell_number"], "1")
 
-    def test_csu_import_outputs_unassigned_cells_as_app_count_columns(self):
+    def test_csu_import_outputs_unassigned_cells_as_one_group(self):
         fake_window = SimpleNamespace(
             imageNames=["frame_001.png", "frame_002.png"],
             imagePaths=["/tmp/frame_001.png", "/tmp/frame_002.png"],
@@ -1060,17 +1077,17 @@ class SessionIoTests(unittest.TestCase):
                 "water blank correction count",
                 "Sample_1 number total",
                 "Sample_1 number frozen",
-                "Cell 2 number total",
-                "Cell 2 number frozen",
+                "Unassigned cells number total",
+                "Unassigned cells number frozen",
             ],
         )
         self.assertEqual(rows[0][5:], ["1", "0", "1", "1"])
         self.assertEqual(rows[1][5:], ["1", "1", "1", "1"])
-        self.assertEqual(summary["matched_samples"], ["Sample_1", "Cell 2"])
+        self.assertEqual(summary["matched_samples"], ["Sample_1", "Unassigned cells"])
         self.assertEqual(summary["unmatched_app_samples"], [])
         self.assertEqual(
             [metadata["sample_name"] for metadata in summary["sample_column_metadata"]],
-            ["Sample_1", "Cell 2"],
+            ["Sample_1", "Unassigned cells"],
         )
 
     def test_missing_metadata_report_lists_session_and_sample_gaps(self):

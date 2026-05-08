@@ -61,6 +61,7 @@ class FreezeCountTimeseriesMixin:
             }
 
         groups = {}
+        unassigned_cell_ids = []
         for cell_id in sorted(self.cell_records_by_id.keys()):
             record = self.ensure_cell_record(cell_id)
             if record is None:
@@ -68,21 +69,7 @@ class FreezeCountTimeseriesMixin:
             raw_sample_id = getattr(record, "sample_id", "")
             sample_id = "" if raw_sample_id is None else str(raw_sample_id).strip()
             if not sample_id:
-                group_key = f"__cell_{int(cell_id)}__"
-                groups[group_key] = {
-                    "group_key": group_key,
-                    "group_role": "unassigned_cell",
-                    "sample_id": "",
-                    "sample_name": f"Cell {int(cell_id)}",
-                    **{
-                        field_name: ""
-                        for field_name in metadata_field_names
-                        if field_name != "sample_name"
-                    },
-                    "cell_ids": [int(cell_id)],
-                    "total_cells": 1,
-                    "sort_index": int(cell_id),
-                }
+                unassigned_cell_ids.append(int(cell_id))
                 continue
             sample_record = self.sample_record_for_id(sample_id)
             sample_name = str(sample_record.get("sample_name", "")).strip()
@@ -107,6 +94,22 @@ class FreezeCountTimeseriesMixin:
             )
             group["cell_ids"].append(int(cell_id))
             group["total_cells"] += 1
+        if unassigned_cell_ids:
+            group_key = "__unassigned_cells__"
+            groups[group_key] = {
+                "group_key": group_key,
+                "group_role": "unassigned_cells",
+                "sample_id": "",
+                "sample_name": "Unassigned cells" if groups else "All cells",
+                **{
+                    field_name: ""
+                    for field_name in metadata_field_names
+                    if field_name != "sample_name"
+                },
+                "cell_ids": unassigned_cell_ids,
+                "total_cells": len(unassigned_cell_ids),
+                "sort_index": max(unassigned_cell_ids) if unassigned_cell_ids else 0,
+            }
         return groups
 
     def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
@@ -213,12 +216,12 @@ class FreezeCountTimeseriesMixin:
             )
         matched_samples.sort(
             key=lambda sample: (
-                1 if sample.get("group_role") == "unassigned_cell" else 0,
+                1 if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"} else 0,
                 ""
-                if sample.get("group_role") == "unassigned_cell"
+                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
                 else str(sample["sample_name"]).casefold(),
                 int(sample.get("sort_index", 0) or 0)
-                if sample.get("group_role") == "unassigned_cell"
+                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
                 else 0,
                 str(sample.get("sample_id", "") or ""),
                 str(sample.get("group_key", "")),
@@ -790,7 +793,7 @@ class FreezeCountTimeseriesMixin:
 
         matched_group_keys = {str(sample.get("group_key", "")) for sample in matched_samples}
         for group in sample_groups.values():
-            if str(group.get("group_role", "")) != "unassigned_cell":
+            if str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"}:
                 continue
             group_key = str(group.get("group_key", ""))
             if group_key in matched_group_keys:
@@ -799,7 +802,7 @@ class FreezeCountTimeseriesMixin:
             matched_samples.append(
                 {
                     "group_key": group_key,
-                    "group_role": "unassigned_cell",
+                    "group_role": str(group.get("group_role", "unassigned_cells") or "unassigned_cells"),
                     "sample_id": "",
                     "normalized_name": normalized_name,
                     "sample_name": str(group.get("sample_name", "")),
@@ -820,7 +823,7 @@ class FreezeCountTimeseriesMixin:
             for normalized_name, groups in groups_by_normalized_name.items()
             for group in groups
             if normalized_name not in dat_columns_by_name
-            and str(group.get("group_role", "")) != "unassigned_cell"
+            and str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"}
         )
         unmatched_dat_samples = sorted(
             column_name

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSize, Qt
+from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSize, QTimer, Qt
 from PySide6.QtGui import QBrush, QDoubleValidator, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -307,6 +307,7 @@ class SampleCatalogTreeDelegate(QStyledItemDelegate):
 
         editor = QLineEdit(parent)
         editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
+        editor.setFocusPolicy(Qt.ClickFocus)
         editor.setEnabled(is_editable)
         editor.setReadOnly(not is_editable)
         if field_type == "number":
@@ -356,6 +357,7 @@ class SampleCatalogTreeDelegate(QStyledItemDelegate):
             return
         if isinstance(editor, QLineEdit):
             editor.setText(str(index.data(Qt.EditRole) or ""))
+            editor.deselect()
             return
         super().setEditorData(editor, index)
 
@@ -509,6 +511,7 @@ class SampleCatalogPanelMixin:
         for row in range(self.sample_catalog_tree_model.rowCount(sample_index)):
             value_index = self.sample_catalog_tree_model.index(row, 1, sample_index)
             self.sample_catalog_tree.openPersistentEditor(value_index)
+        QTimer.singleShot(0, self.clear_sample_catalog_editor_text_selection)
 
     def reopen_sample_catalog_persistent_editors_for_sample(self, sample_id):
         top_index = self.sample_catalog_top_index_by_id(sample_id)
@@ -518,6 +521,13 @@ class SampleCatalogPanelMixin:
             value_index = self.sample_catalog_tree_model.index(row, 1, top_index)
             self.sample_catalog_tree.closePersistentEditor(value_index)
             self.sample_catalog_tree.openPersistentEditor(value_index)
+        QTimer.singleShot(0, self.clear_sample_catalog_editor_text_selection)
+
+    def clear_sample_catalog_editor_text_selection(self):
+        if not hasattr(self, "sample_catalog_tree"):
+            return
+        for editor in self.sample_catalog_tree.findChildren(QLineEdit):
+            editor.deselect()
 
     def refresh_sample_catalog_tree(self, select_sample_id=None, preserve_selection=True):
         if not hasattr(self, "sample_catalog_tree_model"):
