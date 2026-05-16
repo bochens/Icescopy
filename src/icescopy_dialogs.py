@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtCore import Qt, QDate, QSignalBlocker
-from PySide6.QtGui import QDoubleValidator
 
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_CHOICES,
@@ -177,12 +176,6 @@ class NewSessionMetadataDialog(QDialog):
         self.project_name_edit = QLineEdit(str(metadata.get("project_name", "")), self)
         self.user_name_edit = QLineEdit(str(metadata.get("user_name", "")), self)
         self.institution_edit = QLineEdit(str(metadata.get("institution", "")), self)
-        self.well_volume_edit = QLineEdit(str(metadata.get("well_volume_uL", "") or ""), self)
-        self.well_volume_edit.setPlaceholderText("uL")
-        well_volume_validator = QDoubleValidator(self.well_volume_edit)
-        well_volume_validator.setNotation(QDoubleValidator.StandardNotation)
-        well_volume_validator.setBottom(0.0)
-        self.well_volume_edit.setValidator(well_volume_validator)
 
         raw_date_text = str(metadata.get("date", "") or "").strip()
         parsed_date = QDate.fromString(raw_date_text, Qt.ISODate)
@@ -209,7 +202,6 @@ class NewSessionMetadataDialog(QDialog):
         form.addRow("User Name", self.user_name_edit)
         form.addRow("Institution", self.institution_edit)
         form.addRow("Date", self.date_edit)
-        form.addRow("Well Volume (uL)", self.well_volume_edit)
         layout.addLayout(form)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -217,27 +209,12 @@ class NewSessionMetadataDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def accept(self):
-        well_volume_text = self.well_volume_edit.text().strip()
-        if well_volume_text:
-            try:
-                float(well_volume_text)
-            except ValueError:
-                QMessageBox.warning(
-                    self,
-                    self.windowTitle(),
-                    "Well Volume (uL) must be a number or left blank.",
-                )
-                return
-        super().accept()
-
     def get_metadata(self):
         return {
             "project_name": self.project_name_edit.text().strip(),
             "user_name": self.user_name_edit.text().strip(),
             "institution": self.institution_edit.text().strip(),
             "date": self.date_edit.date().toString(Qt.ISODate),
-            "well_volume_uL": self.well_volume_edit.text().strip(),
         }
 
 

@@ -27,6 +27,7 @@ from icescopy_sample_metadata import (
     sample_metadata_field_is_relevant,
     sample_metadata_field_keys,
     sample_metadata_field_label,
+    sample_metadata_field_same_for_all,
     sample_metadata_field_type,
 )
 from icescopy_tool_options import TOOL_OPTIONS_BUTTON_SPACING
@@ -164,6 +165,26 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             self.sample_record(sample_id),
         )
 
+    def field_is_same_for_all(self, field_key):
+        return sample_metadata_field_same_for_all(self.active_schema(), field_key)
+
+    def field_display_label(self, field_key):
+        label = sample_metadata_field_label(self.active_schema(), field_key)
+        if self.field_is_same_for_all(field_key):
+            return f"{label} [all]"
+        return label
+
+    def field_index(self, sample_id, field_key, column=1):
+        sample_id = int(sample_id)
+        for sample_row, sample_node in enumerate(self.root_node.children):
+            if sample_node.kind != "sample" or int(sample_node.sample_id) != sample_id:
+                continue
+            sample_index = self.index(sample_row, 0, QModelIndex())
+            for field_row, field_node in enumerate(sample_node.children):
+                if field_node.kind == "field" and field_node.field_key == field_key:
+                    return self.index(field_row, int(column), sample_index)
+        return QModelIndex()
+
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
@@ -179,7 +200,7 @@ class SampleCatalogTreeModel(QAbstractItemModel):
         if role == self.FIELD_TYPE_ROLE:
             return sample_metadata_field_type(self.active_schema(), node.field_key) if node.kind == "field" else ""
         if role == self.FIELD_LABEL_ROLE:
-            return sample_metadata_field_label(self.active_schema(), node.field_key) if node.kind == "field" else ""
+            return self.field_display_label(node.field_key) if node.kind == "field" else ""
         if role == self.EDITABLE_ROLE:
             return bool(node.kind == "field" and column == 1 and self.field_is_relevant(node.sample_id, node.field_key))
 
@@ -192,9 +213,11 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             return None
 
         record = self.sample_record(node.sample_id)
+        if role == Qt.ToolTipRole and self.field_is_same_for_all(node.field_key):
+            return "Same for all samples. Editing this value updates every sample in the catalog."
         if role in (Qt.DisplayRole, Qt.EditRole):
             if column == 0:
-                return sample_metadata_field_label(self.active_schema(), node.field_key)
+                return self.field_display_label(node.field_key)
             return str(record.get(node.field_key, "") or "")
         if role == Qt.ForegroundRole and not self.field_is_relevant(node.sample_id, node.field_key):
             palette = self.main_window.palette() if hasattr(self.main_window, "palette") else None
@@ -244,30 +267,54 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             except ValueError:
                 return False
 
-        sample_record = normalize_sample_catalog_record(
-            getattr(self.main_window, "sample_catalog", {}).get(
-                int(node.sample_id),
-                self.sample_record(node.sample_id),
-            ),
-            schema,
-        )
-        old_value = str(sample_record.get(field_key, "") or "")
-        if old_value == value_text:
+        target_sample_ids = [int(node.sample_id)]
+        if sample_metadata_field_same_for_all(schema, field_key):
+            target_sample_ids = sorted(
+                int(sample_id)
+                for sample_id in getattr(self.main_window, "sample_catalog", {}).keys()
+            )
+            if int(node.sample_id) not in target_sample_ids:
+                target_sample_ids.append(int(node.sample_id))
+                target_sample_ids.sort()
+
+        pending_records = {}
+        for sample_id in target_sample_ids:
+            sample_record = normalize_sample_catalog_record(
+                getattr(self.main_window, "sample_catalog", {}).get(
+                    int(sample_id),
+                    self.sample_record(sample_id),
+                ),
+                schema,
+            )
+            old_value = str(sample_record.get(field_key, "") or "")
+            if old_value == value_text:
+                continue
+            sample_record[field_key] = value_text
+            pending_records[int(sample_id)] = normalize_sample_catalog_record(sample_record, schema)
+
+        if not pending_records:
             return False
 
         before_state = self.main_window.capture_data_state() if hasattr(self.main_window, "capture_data_state") else None
-        sample_record[field_key] = value_text
-        self.main_window.sample_catalog[int(node.sample_id)] = normalize_sample_catalog_record(sample_record, schema)
+        for sample_id, sample_record in pending_records.items():
+            self.main_window.sample_catalog[int(sample_id)] = sample_record
 
-        self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+        changed_sample_ids = sorted(pending_records)
+        for sample_id in changed_sample_ids:
+            field_index = self.field_index(sample_id, field_key, 1)
+            if field_index.isValid():
+                self.dataChanged.emit(field_index, field_index, [Qt.DisplayRole, Qt.EditRole])
         if field_key == "sample_type":
-            parent_index = index.parent()
-            if parent_index.isValid() and self.rowCount(parent_index) > 0:
+            for sample_id in changed_sample_ids:
+                value_index = self.field_index(sample_id, field_key, 1)
+                parent_index = value_index.parent()
+                if not parent_index.isValid() or self.rowCount(parent_index) <= 0:
+                    continue
                 top_left = self.index(0, 0, parent_index)
                 bottom_right = self.index(self.rowCount(parent_index) - 1, 1, parent_index)
                 self.dataChanged.emit(top_left, bottom_right, [Qt.DisplayRole, Qt.EditRole, self.EDITABLE_ROLE, Qt.ForegroundRole])
-            if hasattr(self.main_window, "reopen_sample_catalog_persistent_editors_for_sample"):
-                self.main_window.reopen_sample_catalog_persistent_editors_for_sample(node.sample_id)
+                if hasattr(self.main_window, "reopen_sample_catalog_persistent_editors_for_sample"):
+                    self.main_window.reopen_sample_catalog_persistent_editors_for_sample(sample_id)
 
         refresh_metadata = getattr(self.main_window, "refresh_freeze_count_timeseries_metadata_from_sample_catalog", None)
         if callable(refresh_metadata):
@@ -280,7 +327,10 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 if callable(callback):
                     callback()
         if hasattr(self.main_window, "log"):
-            self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
+            if len(changed_sample_ids) > 1:
+                self.main_window.log(f"Update {field_key} to {value_text} for all samples")
+            else:
+                self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
         return True
 
 
@@ -464,7 +514,7 @@ class SampleCatalogPanelMixin:
         layout.addWidget(button_row)
 
         hint = QLabel(
-            "Expand a sample to edit metadata. Cursor mode only assigns selected cells to a sample or creates a new sample.",
+            "Expand a sample to edit metadata. Fields marked [all] use one shared value for every sample. Cursor mode only assigns selected cells to a sample or creates a new sample.",
             panel,
         )
         hint.setWordWrap(True)

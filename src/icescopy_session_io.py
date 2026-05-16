@@ -30,7 +30,6 @@ FREEZE_COUNT_TIMESERIES_PREAMBLE_KEYS = (
     "user_name",
     "institution",
     "analysis_date",
-    "well_volume_uL",
     "reset_temperature_C",
 )
 FREEZE_COUNT_TIMESERIES_METADATA_ROW_LABELS = (
@@ -107,9 +106,6 @@ def build_freeze_count_timeseries_csv_text(
         "user_name": metadata_text(session_metadata.get("user_name", "")),
         "institution": metadata_text(session_metadata.get("institution", "")),
         "analysis_date": metadata_text(session_metadata.get("date", "")),
-        "well_volume_uL": metadata_text(
-            session_metadata.get("well_volume_uL", summary.get("well_volume_uL", ""))
-        ),
         "reset_temperature_C": metadata_text(summary.get("reset_temperature")),
     }
 

@@ -108,6 +108,7 @@ from icescopy_sample_metadata import (
     dropped_sample_metadata_keys,
     export_sample_metadata_field_keys,
     migrate_sample_catalog_for_schema,
+    same_for_all_sample_metadata_values,
     sample_metadata_schema_from_payload,
     sample_metadata_schema_from_xml,
     sample_metadata_schema_to_payload,
@@ -704,8 +705,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
 
     def default_sample_record(self, sample_id):
-        record = normalize_sample_catalog_record({}, self.active_sample_metadata_schema())
+        active_schema = self.active_sample_metadata_schema()
+        record = normalize_sample_catalog_record({}, active_schema)
         record["sample_name"] = self.default_sample_name(sample_id)
+        for field_key, value in same_for_all_sample_metadata_values(
+            getattr(self, "sample_catalog", {}),
+            active_schema,
+        ).items():
+            record[field_key] = value
         return record
 
     def build_freeze_count_timeseries_sample_column_metadata(self, sample):
@@ -757,7 +764,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "user_name",
             "institution",
             "date",
-            "well_volume_uL",
         ):
             if not str(self.serialize_session_metadata().get(field_name, "") or "").strip():
                 missing_session_fields.append(field_name)
@@ -1498,7 +1504,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.session_user_name = ""
         self.session_institution = ""
         self.session_date = ""
-        self.session_well_volume_uL = ""
 
         # miscellaneous
         self.timer = None
@@ -1670,7 +1675,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "user_name": str(getattr(self, "session_user_name", "")).strip(),
             "institution": str(getattr(self, "session_institution", "")).strip(),
             "date": str(getattr(self, "session_date", "")).strip(),
-            "well_volume_uL": str(getattr(self, "session_well_volume_uL", "")).strip(),
         }
 
     def serialize_image_edit_state(self):
@@ -2785,7 +2789,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.session_user_name = str(metadata.get("user_name", "")).strip()
         self.session_institution = str(metadata.get("institution", "")).strip()
         self.session_date = str(metadata.get("date", "")).strip()
-        self.session_well_volume_uL = str(metadata.get("well_volume_uL", "")).strip()
         self.update_session_metadata_status_label()
 
     def format_session_metadata_status_text(self):
@@ -2794,7 +2797,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             ("user_name", "User"),
             ("institution", "Institution"),
             ("date", "Date"),
-            ("well_volume_uL", "Well Volume (uL)"),
         )
         metadata = self.serialize_session_metadata()
         parts = []

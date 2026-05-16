@@ -15,6 +15,7 @@ if str(SRC_DIR) not in sys.path:
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from icescopy_aux import PreferencesDialog  # noqa: E402
 from icescopy_sample_catalog import SampleCatalogTreeModel  # noqa: E402
 from icescopy_sample_metadata import (  # noqa: E402
     SampleMetadataSchemaError,
@@ -39,6 +40,7 @@ def schema_with_custom_fields():
             "type": "text",
             "fixed": False,
             "export": True,
+            "same_for_all": True,
             "required_for_sample_types": (),
         }
     )
@@ -66,6 +68,21 @@ def schema_with_custom_fields():
 
 
 class SampleMetadataTests(unittest.TestCase):
+    def test_preferences_initial_button_state_matches_empty_selection(self):
+        QApplication.instance() or QApplication([])
+        fake_window = SimpleNamespace(
+            load_preferences_from_xml=lambda: {
+                "SampleMetadataSchema": default_sample_metadata_schema()
+            }
+        )
+
+        dialog = PreferencesDialog(fake_window)
+
+        self.assertTrue(dialog.sample_add_field_button.isEnabled())
+        self.assertFalse(dialog.sample_delete_field_button.isEnabled())
+        self.assertFalse(dialog.sample_move_field_up_button.isEnabled())
+        self.assertFalse(dialog.sample_move_field_down_button.isEnabled())
+
     def test_xml_round_trip_preserves_order_types_fixed_and_export_flags(self):
         schema = schema_with_custom_fields()
         root = Element("Preferences")
@@ -78,9 +95,21 @@ class SampleMetadataTests(unittest.TestCase):
         self.assertEqual(restored[-3]["key"], "campaign_id")
         self.assertEqual(restored[-3]["type"], "text")
         self.assertTrue(restored[-3]["export"])
+        self.assertTrue(restored[-3]["same_for_all"])
         self.assertEqual(restored[-2]["key"], "lab_note")
         self.assertFalse(restored[-2]["export"])
         self.assertEqual(restored[-1]["type"], "number")
+
+    def test_default_schema_includes_shared_well_volume_field(self):
+        schema = default_sample_metadata_schema()
+        fields_by_key = {field["key"]: field for field in schema}
+
+        self.assertIn("well_volume_uL", fields_by_key)
+        self.assertEqual(fields_by_key["well_volume_uL"]["label"], "Well volume (uL)")
+        self.assertEqual(fields_by_key["well_volume_uL"]["type"], "number")
+        self.assertFalse(fields_by_key["well_volume_uL"]["fixed"])
+        self.assertTrue(fields_by_key["well_volume_uL"]["export"])
+        self.assertTrue(fields_by_key["well_volume_uL"]["same_for_all"])
 
     def test_schema_validation_protects_fixed_and_reserved_fields(self):
         schema = [
@@ -196,6 +225,52 @@ class SampleMetadataTests(unittest.TestCase):
         self.assertEqual(fake_window.sample_catalog[0]["campaign_id"], "new")
         self.assertFalse(model.setData(model.index(number_row, 1, top_index), "not-a-number", Qt.EditRole))
         self.assertEqual(fake_window.sample_catalog[0]["collection_temperature_c"], "1.5")
+        self.assertEqual(fake_window.history, ["Update Sample Metadata"])
+        self.assertEqual(fake_window.refresh_calls, 1)
+
+    def test_model_propagates_same_for_all_field_edits(self):
+        QApplication.instance() or QApplication([])
+        schema = default_sample_metadata_schema()
+        fake_window = SimpleNamespace(
+            sample_metadata_schema=schema,
+            sample_catalog={
+                0: normalize_sample_catalog_record({"sample_name": "Sample_0"}, schema),
+                1: normalize_sample_catalog_record({"sample_name": "Sample_1"}, schema),
+            },
+            history=[],
+            refresh_calls=0,
+        )
+        fake_window.active_sample_metadata_schema = lambda: fake_window.sample_metadata_schema
+        fake_window.ordered_sample_catalog_records = lambda: [
+            (sample_id, normalize_sample_catalog_record(sample_record, schema))
+            for sample_id, sample_record in sorted(fake_window.sample_catalog.items())
+        ]
+        fake_window.sample_record_for_id = lambda sample_id: normalize_sample_catalog_record(
+            fake_window.sample_catalog[int(sample_id)],
+            schema,
+        )
+        fake_window.default_sample_name = lambda sample_id: f"Sample_{sample_id}"
+        fake_window.capture_data_state = lambda: {"sample_catalog": dict(fake_window.sample_catalog)}
+        fake_window.push_data_history = lambda label, before_state: fake_window.history.append(label)
+        fake_window.refresh_freeze_count_timeseries_metadata_from_sample_catalog = (
+            lambda relabel_headers=False: setattr(fake_window, "refresh_calls", fake_window.refresh_calls + 1)
+        )
+
+        model = SampleCatalogTreeModel(fake_window)
+        top_index = model.index(0, 0)
+        keys = [
+            model.index(row, 0, top_index).data(SampleCatalogTreeModel.FIELD_NAME_ROLE)
+            for row in range(model.rowCount(top_index))
+        ]
+        well_volume_row = keys.index("well_volume_uL")
+
+        self.assertEqual(
+            model.index(well_volume_row, 0, top_index).data(Qt.DisplayRole),
+            "Well volume (uL) [all]",
+        )
+        self.assertTrue(model.setData(model.index(well_volume_row, 1, top_index), "50", Qt.EditRole))
+        self.assertEqual(fake_window.sample_catalog[0]["well_volume_uL"], "50")
+        self.assertEqual(fake_window.sample_catalog[1]["well_volume_uL"], "50")
         self.assertEqual(fake_window.history, ["Update Sample Metadata"])
         self.assertEqual(fake_window.refresh_calls, 1)
 

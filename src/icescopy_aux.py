@@ -758,6 +758,7 @@ class PreferencesDialog(QDialog):
     SAMPLE_FIELD_COLUMN_KEY = 1
     SAMPLE_FIELD_COLUMN_TYPE = 2
     SAMPLE_FIELD_COLUMN_EXPORT = 3
+    SAMPLE_FIELD_COLUMN_SAME_FOR_ALL = 4
     SAMPLE_FIELD_ORIGINAL_KEY_ROLE = Qt.UserRole
     SAMPLE_FIELD_REQUIRED_TYPES_ROLE = Qt.UserRole + 1
     SAMPLE_FIELD_FIXED_ROLE = Qt.UserRole + 2
@@ -768,7 +769,8 @@ class PreferencesDialog(QDialog):
         self.saved_preferences = self.load_saved_preferences()
         
         self.setWindowTitle("Preferences")
-        self.resize(760, 420)
+        self.resize(860, 560)
+        self.setMinimumWidth(780)
         outer_layout = QVBoxLayout()
         outer_layout.setContentsMargins(16, 16, 16, 16)
         outer_layout.setSpacing(12)
@@ -776,7 +778,7 @@ class PreferencesDialog(QDialog):
         content_layout.setSpacing(16)
         self.preference_label_width = 190
         self.preference_field_width = 220
-        self.preference_page_width = 560
+        self.preference_page_width = 640
         self.preference_help_width = self.preference_page_width - self.preference_label_width - 72
 
         self.default_circle_radius_field = self.make_double_spinbox(0.1, 100000.0, self.pref_value("DefaultCircleRadius"), 1)
@@ -787,10 +789,15 @@ class PreferencesDialog(QDialog):
         self.slider_tick_pixel_interval_field = self.make_double_spinbox(1.0, 1000.0, self.pref_value("SliderTickPixelInterval"), 1)
         self.undo_limit_field = self.make_spinbox(1, 1000, self.pref_value("UndoLimit"))
         self.sample_name_pattern_field = QLineEdit(str(self.pref_value("SampleNamePattern")))
-        self.sample_metadata_schema_table = QTableWidget(0, 4)
+        self.sample_metadata_schema_table = QTableWidget(0, 5)
         self.sample_metadata_schema_table.setHorizontalHeaderLabels(
-            ["Label", "Key", "Type", "Export"]
+            ["Label", "Key", "Type", "Export", "All"]
         )
+        same_for_all_header = self.sample_metadata_schema_table.horizontalHeaderItem(
+            self.SAMPLE_FIELD_COLUMN_SAME_FOR_ALL
+        )
+        if same_for_all_header is not None:
+            same_for_all_header.setToolTip("Same for all samples")
         self.sample_metadata_schema_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.sample_metadata_schema_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.sample_metadata_schema_table.setEditTriggers(
@@ -799,11 +806,24 @@ class PreferencesDialog(QDialog):
             | QAbstractItemView.SelectedClicked
         )
         self.sample_metadata_schema_table.verticalHeader().setVisible(False)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.sample_metadata_schema_table.setMinimumHeight(210)
+        self.sample_metadata_schema_table.verticalHeader().setDefaultSectionSize(34)
+        self.sample_metadata_schema_table.horizontalHeader().setStretchLastSection(False)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self.sample_metadata_schema_table.setColumnWidth(0, 190)
+        self.sample_metadata_schema_table.setColumnWidth(1, 260)
+        self.sample_metadata_schema_table.setColumnWidth(2, 112)
+        self.sample_metadata_schema_table.setColumnWidth(3, 66)
+        self.sample_metadata_schema_table.setColumnWidth(4, 48)
+        self.sample_metadata_schema_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.sample_metadata_schema_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.sample_metadata_schema_table.setMinimumWidth(0)
+        self.sample_metadata_schema_table.setWordWrap(False)
+        self.sample_metadata_schema_table.setFixedHeight(300)
+        self.sample_metadata_schema_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.sample_metadata_schema_table.setAlternatingRowColors(True)
         self.populate_sample_metadata_schema_table(self.pref_value("SampleMetadataSchema"))
         self.sample_add_field_button = QPushButton("Add Field")
@@ -817,6 +837,7 @@ class PreferencesDialog(QDialog):
         self.sample_move_field_down_button.clicked.connect(self.move_sample_metadata_field_down)
         self.sample_restore_default_fields_button.clicked.connect(self.restore_default_sample_metadata_fields)
         self.sample_metadata_schema_table.itemSelectionChanged.connect(self.update_sample_metadata_field_buttons)
+        self.update_sample_metadata_field_buttons()
         self.viewer_image_count_field = QComboBox()
         self.viewer_image_count_field.addItems(["1", "2", "3"])
         self.viewer_image_count_field.setMinimumContentsLength(10)
@@ -1085,7 +1106,7 @@ class PreferencesDialog(QDialog):
         outer_layout.setSpacing(0)
 
         content_widget = QWidget(page)
-        content_widget.setMaximumWidth(self.preference_page_width)
+        content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(20, 16, 28, 16)
         layout.setSpacing(20)
@@ -1103,8 +1124,6 @@ class PreferencesDialog(QDialog):
         subtitle_label.setFont(subtitle_font)
         subtitle_label.setStyleSheet("color: rgba(95, 95, 95, 220);")
         subtitle_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        title_label.setMaximumWidth(content_widget.maximumWidth())
-        subtitle_label.setMaximumWidth(content_widget.maximumWidth())
 
         layout.addWidget(title_label)
         layout.addWidget(subtitle_label)
@@ -1114,8 +1133,7 @@ class PreferencesDialog(QDialog):
             layout.addWidget(self.build_group_box(group_title, rows))
         layout.addStretch(1)
         page.content_layout = layout
-        outer_layout.addWidget(content_widget)
-        outer_layout.addStretch(1)
+        outer_layout.addWidget(content_widget, 1)
         return page
 
     def build_general_page(self):
@@ -1132,7 +1150,7 @@ class PreferencesDialog(QDialog):
 
     def build_sample_metadata_editor(self):
         section = QWidget()
-        section.setMaximumWidth(self.preference_page_width)
+        section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         section_layout = QVBoxLayout(section)
         section_layout.setContentsMargins(0, 0, 0, 0)
         section_layout.setSpacing(8)
@@ -1150,7 +1168,7 @@ class PreferencesDialog(QDialog):
         body_layout.setContentsMargins(16, 0, 0, 0)
         body_layout.setSpacing(8)
         body_layout.addWidget(self.sample_metadata_schema_table)
-        body_layout.addSpacing(12)
+        body_layout.addSpacing(18)
 
         button_row = QWidget(body)
         button_layout = QHBoxLayout(button_row)
@@ -1169,7 +1187,8 @@ class PreferencesDialog(QDialog):
         body_layout.addWidget(
             self.make_help_label(
                 "Fixed identity fields are always present. Custom keys must be lowercase snake_case. "
-                "Exported fields appear as metadata rows in exported freeze count timeseries CSV files."
+                "Exported fields appear as metadata rows in exported freeze count timeseries CSV files. "
+                "Same-for-all fields copy one edited value to every sample in the catalog."
             )
         )
 
@@ -1374,6 +1393,7 @@ class PreferencesDialog(QDialog):
         if checkable:
             flags |= Qt.ItemIsUserCheckable
             item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+            item.setTextAlignment(Qt.AlignCenter)
         item.setFlags(flags)
         return item
 
@@ -1382,7 +1402,6 @@ class PreferencesDialog(QDialog):
         self.sample_metadata_schema_table.setRowCount(0)
         for field in normalized_schema:
             self.append_sample_metadata_schema_row(field, original_key=field["key"])
-        self.sample_metadata_schema_table.resizeRowsToContents()
         self.update_sample_metadata_field_buttons()
 
     def append_sample_metadata_schema_row(self, field, *, original_key=""):
@@ -1426,6 +1445,7 @@ class PreferencesDialog(QDialog):
             for type_name in CUSTOM_SAMPLE_METADATA_FIELD_TYPES:
                 type_combo.addItem(type_name, type_name)
             type_combo.setCurrentIndex(max(0, type_combo.findData(field_type)))
+            type_combo.setFixedHeight(28)
             self.sample_metadata_schema_table.setCellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE, type_combo)
 
         export_item = self.make_sample_metadata_table_item(
@@ -1436,6 +1456,20 @@ class PreferencesDialog(QDialog):
             checked=bool(field.get("export", True)),
         )
         self.sample_metadata_schema_table.setItem(row, self.SAMPLE_FIELD_COLUMN_EXPORT, export_item)
+
+        same_for_all_enabled = key != "sample_name"
+        same_for_all_item = self.make_sample_metadata_table_item(
+            "",
+            editable=False,
+            enabled=same_for_all_enabled,
+            checkable=True,
+            checked=bool(field.get("same_for_all", False)) and same_for_all_enabled,
+        )
+        self.sample_metadata_schema_table.setItem(
+            row,
+            self.SAMPLE_FIELD_COLUMN_SAME_FOR_ALL,
+            same_for_all_item,
+        )
 
     def next_custom_sample_metadata_key(self):
         existing_keys = set()
@@ -1460,6 +1494,7 @@ class PreferencesDialog(QDialog):
                 "type": "text",
                 "fixed": False,
                 "export": True,
+                "same_for_all": False,
                 "required_for_sample_types": (),
             },
             original_key="",
@@ -1530,6 +1565,7 @@ class PreferencesDialog(QDialog):
             and row < self.sample_metadata_schema_table.rowCount() - 1
             and not self.sample_metadata_row_is_fixed(row + 1)
         )
+        self.sample_add_field_button.setEnabled(True)
         self.sample_delete_field_button.setEnabled(has_row and not is_fixed)
         self.sample_move_field_up_button.setEnabled(can_move_up)
         self.sample_move_field_down_button.setEnabled(can_move_down)
@@ -1542,6 +1578,7 @@ class PreferencesDialog(QDialog):
             label_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_LABEL)
             key_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_KEY)
             export_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_EXPORT)
+            same_for_all_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_SAME_FOR_ALL)
             if label_item is None or key_item is None:
                 continue
 
@@ -1565,6 +1602,11 @@ class PreferencesDialog(QDialog):
                 export = True
             else:
                 export = export_item is None or export_item.checkState() == Qt.Checked
+            same_for_all = (
+                key != "sample_name"
+                and same_for_all_item is not None
+                and same_for_all_item.checkState() == Qt.Checked
+            )
 
             required_types = default_required_types.get(key, ())
             field = {
@@ -1573,6 +1615,7 @@ class PreferencesDialog(QDialog):
                 "type": field_type,
                 "fixed": fixed,
                 "export": export,
+                "same_for_all": same_for_all,
                 "required_for_sample_types": required_types,
             }
             fields.append(field)

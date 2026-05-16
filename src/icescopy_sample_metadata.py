@@ -44,6 +44,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "text",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": (),
     },
     {
@@ -52,6 +53,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "text",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": (),
     },
     {
@@ -60,6 +62,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "text",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": (),
     },
     {
@@ -68,6 +71,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "datetime",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": (),
     },
     {
@@ -76,6 +80,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "datetime",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": (),
     },
     {
@@ -84,6 +89,16 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "sample_type",
         "fixed": True,
         "export": True,
+        "same_for_all": False,
+        "required_for_sample_types": (),
+    },
+    {
+        "key": "well_volume_uL",
+        "label": "Well volume (uL)",
+        "type": "number",
+        "fixed": False,
+        "export": True,
+        "same_for_all": True,
         "required_for_sample_types": (),
     },
     {
@@ -92,6 +107,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "number",
         "fixed": False,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": ("air", "soil", "other"),
     },
     {
@@ -100,6 +116,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "number",
         "fixed": False,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": ("air",),
     },
     {
@@ -108,6 +125,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "number",
         "fixed": False,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": ("air",),
     },
     {
@@ -116,6 +134,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "number",
         "fixed": False,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": ("air", "soil"),
     },
     {
@@ -124,6 +143,7 @@ DEFAULT_SAMPLE_METADATA_SCHEMA = (
         "type": "number",
         "fixed": False,
         "export": True,
+        "same_for_all": False,
         "required_for_sample_types": ("soil",),
     },
 )
@@ -191,12 +211,16 @@ def normalize_sample_metadata_field(field):
     if key == "sample_type":
         field_type = "sample_type"
     export = _parse_bool(field.get("export"), True)
+    same_for_all = _parse_bool(field.get("same_for_all"), False)
+    if key == "sample_name":
+        same_for_all = False
     return {
         "key": key,
         "label": label,
         "type": field_type,
         "fixed": fixed,
         "export": export,
+        "same_for_all": same_for_all,
         "required_for_sample_types": _normalize_required_sample_types(
             field.get("required_for_sample_types", ())
         ),
@@ -257,6 +281,7 @@ def sample_metadata_schema_from_xml(root):
                 "type": field_element.get("type", "text"),
                 "fixed": _parse_bool(field_element.get("fixed"), False),
                 "export": _parse_bool(field_element.get("export"), True),
+                "same_for_all": _parse_bool(field_element.get("same_for_all"), False),
                 "required_for_sample_types": field_element.get("required_for_sample_types", ""),
             }
         )
@@ -272,6 +297,7 @@ def append_sample_metadata_schema_xml(parent, schema=None):
         field_element.set("type", field["type"])
         field_element.set("fixed", _bool_text(field["fixed"]))
         field_element.set("export", _bool_text(field["export"]))
+        field_element.set("same_for_all", _bool_text(field.get("same_for_all", False)))
         required_text = ",".join(field.get("required_for_sample_types", ()) or ())
         if required_text:
             field_element.set("required_for_sample_types", required_text)
@@ -286,6 +312,14 @@ def export_sample_metadata_field_keys(schema=None):
         field["key"]
         for field in normalize_sample_metadata_schema(schema)
         if bool(field.get("export", True))
+    )
+
+
+def same_for_all_sample_metadata_field_keys(schema=None):
+    return tuple(
+        field["key"]
+        for field in normalize_sample_metadata_schema(schema)
+        if bool(field.get("same_for_all", False))
     )
 
 
@@ -305,6 +339,11 @@ def sample_metadata_field_type(schema, key):
 def sample_metadata_field_label(schema, key):
     field = sample_metadata_field_for_key(schema, key)
     return str(key or "") if field is None else str(field.get("label", key) or key)
+
+
+def sample_metadata_field_same_for_all(schema, key):
+    field = sample_metadata_field_for_key(schema, key)
+    return False if field is None else bool(field.get("same_for_all", False))
 
 
 def sample_metadata_field_is_relevant(schema, field_key, sample_record):
@@ -336,6 +375,21 @@ def normalize_sample_catalog_record(value, schema=None):
         else:
             record[field_key] = str(raw_value or "").strip()
     return record
+
+
+def same_for_all_sample_metadata_values(catalog, schema=None):
+    active_schema = normalize_sample_metadata_schema(schema)
+    shared_values = {}
+    if not isinstance(catalog, dict):
+        return shared_values
+    for field_key in same_for_all_sample_metadata_field_keys(active_schema):
+        for _sample_id, sample_record in sorted(catalog.items(), key=lambda pair: int(pair[0])):
+            normalized_record = normalize_sample_catalog_record(sample_record, active_schema)
+            value = str(normalized_record.get(field_key, "") or "").strip()
+            if value:
+                shared_values[field_key] = value
+                break
+    return shared_values
 
 
 def migrate_sample_catalog_for_schema(catalog, old_schema, new_schema, rename_map=None):

@@ -1097,7 +1097,6 @@ class SessionIoTests(unittest.TestCase):
                 "user_name": "User",
                 "institution": "",
                 "date": "2026-04-22",
-                "well_volume_uL": "",
             },
             freeze_count_timeseries_summary={
                 "sample_column_metadata": [
@@ -1108,6 +1107,7 @@ class SessionIoTests(unittest.TestCase):
                         "collection_start": "",
                         "collection_end": "",
                         "sample_type": "air",
+                        "well_volume_uL": "",
                         "dilution": "",
                         "air_volume_L": "",
                         "filter_fraction_used": "0.5",
@@ -1128,9 +1128,8 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("Missing metadata values were written as nan in the exported Freeze Count Timeseries CSV.", report_lines[0])
         self.assertIn("- project_name", report_lines)
         self.assertIn("- institution", report_lines)
-        self.assertIn("- well_volume_uL", report_lines)
         self.assertIn(
-            "- Sample 1 (Sample A): sample_long_name, sampling_site, collection_start, collection_end, dilution, air_volume_L, suspension_volume_mL, dry_mass_g",
+            "- Sample 1 (Sample A): sample_long_name, sampling_site, collection_start, collection_end, well_volume_uL, dilution, air_volume_L, suspension_volume_mL, dry_mass_g",
             report_lines,
         )
 
@@ -1151,7 +1150,6 @@ class SessionIoTests(unittest.TestCase):
                 "user_name": "User",
                 "institution": "Inst",
                 "date": "2026-04-22",
-                "well_volume_uL": "50",
             },
             summary={
                 "reset_temperature": 5.0,
@@ -1164,6 +1162,7 @@ class SessionIoTests(unittest.TestCase):
                         "collection_start": "2026-04-22T12:00:00",
                         "collection_end": "2026-04-22T18:00:00",
                         "sample_type": "air",
+                        "well_volume_uL": "50",
                         "dilution": "1",
                         "air_volume_L": "100",
                         "filter_fraction_used": "0.5",
@@ -1181,7 +1180,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("# file_version: 1\n", csv_text)
         self.assertIn("# project_name: Proj\n", csv_text)
         self.assertIn("# analysis_date: 2026-04-22\n", csv_text)
-        self.assertIn("# well_volume_uL: 50\n", csv_text)
+        self.assertNotIn("# well_volume_uL: 50\n", csv_text)
         self.assertIn("# reset_temperature_C: 5.0\n", csv_text)
         self.assertNotIn("# date:", csv_text)
         self.assertNotIn("# exported_at:", csv_text)
@@ -1192,6 +1191,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("# collection_start,2026-04-22T12:00:00\n", csv_text)
         self.assertIn("# collection_end,2026-04-22T18:00:00\n", csv_text)
         self.assertIn("# sample_type,air\n", csv_text)
+        self.assertIn("# well_volume_uL,50\n", csv_text)
         non_comment_lines = [
             line for line in csv_text.splitlines()
             if not line.lstrip().startswith("#")
@@ -1224,6 +1224,7 @@ class SessionIoTests(unittest.TestCase):
                         "collection_start": "",
                         "collection_end": "",
                         "sample_type": "air",
+                        "well_volume_uL": "",
                         "dilution": "",
                         "air_volume_L": "",
                         "filter_fraction_used": "",
@@ -1237,7 +1238,7 @@ class SessionIoTests(unittest.TestCase):
 
         self.assertIn("# project_name: nan\n", csv_text)
         self.assertIn("# analysis_date: nan\n", csv_text)
-        self.assertIn("# well_volume_uL: nan\n", csv_text)
+        self.assertNotIn("# well_volume_uL: nan\n", csv_text)
         self.assertIn("# reset_temperature_C: nan\n", csv_text)
         self.assertNotIn("# exported_at:", csv_text)
         self.assertIn("# cell_number,nan\n", csv_text)
@@ -1245,6 +1246,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("# sampling_site,nan\n", csv_text)
         self.assertIn("# collection_start,nan\n", csv_text)
         self.assertIn("# collection_end,nan\n", csv_text)
+        self.assertIn("# well_volume_uL,nan\n", csv_text)
         self.assertIn("# air_volume_L,nan\n", csv_text)
 
     def test_build_session_payload_stores_current_tool_settings(self):
@@ -1435,7 +1437,6 @@ class SessionIoTests(unittest.TestCase):
                 "user_name": "User",
                 "institution": "Inst",
                 "date": "2026-04-22",
-                "well_volume_uL": "50",
             },
             "sample_catalog": {
                 "1": {
@@ -1445,6 +1446,7 @@ class SessionIoTests(unittest.TestCase):
                     "collection_start": "2026-04-22T12:00:00",
                     "collection_end": "2026-04-22T18:00:00",
                     "sample_type": "air",
+                    "well_volume_uL": "50",
                     "dilution": "1",
                     "air_volume_L": "100",
                     "filter_fraction_used": "0.5",
@@ -1465,6 +1467,7 @@ class SessionIoTests(unittest.TestCase):
                         "collection_start": "2026-04-22T12:00:00",
                         "collection_end": "2026-04-22T18:00:00",
                         "sample_type": "air",
+                        "well_volume_uL": "50",
                         "dilution": "1",
                         "air_volume_L": "100",
                         "filter_fraction_used": "0.5",
