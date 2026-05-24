@@ -38,6 +38,7 @@ from icescopy_dialogs import (
     PKUTemperatureImportDialog,
     StandardTemperatureImportDialog,
     TAMUTemperatureImportDialog,
+    UTKTemperatureImportDialog,
 )
 from icescopy_dock import DockTitleBar
 from icescopy_frameslider import FrameSlider, SliderZoom_Slider
@@ -46,6 +47,7 @@ from icescopy_frame_source import (
     SOURCE_KIND_IMAGE_SEQUENCE,
     SOURCE_KIND_VIDEO,
     VideoFrameSource,
+    VideoSequenceFrameSource,
     frame_source_from_session_payload,
 )
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
@@ -81,6 +83,8 @@ from icescopy_temperature_import import (
     parse_linksys32_iml,
     parse_standard_temperature_csv,
     parse_tamu_linkam_xlsx,
+    parse_utk_temperature_csv,
+    parse_utk_video_start_timestamp,
 )
 from icescopy_session import (
     FrameNavigationCommand,
@@ -240,6 +244,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grid_tilt_wheel_step = 1.0
         self.freeze_finder_width = 10.0
         self.freeze_finder_prominence = 100.0
+        self.freeze_finder_head_extend_points = 0
         self.freeze_finder_tail_extend_points = 5
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
@@ -250,8 +255,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
-        self.timeseries_current_frame_color = "255,204,0,220"
-        self.timeseries_current_frame_line_width = 2.0
+        self.timeseries_current_frame_color = "255,204,0,170"
+        self.timeseries_current_frame_line_width = 1.5
         self.circle_default_color = DEFAULT_VISUAL_COLORS["CircleDefaultColor"]
         self.circle_hover_color = DEFAULT_VISUAL_COLORS["CircleHoverColor"]
         self.circle_selected_color = DEFAULT_VISUAL_COLORS["CircleSelectedColor"]
@@ -361,6 +366,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grid_tilt_wheel_step = preferences.get('GridTiltWheelStep', self.grid_tilt_wheel_step)
         self.freeze_finder_width = preferences.get('FreezeFinderWidth', self.freeze_finder_width)
         self.freeze_finder_prominence = preferences.get('FreezeFinderProminence', self.freeze_finder_prominence)
+        self.freeze_finder_head_extend_points = int(
+            preferences.get('FreezeFinderHeadExtendPoints', self.freeze_finder_head_extend_points)
+        )
         self.freeze_finder_tail_extend_points = int(
             preferences.get('FreezeFinderTailExtendPoints', self.freeze_finder_tail_extend_points)
         )
@@ -1216,7 +1224,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if not visible:
             return
         self.refresh_grayscale_plot()
-        self.update_grayscale_plot_current_frame()
+        self.update_grayscale_plot_current_frame(force=True)
 
     def refresh_cursor_selection_info(self, selected_items=None):
         if not hasattr(self, "cursor_info_value_labels"):
@@ -1572,10 +1580,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return
 
         self.video_preview_decoder = VideoPreviewDecodeController(
-            frame_source.source_path(),
+            frame_source.preview_payload(),
             preview_cache_dir,
-            getattr(frame_source, "frame_metadata", lambda: [])(),
-            getattr(frame_source, "frame_size", lambda: (0, 0))(),
+            frame_source.source_token(),
             parent=self,
         )
         self.video_preview_decoder.decoded.connect(self.handle_video_preview_decoded)
@@ -1593,6 +1600,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def supports_image_file_operations(self):
         try:
             return bool(self.active_frame_source().supports_image_file_operations())
+        except Exception:
+            return False
+
+    def supports_video_clip_sorting(self):
+        if not self.is_video_source():
+            return False
+        try:
+            return len(self.active_frame_source().source_paths()) > 1
         except Exception:
             return False
 
@@ -2959,6 +2974,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.import_csu_is_dat_action = QAction("CSU IS .dat import...", self)
         self.import_tamu_linkam_xlsx_action = QAction("TAMU Linkam .xlsx import...", self)
         self.import_pku_linksys32_iml_action = QAction("PKU Linksys32 .iml import...", self)
+        self.import_utk_csv_action = QAction("UTK CSV import...", self)
         self.sort_images_action = QAction("Sort Images", self)
         self.sample_manager_action = QAction("Sample Catalog Manager", self)
         self.image_edit_action = QAction("Image Edit", self)
@@ -3007,6 +3023,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         import_temperature_menu.addAction(self.import_csu_is_dat_action)
         import_temperature_menu.addAction(self.import_tamu_linkam_xlsx_action)
         import_temperature_menu.addAction(self.import_pku_linksys32_iml_action)
+        import_temperature_menu.addAction(self.import_utk_csv_action)
 
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
@@ -3050,6 +3067,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.import_csu_is_dat_action.triggered.connect(self.import_csu_is_dat)
         self.import_tamu_linkam_xlsx_action.triggered.connect(self.import_tamu_linkam_xlsx)
         self.import_pku_linksys32_iml_action.triggered.connect(self.import_pku_linksys32_iml)
+        self.import_utk_csv_action.triggered.connect(self.import_utk_temperature_csv)
         self.remove_selected_action.triggered.connect(self.remove_selected_image)
         self.clear_images_action.triggered.connect(self.clear_loaded_images)
         self.run_analysis_action.triggered.connect(self.outputData)
@@ -4954,6 +4972,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.freeze_results_rows,
             self.get_plot_target_cell_ids(),
             self.get_plot_current_image_index(),
+            self.freeze_finder_head_extend_points,
             self.freeze_finder_tail_extend_points,
             self.convolution_half_window_points,
             self.convolution_ramp_points,
@@ -4964,7 +4983,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.timeseries_freeze_line_width,
             self.get_qcolor(self.timeseries_current_frame_color).getRgb(),
             self.timeseries_current_frame_line_width,
-            current_image_name=self.get_plot_current_image_name(),
+            current_image_name=None if self.is_video_source() else self.get_plot_current_image_name(),
         )
 
     def grayscale_plot_is_visible(self):
@@ -4979,14 +4998,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 return False
         return bool(plot_widget.isVisible())
 
-    def update_grayscale_plot_current_frame(self):
+    def update_grayscale_plot_current_frame(self, force=False):
         if not hasattr(self, "grayscale_plot_widget"):
             return
         if not self.grayscale_plot_is_visible():
             return
+        current_image_name = None if self.is_video_source() else self.get_plot_current_image_name()
         self.grayscale_plot_widget.set_current_image_index(
             self.get_plot_current_image_index(),
-            self.get_plot_current_image_name(),
+            current_image_name,
+            force=force,
         )
 
     def get_plot_current_image_index(self):
@@ -6200,6 +6221,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         session_active = bool(getattr(self, "session_active", False))
         has_frames = session_active and self.has_frames()
         has_image_files = has_frames and self.supports_image_file_operations()
+        has_sortable_video_clips = has_frames and self.supports_video_clip_sorting()
         has_results = session_active and bool(
             self.grayscale_results_headers
             or self.freeze_results_headers
@@ -6216,7 +6238,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.open_video_action.setEnabled(can_open_video_source)
         self.remove_selected_action.setEnabled(self.image_list_enabled and has_image_files and not self.output_state)
         self.clear_images_action.setEnabled(has_frames and not self.output_state)
-        self.sort_images_action.setEnabled(has_image_files and not self.output_state)
+        self.sort_images_action.setEnabled((has_image_files or has_sortable_video_clips) and not self.output_state)
         self.relink_images_action.setEnabled(has_image_files and not self.output_state)
         self.sample_manager_action.setEnabled(interactive)
         self.new_session_action.setEnabled(not self.output_state)
@@ -6229,6 +6251,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.import_csu_is_dat_action.setEnabled(has_frames and not self.output_state)
         self.import_tamu_linkam_xlsx_action.setEnabled(has_frames and not self.output_state)
         self.import_pku_linksys32_iml_action.setEnabled(has_frames and not self.output_state)
+        self.import_utk_csv_action.setEnabled(has_frames and not self.output_state)
         self.import_temperature_csv_action.setEnabled(has_frames and not self.output_state)
         self.viewer_single_action.setEnabled(interactive)
         self.viewer_double_action.setEnabled(interactive)
@@ -6548,6 +6571,149 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.log("Standard temperature water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_blank:
             self.log("Standard temperature unmatched selected water blank samples: " + ", ".join(unmatched_blank))
+
+    def import_utk_temperature_csv(self, checked=False):
+        if not self.has_frames():
+            QMessageBox.information(
+                self,
+                "UTK CSV import",
+                "Load images or a video before importing a UTK CSV file.",
+            )
+            return
+
+        available_sample_names = self.available_sample_choices()
+        video_mode = self.is_video_source()
+        dialog = UTKTemperatureImportDialog(
+            self,
+            self.last_temperature_import_path,
+            available_sample_names,
+            getattr(self, "last_temperature_reset_temperature", None),
+            getattr(self, "last_temperature_blank_sample_names", []),
+            video_mode,
+            self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        dialog_values = dialog.get_values()
+        file_path = dialog_values["file_path"]
+        blank_sample_names = dialog_values["blank_sample_names"]
+        reset_temperature = dialog_values["reset_temperature"]
+
+        try:
+            parsed_timeseries = parse_utk_temperature_csv(file_path)
+            if video_mode:
+                source_paths = self.active_frame_source().source_paths()
+                start_timestamp = parse_utk_video_start_timestamp(source_paths[0] if source_paths else "")
+                if start_timestamp is None:
+                    raise TemperatureImportError(
+                        "UTK video import requires a video filename like 2026_0507_093532_002.MP4 so the first frame timestamp can be derived."
+                    )
+                image_timestamp_source = IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS
+                image_timestamp_style = TIMESTAMP_STYLE_AUTO
+                generated_start_text = start_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                image_timestamp_source = IMAGE_TIMESTAMP_SOURCE_FILENAME
+                image_timestamp_style = TIMESTAMP_STYLE_AUTO
+                generated_start_text = ""
+
+            headers, rows, summary = self.build_standard_freeze_count_timeseries_results(
+                parsed_timeseries,
+                blank_sample_names=blank_sample_names,
+                image_timestamp_source=image_timestamp_source,
+                image_timestamp_style=image_timestamp_style,
+                generated_start_text=generated_start_text,
+                frame_interval_seconds=1.0,
+                temperature_timestamp_style="UTK Time column",
+                temperature_unit=TEMPERATURE_UNIT_CELSIUS,
+                reset_temperature=reset_temperature,
+            )
+        except (OSError, TemperatureImportError) as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "UTK CSV import failed",
+                "The UTK CSV import failed.",
+                err,
+                detail_text,
+            )
+            self.log(f"UTK CSV import failed: {err}")
+            return
+        except Exception as err:
+            detail_text = traceback.format_exc()
+            self.show_detailed_error_dialog(
+                "UTK CSV import failed",
+                "The UTK CSV import failed due to an unexpected internal error.",
+                err,
+                detail_text,
+            )
+            self.log("UTK CSV import failed with an unexpected internal error.")
+            self.log(detail_text.rstrip())
+            return
+
+        self.last_temperature_import_path = str(file_path)
+        self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
+        self.last_temperature_calibration_path = ""
+        self.last_temperature_blank_sample_names = list(blank_sample_names)
+        self.set_freeze_count_timeseries_results(headers, rows, summary)
+
+        matched_samples = summary.get("matched_samples", [])
+        matched_blank_samples = summary.get("matched_blank_samples", [])
+        unmatched_blank = summary.get("unmatched_blank_samples", [])
+        parsed_image_count = int(summary.get("parsed_image_count", 0))
+        total_images = int(summary.get("total_images", 0))
+        in_range_image_count = int(summary.get("in_range_image_count", 0))
+        out_of_range_image_count = int(summary.get("out_of_range_image_count", 0))
+        unparsed_image_count = int(summary.get("unparsed_image_count", 0))
+        cycle_count = int(summary.get("cycle_count", 1))
+        reset_temperature = summary.get("reset_temperature")
+        grouping_mode = str(summary.get("grouping_mode", "samples"))
+        grouping_label = "Current sample setup" if grouping_mode == "samples" else "No sample (all cells as one sample)"
+        frame_label = "Frames" if video_mode else "Images"
+
+        message_lines = [
+            f"Grouping: {grouping_label}",
+            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
+            f"Detected cooling cycles: {cycle_count}",
+            "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
+        ]
+        if reset_temperature is not None:
+            message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
+        if video_mode:
+            message_lines.append("Frame timestamp source: UTK video filename start + video time")
+        else:
+            message_lines.append("Image timestamp source: filename")
+        message_lines.append("Temperature timestamp style: UTK Time column")
+        message_lines.append("Temperature column: PV(C)1")
+        if matched_samples:
+            message_lines.append("Output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
+        if out_of_range_image_count:
+            message_lines.append(f"{frame_label} outside the timeseries range: {out_of_range_image_count}")
+        if unparsed_image_count:
+            preview = ", ".join(summary.get("unparsed_images_preview", []))
+            if preview:
+                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})")
+            else:
+                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count}")
+
+        self.show_detailed_information_dialog(
+            "UTK CSV import",
+            "UTK CSV import completed successfully.\n\n"
+            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
+            "\n".join(message_lines),
+        )
+        self.log(f"Imported UTK CSV file: {file_path}")
+        self.log(f"UTK grouping mode: {grouping_label}")
+        if matched_samples:
+            self.log("UTK output samples: " + ", ".join(matched_samples))
+        if matched_blank_samples:
+            self.log("UTK water blank correction samples: " + ", ".join(matched_blank_samples))
+        if unmatched_blank:
+            self.log("UTK unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_csu_is_dat(self, checked=False):
         if not self.has_frames():
@@ -7627,23 +7793,38 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return sorted(paths, key=lambda path: (self.get_exif_sort_value(path), os.path.basename(path).lower()))
         return paths
 
+    def sort_video_paths_for_concatenation(self, file_paths, mode=None):
+        return self.sort_image_paths(file_paths, mode=mode or self.sort_mode)
+
     def openSortImagesDialog(self):
-        if not self.supports_image_file_operations():
-            QMessageBox.information(self, "Sort Images", "Sorting is only available for image-file sources.")
+        sorting_video_clips = self.supports_video_clip_sorting()
+        if not self.supports_image_file_operations() and not sorting_video_clips:
+            QMessageBox.information(self, "Sort Images", "Sorting is available for image files or multi-clip video sources.")
             return
-        availability = self.get_sort_availability()
+        sort_paths = (
+            self.active_frame_source().source_paths()
+            if sorting_video_clips
+            else self.imagePaths
+        )
+        availability = self.get_sort_availability(sort_paths)
+        if sorting_video_clips:
+            availability["exif_time"] = False
         dialog = SortImagesDialog(self, availability, self.sort_mode, self)
         if dialog.exec() != QDialog.Accepted:
             return
 
         selected_mode = dialog.selected_mode()
-        if not self.is_sort_mode_available(selected_mode):
+        if not self.is_sort_mode_available(selected_mode, sort_paths):
             QMessageBox.warning(self, "Sort Images", "The selected sort method is not available for the current session.")
             return
 
-        before_state = self.capture_session_state() if self.imagePaths else None
+        before_state = self.capture_session_state() if self.has_frames() else None
         self.sort_mode = selected_mode
-        if self.imagePaths:
+        if sorting_video_clips:
+            self.resort_current_video_clips()
+            if before_state is not None:
+                self.push_snapshot_history("Sort Video Clips", before_state)
+        elif self.imagePaths:
             self.resort_current_session()
             if before_state is not None:
                 self.push_snapshot_history("Sort Images", before_state)
@@ -7687,6 +7868,77 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.populate_image_list()
         self.updateImage(self.image_index)
         self.invalidate_analysis_results("image order changed")
+
+    def resort_current_video_clips(self):
+        if not self.supports_video_clip_sorting():
+            return
+
+        old_source = self.active_frame_source()
+        old_paths = old_source.source_paths()
+        sorted_paths = self.sort_video_paths_for_concatenation(old_paths)
+        if sorted_paths == old_paths:
+            return
+
+        current_reference = old_source.frame_reference(self.image_index)
+        keyframe_references = {
+            int(index): old_source.frame_reference(index)
+            for index in self.keyframe_list
+            if 0 <= int(index) < old_source.frame_count()
+        }
+        flagframe_references = {
+            int(index): old_source.frame_reference(index)
+            for index in self.flagframe_list
+            if 0 <= int(index) < old_source.frame_count()
+        }
+        keyframe_items_by_reference = {
+            old_source.frame_reference(index): circles
+            for index, circles in self.keyframe_cell_items_dict.items()
+            if 0 <= int(index) < old_source.frame_count()
+        }
+
+        self.reset_pending_frame_navigation_state(stop_timer=True)
+        self.clear_image_caches()
+        frame_source = VideoSequenceFrameSource(sorted_paths)
+        new_current_index = frame_source.global_index_for_reference(*current_reference)
+        if new_current_index is None:
+            new_current_index = 0
+
+        self.keyframe_list = sorted(
+            new_index
+            for new_index in (
+                frame_source.global_index_for_reference(*reference)
+                for reference in keyframe_references.values()
+            )
+            if new_index is not None
+        )
+        self.flagframe_list = sorted(
+            new_index
+            for new_index in (
+                frame_source.global_index_for_reference(*reference)
+                for reference in flagframe_references.values()
+            )
+            if new_index is not None
+        )
+        self.keyframe_cell_items_dict = {
+            new_index: circles
+            for reference, circles in keyframe_items_by_reference.items()
+            for new_index in [frame_source.global_index_for_reference(*reference)]
+            if new_index is not None
+        }
+
+        self.image_index = int(new_current_index)
+        self.last_committed_image_index = int(new_current_index)
+        self.set_frame_source(frame_source, reset_frame_ids=True)
+        self.populate_image_list()
+        self.image_slider.blockSignals(True)
+        self.image_slider.setMinimum(0)
+        self.image_slider.setMaximum(self.frame_count() - 1)
+        self.image_slider.setValue(self.image_index)
+        self.image_slider.blockSignals(False)
+        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+        self.updateImage(self.image_index)
+        self.finalize_frame_update(self.image_index)
+        self.invalidate_analysis_results("video clip order changed")
 
     def open_add_images_dialog(self):
         if self.has_frames() and self.is_video_source():
@@ -7755,17 +8007,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 "Video input requires PyAV. Install the 'av' package in the Icescopy environment, then rebuild the app.",
             )
             return
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open Video",
+            "Open Video(s)",
             "",
             "Video Files (*.mp4 *.mov *.avi *.mkv *.m4v);;All Files (*)",
             options=self.file_dialog_options(),
         )
-        if file_path:
-            self.load_video(file_path)
+        if file_paths:
+            self.load_videos(file_paths)
 
     def load_video(self, file_path):
+        IceScopy.load_videos(self, [file_path])
+
+    def load_videos(self, file_paths):
         if self.has_frames():
             QMessageBox.information(
                 self,
@@ -7774,9 +8029,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             return
 
+        video_paths = [str(path) for path in (file_paths or []) if str(path)]
+        if not video_paths:
+            return
+        video_paths = self.sort_video_paths_for_concatenation(video_paths, mode="natural_filename")
         before_state = self.capture_loaded_images_state()
         try:
-            frame_source = VideoFrameSource(file_path)
+            frame_source = (
+                VideoFrameSource(video_paths[0])
+                if len(video_paths) == 1
+                else VideoSequenceFrameSource(video_paths)
+            )
         except Exception as err:
             QMessageBox.warning(self, "Open Video Failed", str(err))
             self.log(f"Failed to open video: {err}")
@@ -7822,7 +8085,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.updateButtonStates()
         self.image_slider.set_custom_ticks()
         self.zoom_slider_set_maximum()
-        self.log(f"Loaded video with {self.frame_count()} frames")
+        if len(video_paths) == 1:
+            self.log(f"Loaded video with {self.frame_count()} frames")
+        else:
+            self.log(f"Loaded {len(video_paths)} video clips with {self.frame_count()} total frames")
         self.push_loaded_images_history("Open Video", before_state)
 
     def openSession(self):
@@ -8593,9 +8859,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.video_preview_decode_in_flight = True
         self.video_preview_decoder.request_decode(index)
 
-    def handle_video_preview_decoded(self, index, q_image, frame_key, video_path):
+    def handle_video_preview_decoded(self, index, q_image, frame_key, source_token):
         self.video_preview_decode_in_flight = False
-        if not self.is_video_source() or self.active_frame_source().source_path() != video_path:
+        if not self.is_video_source() or self.active_frame_source().source_token() != source_token:
             return
 
         try:
@@ -8617,9 +8883,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         ):
             self.request_video_preview_frame(target_index)
 
-    def handle_video_preview_failed(self, index, message, video_path):
+    def handle_video_preview_failed(self, index, message, source_token):
         self.video_preview_decode_in_flight = False
-        if self.is_video_source() and self.active_frame_source().source_path() == video_path:
+        if self.is_video_source() and self.active_frame_source().source_token() == source_token:
             self.log(f"Video preview decode failed at frame {index}: {message}")
 
     def handle_preview_image_slider_value(self, index):
@@ -8749,7 +9015,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_toggle_keyframe_button_icon()
         self.update_toggle_flagging_button_icon()
         self.sync_image_list_selection()
-        self.update_grayscale_plot_current_frame()
+        self.update_grayscale_plot_current_frame(force=True)
 
     def ensure_slider_window_contains_index(self, index):
         if not self.has_frames():
@@ -9313,6 +9579,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             image_edit_crop_state=self.current_image_edit_crop_state(),
             freeze_finder_width=self.freeze_finder_width,
             freeze_finder_prominence=self.freeze_finder_prominence,
+            freeze_finder_head_extend_points=self.freeze_finder_head_extend_points,
             freeze_finder_tail_extend_points=self.freeze_finder_tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
@@ -9742,6 +10009,13 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         freeze_finder_prominence_element = root.find('FreezeFinderProminence')
         if freeze_finder_prominence_element is not None and freeze_finder_prominence_element.text is not None:
             preferences['FreezeFinderProminence'] = float(freeze_finder_prominence_element.text)
+
+        freeze_finder_head_extend_points_element = root.find('FreezeFinderHeadExtendPoints')
+        if (
+            freeze_finder_head_extend_points_element is not None
+            and freeze_finder_head_extend_points_element.text is not None
+        ):
+            preferences['FreezeFinderHeadExtendPoints'] = int(float(freeze_finder_head_extend_points_element.text))
 
         freeze_finder_tail_extend_points_element = root.find('FreezeFinderTailExtendPoints')
         if (

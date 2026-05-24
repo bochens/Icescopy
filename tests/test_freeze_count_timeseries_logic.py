@@ -31,6 +31,8 @@ from icescopy_temperature_import import (  # noqa: E402
     parse_linksys32_iml,
     parse_timestamp_text,
     parse_standard_temperature_csv,
+    parse_utk_temperature_csv,
+    parse_utk_video_start_timestamp,
     resolve_image_timestamps,
     TemperatureImportError,
     reconcile_counts_by_cycle,
@@ -332,6 +334,45 @@ class FreezeCountTimeseriesLogicTests(unittest.TestCase):
             )
 
         self.assertEqual(parsed.temperature_values, [-13.0, -12.0])
+
+    def test_parse_utk_temperature_csv_uses_time_and_pv_columns(self):
+        with tempfile.TemporaryDirectory() as td:
+            file_path = Path(td) / "utk.csv"
+            file_path.write_text(
+                "Time,subsys1,PV(C)1,MV(C)1\n"
+                "2026-05-07/09:20:32:510,1,22.2,0\n"
+                "2026-05-07/09:20:31:510,1,22.1,0\n",
+                encoding="utf-8",
+            )
+
+            parsed = parse_utk_temperature_csv(file_path)
+
+        self.assertEqual(parsed.timeseries_row_count, 2)
+        self.assertEqual(
+            parsed.timeseries_datetimes,
+            [
+                datetime(2026, 5, 7, 9, 20, 31, 510000),
+                datetime(2026, 5, 7, 9, 20, 32, 510000),
+            ],
+        )
+        self.assertEqual(parsed.temperature_values, [22.1, 22.2])
+
+    def test_parse_utk_temperature_csv_rejects_missing_pv_column(self):
+        with tempfile.TemporaryDirectory() as td:
+            file_path = Path(td) / "utk.csv"
+            file_path.write_text(
+                "Time,subsys1,MV(C)1\n"
+                "2026-05-07/09:20:31:510,1,0\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(TemperatureImportError, "PV\\(C\\)1"):
+                parse_utk_temperature_csv(file_path)
+
+    def test_parse_utk_video_start_timestamp_reads_filename(self):
+        self.assertEqual(
+            parse_utk_video_start_timestamp("2026_0507_093532_002.MP4"),
+            datetime(2026, 5, 7, 9, 35, 32),
+        )
 
     def test_parse_generic_image_timestamp_accepts_common_filename_patterns(self):
         self.assertEqual(

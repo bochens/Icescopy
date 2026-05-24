@@ -43,6 +43,7 @@ from icescopy_freezfinder import (
     DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     DEFAULT_CONVOLUTION_RAMP_POINTS,
     DEFAULT_FREEZE_FINDER_PROMINENCE,
+    DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
     DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     DEFAULT_FREEZE_FINDER_WIDTH,
     DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
@@ -113,6 +114,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "GridTiltWheelStep": 1.0,
     "FreezeFinderWidth": DEFAULT_FREEZE_FINDER_WIDTH,
     "FreezeFinderProminence": DEFAULT_FREEZE_FINDER_PROMINENCE,
+    "FreezeFinderHeadExtendPoints": DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
     "FreezeFinderTailExtendPoints": DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     "ConvolutionHalfWindowPoints": DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     "ConvolutionRampPoints": DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -123,8 +125,8 @@ DEFAULT_PREFERENCE_VALUES = {
     "TimeseriesConvolutionLineWidth": 1.0,
     "TimeseriesFreezeLineColor": "220,20,60,180",
     "TimeseriesFreezeLineWidth": 1.0,
-    "TimeseriesCurrentFrameColor": "255,204,0,220",
-    "TimeseriesCurrentFrameLineWidth": 2.0,
+    "TimeseriesCurrentFrameColor": "255,204,0,170",
+    "TimeseriesCurrentFrameLineWidth": 1.5,
     "PreviewHandleSize": 12.0,
     "CircleLabelFontSize": 12.0,
     "CircleLabelOffsetX": 6.0,
@@ -416,6 +418,7 @@ class Image_analysis_thread(QThread):
         image_edit_crop_state=None,
         freeze_finder_width=DEFAULT_FREEZE_FINDER_WIDTH,
         freeze_finder_prominence=DEFAULT_FREEZE_FINDER_PROMINENCE,
+        freeze_finder_head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
         freeze_finder_tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
         convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
         convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -440,6 +443,7 @@ class Image_analysis_thread(QThread):
         self.imageFolderPath = self.frame_source.source_path()
         self.freeze_finder_width = freeze_finder_width
         self.freeze_finder_prominence = freeze_finder_prominence
+        self.freeze_finder_head_extend_points = freeze_finder_head_extend_points
         self.freeze_finder_tail_extend_points = freeze_finder_tail_extend_points
         self.convolution_half_window_points = convolution_half_window_points
         self.convolution_ramp_points = convolution_ramp_points
@@ -571,6 +575,7 @@ class Image_analysis_thread(QThread):
             image_grayscale_data,
             width=self.freeze_finder_width,
             prominence=self.freeze_finder_prominence,
+            head_extend_points=self.freeze_finder_head_extend_points,
             tail_extend_points=self.freeze_finder_tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
@@ -866,6 +871,7 @@ class PreferencesDialog(QDialog):
         self.grid_tilt_wheel_step_field = self.make_double_spinbox(0.1, 90.0, self.pref_value("GridTiltWheelStep"), 1)
         self.freeze_finder_width_field = self.make_double_spinbox(0.1, 100000.0, self.pref_value("FreezeFinderWidth"), 1)
         self.freeze_finder_prominence_field = self.make_double_spinbox(0.1, 1000000.0, self.pref_value("FreezeFinderProminence"), 1)
+        self.freeze_finder_head_extend_points_field = self.make_spinbox(0, 1000, self.pref_value("FreezeFinderHeadExtendPoints"))
         self.freeze_finder_tail_extend_points_field = self.make_spinbox(0, 1000, self.pref_value("FreezeFinderTailExtendPoints"))
         self.convolution_half_window_points_field = self.make_spinbox(0, 100000, self.pref_value("ConvolutionHalfWindowPoints"))
         self.convolution_ramp_points_field = self.make_spinbox(0, 1000, self.pref_value("ConvolutionRampPoints"))
@@ -923,6 +929,7 @@ class PreferencesDialog(QDialog):
             self.grid_tilt_wheel_step_field,
             self.freeze_finder_width_field,
             self.freeze_finder_prominence_field,
+            self.freeze_finder_head_extend_points_field,
             self.freeze_finder_tail_extend_points_field,
             self.convolution_half_window_points_field,
             self.convolution_ramp_points_field,
@@ -1310,6 +1317,13 @@ class PreferencesDialog(QDialog):
                         self.build_field_with_help(
                             self.freeze_finder_prominence_field,
                             "How strongly the convolution dip must stand out from the surrounding baseline before it is accepted as freezing.",
+                        ),
+                    ),
+                    (
+                        "Front Extension Points",
+                        self.build_field_with_help(
+                            self.freeze_finder_head_extend_points_field,
+                            "Repeats the first grayscale value for this many extra points before convolution so drops at the start of the experiment can still be detected.",
                         ),
                     ),
                     (
@@ -1709,6 +1723,7 @@ class PreferencesDialog(QDialog):
         SubElement(root, "GridTiltWheelStep").text = str(self.grid_tilt_wheel_step_field.value())
         SubElement(root, "FreezeFinderWidth").text = str(self.freeze_finder_width_field.value())
         SubElement(root, "FreezeFinderProminence").text = str(self.freeze_finder_prominence_field.value())
+        SubElement(root, "FreezeFinderHeadExtendPoints").text = str(self.freeze_finder_head_extend_points_field.value())
         SubElement(root, "FreezeFinderTailExtendPoints").text = str(self.freeze_finder_tail_extend_points_field.value())
         SubElement(root, "ConvolutionHalfWindowPoints").text = str(self.convolution_half_window_points_field.value())
         SubElement(root, "ConvolutionRampPoints").text = str(self.convolution_ramp_points_field.value())

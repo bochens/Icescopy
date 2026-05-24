@@ -24,6 +24,7 @@ from icescopy_frame_source import (  # noqa: E402
     SOURCE_KIND_IMAGE_SEQUENCE,
     VideoFrameMetadata,
     VideoFrameSource,
+    VideoSequenceFrameSource,
     format_seconds_for_frame_list,
 )
 from icescopy_session import ImageListModel  # noqa: E402
@@ -84,6 +85,47 @@ class FrameSourceTests(unittest.TestCase):
         self.assertEqual(format_seconds_for_frame_list(4.967), "00:04.967")
         self.assertEqual(format_seconds_for_frame_list(65.25), "01:05.250")
         self.assertEqual(format_seconds_for_frame_list(3661.5), "01:01:01.500")
+
+    def test_video_sequence_frame_source_concatenates_clip_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            first_path = str(Path(td) / "2026_0507_093532_002.MP4")
+            second_path = str(Path(td) / "2026_0507_095032_003.MP4")
+            source = VideoSequenceFrameSource(
+                [first_path, second_path],
+                segment_payloads=[
+                    {
+                        "frame_metadata": [
+                            {"index": 0, "pts": 0, "time_seconds": 0.0},
+                            {"index": 1, "pts": 1, "time_seconds": 0.5},
+                        ],
+                        "frame_size": [32, 24],
+                    },
+                    {
+                        "frame_metadata": [
+                            {"index": 0, "pts": 0, "time_seconds": 0.0},
+                            {"index": 1, "pts": 1, "time_seconds": 1.0},
+                        ],
+                        "frame_size": [32, 24],
+                    },
+                ],
+            )
+
+            self.addCleanup(source.close)
+            self.assertEqual(source.frame_count(), 4)
+            self.assertEqual(source.source_paths(), [first_path, second_path])
+            self.assertEqual(source.frame_reference(2), (second_path, 0))
+            self.assertEqual(source.global_index_for_reference(second_path, 1), 3)
+            self.assertEqual(source.frame_time_seconds(2), 1.0)
+            self.assertEqual(source.frame_name(3), "000003  00:02.000")
+            self.assertIn("clip frame: 0", source.frame_tooltip(2))
+            self.assertEqual(
+                source.to_session_payload(),
+                {
+                    "kind": "video_sequence",
+                    "video_paths": [first_path, second_path],
+                    "frame_count": 4,
+                },
+            )
 
     def test_video_preview_qimage_writes_disk_cache_when_pyav_is_available(self):
         try:

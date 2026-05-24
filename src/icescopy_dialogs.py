@@ -359,6 +359,152 @@ class CSUTemperatureImportDialog(QDialog):
         }
 
 
+class UTKTemperatureImportDialog(QDialog):
+    def __init__(
+        self,
+        main_window,
+        initial_path,
+        sample_names,
+        initial_reset_temperature=None,
+        initial_blank_sample_names=None,
+        video_mode=False,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.video_mode = bool(video_mode)
+        self.setWindowTitle("UTK CSV import")
+        layout, self.scroll_area, self.scroll_contents, scroll_layout = _setup_fixed_width_scrolling_dialog(
+            self,
+            width=640,
+            initial_height=460,
+            minimum_height=360,
+        )
+
+        source_text = "video frame timestamps" if self.video_mode else "image filename timestamps"
+        intro_label = QLabel(
+            f"Select the UTK temperature CSV. Temperatures are read from the Time and PV(C)1 columns and matched to {source_text}.",
+            self,
+        )
+        intro_label.setWordWrap(True)
+        scroll_layout.addWidget(intro_label)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
+        file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
+        file_row.setSpacing(8)
+        self.file_path_edit = QLineEdit(self)
+        self.file_path_edit.setText(str(initial_path or ""))
+        self.file_path_edit.setPlaceholderText("Choose a UTK CSV file")
+        browse_button = QPushButton("Browse", self)
+        browse_button.setAutoDefault(False)
+        browse_button.setDefault(False)
+        browse_button.setFixedWidth(96)
+        browse_button.clicked.connect(self.browse_file)
+        file_row.addWidget(self.file_path_edit, 1)
+        file_row.addWidget(browse_button, 0, Qt.AlignRight)
+        file_row_widget = QWidget(self)
+        file_row_widget.setLayout(file_row)
+        form.addRow("UTK CSV file", file_row_widget)
+
+        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
+        self.blank_sample_list = QListWidget(self)
+        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.blank_sample_list.setMinimumHeight(132)
+        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
+        form.addRow("Water blank samples", self.blank_sample_list)
+
+        self.reset_temperature_spinbox = QDoubleSpinBox(self)
+        self.reset_temperature_spinbox.setRange(-999.0, 200.0)
+        self.reset_temperature_spinbox.setDecimals(1)
+        self.reset_temperature_spinbox.setSpecialValueText("Off")
+        self.reset_temperature_spinbox.setValue(
+            -999.0
+            if initial_reset_temperature is None
+            else float(initial_reset_temperature)
+        )
+        self.reset_temperature_spinbox.setFixedWidth(120)
+        reset_row = QHBoxLayout()
+        reset_row.setContentsMargins(0, 0, 0, 0)
+        reset_row.addWidget(self.reset_temperature_spinbox, 0, Qt.AlignLeft)
+        reset_row.addStretch(1)
+        reset_row_widget = QWidget(self)
+        reset_row_widget.setLayout(reset_row)
+        form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
+
+        scroll_layout.addLayout(form, 1)
+
+        hint_label = QLabel(
+            f"Water blank correction is applied within each cycle. {WATER_BLANK_CORRECTION_DESCRIPTION} {TEMPERATURE_RESET_DESCRIPTION}",
+            self,
+        )
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: rgba(96, 96, 96, 255);")
+        scroll_layout.addWidget(hint_label)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def browse_file(self):
+        initial_dir = ""
+        existing_path = self.file_path_edit.text().strip()
+        if existing_path:
+            initial_dir = os.path.dirname(existing_path)
+        elif getattr(self.main_window, "last_temperature_import_path", None):
+            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
+        elif getattr(self.main_window, "active_frame_source", None):
+            source_path = str(self.main_window.active_frame_source().source_path() or "")
+            initial_dir = source_path if os.path.isdir(source_path) else os.path.dirname(source_path)
+        elif getattr(self.main_window, "imagePaths", None):
+            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import UTK CSV file",
+            initial_dir,
+            "CSV Files (*.csv);;All Files (*)",
+            options=self.main_window.file_dialog_options(),
+        )
+        if file_path:
+            self.file_path_edit.setText(file_path)
+
+    def accept(self):
+        file_path = self.file_path_edit.text().strip()
+        if not file_path:
+            QMessageBox.warning(
+                self,
+                "UTK CSV import",
+                "Choose a UTK CSV file before importing.",
+            )
+            return
+        if not os.path.isfile(file_path):
+            QMessageBox.warning(
+                self,
+                "UTK CSV import",
+                "The selected UTK CSV file does not exist.",
+            )
+            return
+        super().accept()
+
+    def get_values(self):
+        reset_temperature = float(self.reset_temperature_spinbox.value())
+        if reset_temperature <= -999.0:
+            reset_temperature = None
+        return {
+            "file_path": self.file_path_edit.text().strip(),
+            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
+            "reset_temperature": reset_temperature,
+        }
+
+
 class TAMUTemperatureImportDialog(QDialog):
     def __init__(
         self,

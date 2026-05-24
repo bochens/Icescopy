@@ -16,6 +16,7 @@ from PySide6.QtGui import QImage
 
 SOURCE_KIND_IMAGE_SEQUENCE = "image_sequence"
 SOURCE_KIND_VIDEO = "video"
+SOURCE_KIND_VIDEO_SEQUENCE = "video_sequence"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,48 @@ class VideoFrameMetadata:
     index: int
     pts: int | None
     time_seconds: float | None
+
+
+def _video_metadata_to_payload(metadata_list):
+    return [
+        {
+            "index": int(metadata.index),
+            "pts": None if metadata.pts is None else int(metadata.pts),
+            "time_seconds": (
+                None
+                if metadata.time_seconds is None
+                else float(metadata.time_seconds)
+            ),
+        }
+        for metadata in list(metadata_list or [])
+    ]
+
+
+def _video_metadata_from_payload(payload):
+    metadata_list = []
+    for item in list(payload or []):
+        if isinstance(item, VideoFrameMetadata):
+            metadata_list.append(item)
+            continue
+        try:
+            metadata_list.append(
+                VideoFrameMetadata(
+                    index=int(item.get("index", 0)),
+                    pts=(
+                        None
+                        if item.get("pts") is None
+                        else int(item.get("pts"))
+                    ),
+                    time_seconds=(
+                        None
+                        if item.get("time_seconds") is None
+                        else float(item.get("time_seconds"))
+                    ),
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return metadata_list
 
 
 class FrameSource:
@@ -65,6 +108,22 @@ class FrameSource:
 
     def source_path(self) -> str:
         return ""
+
+    def source_paths(self) -> list[str]:
+        source_path = self.source_path()
+        return [source_path] if source_path else []
+
+    def source_token(self) -> str:
+        return "\n".join(
+            os.path.normcase(os.path.normpath(path))
+            for path in self.source_paths()
+        )
+
+    def preview_cache_dir(self) -> str:
+        return ""
+
+    def preview_payload(self) -> dict:
+        return self.to_session_payload()
 
     def supports_image_file_operations(self) -> bool:
         return False
@@ -169,7 +228,8 @@ class VideoFrameSource(FrameSource):
             self._preview_cache_dir = str(preview_cache_dir)
             os.makedirs(self._preview_cache_dir, exist_ok=True)
         if not self._metadata:
-            self._probe_metadata()
+            if not self._probe_container_metadata():
+                self._probe_metadata()
         self._index_by_pts = {
             int(metadata.pts): int(metadata.index)
             for metadata in self._metadata
@@ -217,6 +277,62 @@ class VideoFrameSource(FrameSource):
         stream = streams[0]
         stream.thread_type = "AUTO"
         return container, stream
+
+    def _probe_container_metadata(self):
+        container, stream = self._open_video_stream()
+        try:
+            frame_count = int(getattr(stream, "frames", 0) or 0)
+            if frame_count <= 0:
+                return False
+
+            codec_context = getattr(stream, "codec_context", None)
+            if self._width <= 0:
+                self._width = int(getattr(codec_context, "width", 0) or 0)
+            if self._height <= 0:
+                self._height = int(getattr(codec_context, "height", 0) or 0)
+
+            time_base = getattr(stream, "time_base", None)
+            duration_pts = getattr(stream, "duration", None)
+            start_pts = getattr(stream, "start_time", None)
+            frame_rate = (
+                getattr(stream, "average_rate", None)
+                or getattr(stream, "base_rate", None)
+                or getattr(stream, "guessed_rate", None)
+            )
+
+            frame_interval_seconds = None
+            pts_step = None
+            if duration_pts is not None and time_base is not None:
+                duration_seconds = float(duration_pts * time_base)
+                if duration_seconds > 0:
+                    frame_interval_seconds = duration_seconds / float(frame_count)
+                    pts_step = float(duration_pts) / float(frame_count)
+            if frame_interval_seconds is None and frame_rate:
+                rate_value = float(frame_rate)
+                if rate_value > 0:
+                    frame_interval_seconds = 1.0 / rate_value
+                    if time_base is not None:
+                        pts_step = frame_interval_seconds / float(time_base)
+            if frame_interval_seconds is None:
+                return False
+
+            start_pts = 0 if start_pts is None else int(start_pts)
+            metadata = []
+            for index in range(frame_count):
+                pts_value = None
+                if pts_step is not None:
+                    pts_value = int(round(float(start_pts) + float(index) * float(pts_step)))
+                metadata.append(
+                    VideoFrameMetadata(
+                        index=int(index),
+                        pts=pts_value,
+                        time_seconds=float(index) * float(frame_interval_seconds),
+                    )
+                )
+            self._metadata = metadata
+            return True
+        finally:
+            container.close()
 
     def _probe_metadata(self):
         container, stream = self._open_video_stream()
@@ -462,10 +578,244 @@ class VideoFrameSource(FrameSource):
     def source_path(self) -> str:
         return self._path
 
+    def source_paths(self) -> list[str]:
+        return [self._path]
+
+    def preview_payload(self) -> dict:
+        return {
+            "kind": SOURCE_KIND_VIDEO,
+            "video_path": self._path,
+            "frame_metadata": _video_metadata_to_payload(self._metadata),
+            "frame_size": [int(self._width), int(self._height)],
+        }
+
     def to_session_payload(self) -> dict:
         return {
             "kind": SOURCE_KIND_VIDEO,
             "video_path": self._path,
+            "frame_count": self.frame_count(),
+        }
+
+
+class VideoSequenceFrameSource(FrameSource):
+    """FrameSource implementation backed by ordered video clips."""
+
+    def __init__(
+        self,
+        video_paths,
+        *,
+        cache_size=24,
+        preview_cache_dir=None,
+        segment_payloads=None,
+    ):
+        self._paths = [str(path) for path in (video_paths or []) if str(path)]
+        if not self._paths:
+            raise ValueError("No video files were supplied.")
+        self._cache_size = max(1, int(cache_size))
+        self._preview_cache_owner = None
+        if preview_cache_dir is None:
+            self._preview_cache_owner = tempfile.TemporaryDirectory(
+                prefix="icescopy_video_sequence_preview_"
+            )
+            self._preview_cache_dir = self._preview_cache_owner.name
+        else:
+            self._preview_cache_dir = str(preview_cache_dir)
+            os.makedirs(self._preview_cache_dir, exist_ok=True)
+
+        segment_payloads = list(segment_payloads or [])
+        self._sources = []
+        for clip_index, video_path in enumerate(self._paths):
+            clip_cache_dir = os.path.join(
+                self._preview_cache_dir,
+                f"clip_{clip_index:04d}",
+            )
+            segment_payload = (
+                segment_payloads[clip_index]
+                if clip_index < len(segment_payloads)
+                else {}
+            )
+            frame_metadata = _video_metadata_from_payload(
+                segment_payload.get("frame_metadata", [])
+                if isinstance(segment_payload, dict)
+                else []
+            )
+            frame_size = (
+                segment_payload.get("frame_size")
+                if isinstance(segment_payload, dict)
+                else None
+            )
+            self._sources.append(
+                VideoFrameSource(
+                    video_path,
+                    cache_size=self._cache_size,
+                    preview_cache_dir=clip_cache_dir,
+                    frame_metadata=frame_metadata,
+                    frame_size=frame_size,
+                )
+            )
+        self._segments = []
+        self._frame_count = 0
+        self._rebuild_segments()
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        for source in getattr(self, "_sources", []):
+            source.close()
+        preview_cache_owner = getattr(self, "_preview_cache_owner", None)
+        if preview_cache_owner is not None:
+            preview_cache_owner.cleanup()
+            self._preview_cache_owner = None
+
+    @staticmethod
+    def available() -> bool:
+        return VideoFrameSource.available()
+
+    def _segment_duration_seconds(self, source):
+        frame_count = source.frame_count()
+        if frame_count <= 0:
+            return 0.0
+        last_time = source.frame_time_seconds(frame_count - 1)
+        if last_time is None:
+            return float(frame_count)
+        frame_interval = 0.0
+        if frame_count > 1:
+            first_time = source.frame_time_seconds(0)
+            if first_time is not None:
+                candidate = (float(last_time) - float(first_time)) / float(frame_count - 1)
+                if candidate > 0:
+                    frame_interval = float(candidate)
+        return max(0.0, float(last_time) + frame_interval)
+
+    def _rebuild_segments(self):
+        self._segments = []
+        frame_start = 0
+        time_start = 0.0
+        for source in self._sources:
+            frame_count = source.frame_count()
+            self._segments.append(
+                {
+                    "source": source,
+                    "frame_start": int(frame_start),
+                    "time_start": float(time_start),
+                    "frame_count": int(frame_count),
+                }
+            )
+            frame_start += frame_count
+            time_start += self._segment_duration_seconds(source)
+        self._frame_count = int(frame_start)
+
+    def _locate(self, index: int):
+        index = int(index)
+        if index < 0 or index >= self._frame_count:
+            raise IndexError(f"Frame index out of range: {index}")
+        for segment in self._segments:
+            frame_start = int(segment["frame_start"])
+            frame_count = int(segment["frame_count"])
+            if frame_start <= index < frame_start + frame_count:
+                return segment, index - frame_start
+        raise IndexError(f"Frame index out of range: {index}")
+
+    def frame_reference(self, index: int) -> tuple[str, int]:
+        segment, local_index = self._locate(index)
+        return str(segment["source"].source_path()), int(local_index)
+
+    def global_index_for_reference(self, video_path, local_index):
+        normalized_path = os.path.normcase(os.path.normpath(str(video_path)))
+        local_index = int(local_index)
+        for segment in self._segments:
+            source = segment["source"]
+            if os.path.normcase(os.path.normpath(source.source_path())) != normalized_path:
+                continue
+            if 0 <= local_index < source.frame_count():
+                return int(segment["frame_start"]) + int(local_index)
+        return None
+
+    def frame_count(self) -> int:
+        return self._frame_count
+
+    def frame_name(self, index: int) -> str:
+        frame_time_seconds = self.frame_time_seconds(index)
+        if frame_time_seconds is None:
+            return f"frame {int(index):06d}"
+        return f"{int(index):06d}  {format_seconds_for_frame_list(frame_time_seconds)}"
+
+    def frame_tooltip(self, index: int) -> str:
+        segment, local_index = self._locate(index)
+        source = segment["source"]
+        parts = [
+            str(Path(source.source_path()).name),
+            f"global frame: {int(index)}",
+            f"clip frame: {int(local_index)}",
+        ]
+        frame_time_seconds = self.frame_time_seconds(index)
+        if frame_time_seconds is not None:
+            parts.append(f"time: {format_seconds_for_frame_list(frame_time_seconds)}")
+        parts.append(source.source_path())
+        return "\n".join(parts)
+
+    def frame_key(self, index: int) -> str:
+        segment, local_index = self._locate(index)
+        return segment["source"].frame_key(local_index)
+
+    def frame_time_seconds(self, index: int) -> float | None:
+        segment, local_index = self._locate(index)
+        source_time = segment["source"].frame_time_seconds(local_index)
+        if source_time is None:
+            return None
+        return float(segment["time_start"]) + float(source_time)
+
+    def get_qimage(self, index: int) -> QImage:
+        segment, local_index = self._locate(index)
+        return segment["source"].get_qimage(local_index)
+
+    def get_preview_qimage(self, index: int) -> QImage:
+        segment, local_index = self._locate(index)
+        return segment["source"].get_preview_qimage(local_index)
+
+    def get_gray_array(self, index: int) -> np.ndarray:
+        segment, local_index = self._locate(index)
+        return segment["source"].get_gray_array(local_index)
+
+    def iter_gray_arrays(self):
+        global_index = 0
+        for source in self._sources:
+            for _local_index, gray_array in source.iter_gray_arrays():
+                yield global_index, gray_array
+                global_index += 1
+
+    def get_size(self, index: int) -> tuple[int, int]:
+        segment, local_index = self._locate(index)
+        return segment["source"].get_size(local_index)
+
+    def source_kind(self) -> str:
+        return SOURCE_KIND_VIDEO
+
+    def source_path(self) -> str:
+        return self._paths[0] if self._paths else ""
+
+    def source_paths(self) -> list[str]:
+        return list(self._paths)
+
+    def preview_cache_dir(self) -> str:
+        return self._preview_cache_dir
+
+    def preview_payload(self) -> dict:
+        return {
+            "kind": SOURCE_KIND_VIDEO_SEQUENCE,
+            "video_paths": self.source_paths(),
+            "segments": [
+                source.preview_payload()
+                for source in self._sources
+            ],
+            "frame_count": self.frame_count(),
+        }
+
+    def to_session_payload(self) -> dict:
+        return {
+            "kind": SOURCE_KIND_VIDEO_SEQUENCE,
+            "video_paths": self.source_paths(),
             "frame_count": self.frame_count(),
         }
 
@@ -488,4 +838,27 @@ def frame_source_from_session_payload(payload) -> FrameSource:
     kind = payload.get("kind") or SOURCE_KIND_IMAGE_SEQUENCE
     if kind == SOURCE_KIND_VIDEO:
         return VideoFrameSource(payload.get("video_path", ""))
+    if kind == SOURCE_KIND_VIDEO_SEQUENCE:
+        return VideoSequenceFrameSource(payload.get("video_paths", []))
     return ImageSequenceFrameSource(payload.get("image_paths", []))
+
+
+def frame_source_from_preview_payload(payload, *, preview_cache_dir=None) -> FrameSource:
+    payload = dict(payload or {})
+    kind = payload.get("kind") or SOURCE_KIND_VIDEO
+    if kind == SOURCE_KIND_VIDEO_SEQUENCE:
+        return VideoSequenceFrameSource(
+            payload.get("video_paths", []),
+            cache_size=4,
+            preview_cache_dir=preview_cache_dir,
+            segment_payloads=payload.get("segments", []),
+        )
+    if kind == SOURCE_KIND_VIDEO:
+        return VideoFrameSource(
+            payload.get("video_path", ""),
+            cache_size=4,
+            preview_cache_dir=preview_cache_dir,
+            frame_metadata=_video_metadata_from_payload(payload.get("frame_metadata", [])),
+            frame_size=payload.get("frame_size"),
+        )
+    raise ValueError(f"Unsupported preview frame source kind: {kind}")

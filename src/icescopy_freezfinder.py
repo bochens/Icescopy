@@ -16,6 +16,7 @@ DEFAULT_FREEZE_RESULT_HEADERS = [
 
 DEFAULT_FREEZE_FINDER_WIDTH = 10.0
 DEFAULT_FREEZE_FINDER_PROMINENCE = 100.0
+DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS = 0
 DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS = 5
 DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS = 0
 DEFAULT_CONVOLUTION_RAMP_POINTS = 0
@@ -75,6 +76,7 @@ def compute_freeze_result_rows(
     image_grayscale_data,
     width=DEFAULT_FREEZE_FINDER_WIDTH,
     prominence=DEFAULT_FREEZE_FINDER_PROMINENCE,
+    head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
     tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -104,18 +106,20 @@ def compute_freeze_result_rows(
             if resolved_cell_ids is not None and cell_index < len(resolved_cell_ids)
             else int(cell_index)
         )
-        extend_count = int(max(0, tail_extend_points))
+        head_extend_count = int(max(0, head_extend_points))
+        tail_extend_count = int(max(0, tail_extend_points))
         _, g_array_step = compute_convolution_timeseries(
             raw_grayscale,
+            head_extend_points=head_extend_points,
             tail_extend_points=tail_extend_points,
             convolution_half_window_points=convolution_half_window_points,
             convolution_ramp_points=convolution_ramp_points,
         )
         center_offset = compute_convolution_center_offset(
-            len(raw_grayscale) + extend_count,
+            len(raw_grayscale) + head_extend_count + tail_extend_count,
             convolution_half_window_points=convolution_half_window_points,
             convolution_ramp_points=convolution_ramp_points,
-        )
+        ) - head_extend_count
 
         peaks, peak_properties = signal.find_peaks(
             g_array_step if detect_brightening else -g_array_step,
@@ -271,6 +275,7 @@ def compute_convolution_center_offset(
 
 def compute_convolution_timeseries(
     grayscale_values,
+    head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
     tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
     convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -279,10 +284,15 @@ def compute_convolution_timeseries(
     if g_array.size == 0:
         return np.array([], dtype=float), np.array([], dtype=float)
 
-    extend_count = int(max(0, tail_extend_points))
-    if extend_count > 0:
+    head_extend_count = int(max(0, head_extend_points))
+    if head_extend_count > 0:
+        head_value = float(g_array[0])
+        g_array = np.concatenate((np.full(head_extend_count, head_value, dtype=float), g_array))
+
+    tail_extend_count = int(max(0, tail_extend_points))
+    if tail_extend_count > 0:
         tail_value = float(g_array[-1])
-        g_array = np.concatenate((g_array, np.full(extend_count, tail_value, dtype=float)))
+        g_array = np.concatenate((g_array, np.full(tail_extend_count, tail_value, dtype=float)))
 
     centered = g_array - np.average(g_array)
     kernel = build_convolution_kernel(
@@ -315,6 +325,7 @@ class FreezeFinderDialog(QDialog):
         default_output_dir=None,
         default_width=DEFAULT_FREEZE_FINDER_WIDTH,
         default_prominence=DEFAULT_FREEZE_FINDER_PROMINENCE,
+        default_head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
         default_tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
         default_convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
         default_convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -403,6 +414,11 @@ class FreezeFinderDialog(QDialog):
         additional_inputs_layout.addWidget(QLabel('Peak finding Prominence:'))
         additional_inputs_layout.addWidget(self.prominence_edit)
         self.prominence_edit.setText(f"{float(default_prominence):g}")
+
+        self.head_extend_points_edit = QLineEdit()
+        additional_inputs_layout.addWidget(QLabel('Front extension points:'))
+        additional_inputs_layout.addWidget(self.head_extend_points_edit)
+        self.head_extend_points_edit.setText(str(int(default_head_extend_points)))
 
         self.tail_extend_points_edit = QLineEdit()
         additional_inputs_layout.addWidget(QLabel('Tail extension points:'))
@@ -493,6 +509,7 @@ class FreezeFinderDialog(QDialog):
             output_dir              = self.output_file_edit.text()
             width                   = float(self.width_edit.text())
             prominence              = float(self.prominence_edit.text())
+            head_extend_points      = int(float(self.head_extend_points_edit.text()))
             tail_extend_points      = int(float(self.tail_extend_points_edit.text()))
             convolution_half_window_points = int(float(self.convolution_half_window_points_edit.text()))
             convolution_ramp_points = int(float(self.convolution_ramp_points_edit.text()))
@@ -549,6 +566,7 @@ class FreezeFinderDialog(QDialog):
                 image_grayscale_data,
                 width=width,
                 prominence=prominence,
+                head_extend_points=head_extend_points,
                 tail_extend_points=tail_extend_points,
                 convolution_half_window_points=convolution_half_window_points,
                 convolution_ramp_points=convolution_ramp_points,

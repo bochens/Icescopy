@@ -36,6 +36,10 @@ COMPACT_FILENAME_TIMESTAMP_RE = re.compile(
     r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})"
     r"(?:[T _-]?(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})(?P<fraction>\d{1,6})?)"
 )
+UTK_VIDEO_FILENAME_TIMESTAMP_RE = re.compile(
+    r"(?P<year>\d{4})_(?P<month>\d{2})(?P<day>\d{2})_"
+    r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})"
+)
 XLSX_NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
@@ -109,6 +113,12 @@ SLASH_DAY_MONTH_DATETIME_FORMATS = (
 EXIF_DATETIME_FORMATS = (
     "%Y:%m:%d %H:%M:%S.%f",
     "%Y:%m:%d %H:%M:%S",
+)
+UTK_TIME_FORMATS = (
+    "%Y-%m-%d/%H:%M:%S:%f",
+    "%Y-%m-%d/%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S:%f",
+    "%Y-%m-%d %H:%M:%S",
 )
 INLINE_EXIF_TIMESTAMP_RE = re.compile(
     r"(?<!\d)(\d{4}:\d{2}:\d{2}[ T_-]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)(?!\d)"
@@ -687,6 +697,94 @@ def parse_standard_temperature_csv(
         if previous_timestamp is not None and timestamp_value == previous_timestamp:
             raise TemperatureImportError(
                 f"Temperature CSV row {row_number} repeats a timestamp already present in the file."
+            )
+        previous_timestamp = timestamp_value
+
+    return StandardTemperatureTimeseries(
+        file_path=str(file_path),
+        timeseries_datetimes=[row[0] for row in parsed_rows],
+        timeseries_timestamp_texts=[row[1] for row in parsed_rows],
+        temperature_values=[row[2] for row in parsed_rows],
+        timeseries_row_count=len(parsed_rows),
+    )
+
+
+def parse_utk_time_text(timestamp_text):
+    text = str(timestamp_text or "").strip()
+    if not text:
+        return None
+    for timestamp_format in UTK_TIME_FORMATS:
+        try:
+            return datetime.strptime(text, timestamp_format)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_utk_video_start_timestamp(video_path):
+    match = UTK_VIDEO_FILENAME_TIMESTAMP_RE.search(os.path.basename(str(video_path or "")))
+    if not match:
+        return None
+    try:
+        return datetime(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+            int(match.group("hour")),
+            int(match.group("minute")),
+            int(match.group("second")),
+        )
+    except ValueError:
+        return None
+
+
+def parse_utk_temperature_csv(file_path):
+    with open(file_path, "r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = [str(field or "").strip() for field in (reader.fieldnames or [])]
+        if not fieldnames:
+            raise TemperatureImportError("The selected UTK CSV is empty or missing a header row.")
+        missing_columns = [
+            column_name
+            for column_name in ("Time", "PV(C)1")
+            if column_name not in fieldnames
+        ]
+        if missing_columns:
+            raise TemperatureImportError(
+                "The selected UTK CSV is missing required column(s): "
+                + ", ".join(missing_columns)
+                + "."
+            )
+
+        parsed_rows = []
+        for row_number, raw_row in enumerate(reader, start=2):
+            timestamp_text = str(raw_row.get("Time", "") or "").strip()
+            temperature_text = str(raw_row.get("PV(C)1", "") or "").strip()
+            if not timestamp_text and not temperature_text:
+                continue
+            timestamp_value = parse_utk_time_text(timestamp_text)
+            temperature_value = _safe_float(temperature_text)
+            if timestamp_value is None:
+                raise TemperatureImportError(
+                    f"UTK CSV row {row_number} has an unparseable Time value: {timestamp_text!r}."
+                )
+            if temperature_value is None:
+                raise TemperatureImportError(
+                    f"UTK CSV row {row_number} has an unparseable PV(C)1 value: {temperature_text!r}."
+                )
+            parsed_rows.append((timestamp_value, timestamp_text, float(temperature_value), row_number))
+
+    if len(parsed_rows) < 2:
+        raise TemperatureImportError(
+            "The selected UTK CSV does not contain enough valid temperature rows."
+        )
+
+    parsed_rows.sort(key=lambda row: row[0])
+    previous_timestamp = None
+    for timestamp_value, _, _, row_number in parsed_rows:
+        if previous_timestamp is not None and timestamp_value == previous_timestamp:
+            raise TemperatureImportError(
+                f"UTK CSV row {row_number} repeats a timestamp already present in the file."
             )
         previous_timestamp = timestamp_value
 

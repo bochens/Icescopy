@@ -1,8 +1,72 @@
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QWidget
 import numpy as np
 import pyqtgraph as pg
 from icescopy_freezfinder import compute_convolution_center_offset, compute_convolution_timeseries
+
+
+class CurrentFrameLineOverlay(QWidget):
+    """Lightweight current-frame marker that does not repaint plot curves."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._frame_x = None
+        self._pixel_x = None
+        self._color = QColor(255, 204, 0, 220)
+        self._width = 2.0
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.hide()
+
+    def value(self):
+        return self._frame_x
+
+    def set_line_style(self, color, width):
+        color_values = list(color or [])
+        if len(color_values) == 3:
+            color_values.append(255)
+        if len(color_values) >= 4:
+            self._color = QColor(*(int(value) for value in color_values[:4]))
+        self._width = float(width)
+        self.update()
+
+    def set_frame_position(self, frame_x, pixel_x):
+        old_dirty_rect = self._dirty_rect()
+        self._frame_x = float(frame_x)
+        self._pixel_x = float(pixel_x)
+        self.show()
+        self.raise_()
+        new_dirty_rect = self._dirty_rect()
+        if old_dirty_rect is not None:
+            self.update(old_dirty_rect)
+        if new_dirty_rect is not None:
+            self.update(new_dirty_rect)
+
+    def clear_frame_position(self):
+        self._frame_x = None
+        self._pixel_x = None
+        self.hide()
+
+    def _dirty_rect(self):
+        if self._pixel_x is None:
+            return None
+        margin = max(3, int(round(self._width)) + 2)
+        x = int(round(self._pixel_x)) - margin
+        return QRect(x, 0, margin * 2 + 1, self.height())
+
+    def paintEvent(self, event):
+        if self._pixel_x is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        pen = QPen(self._color)
+        pen.setWidthF(self._width)
+        painter.setPen(pen)
+        x = float(self._pixel_x)
+        painter.drawLine(QPointF(x, 0.0), QPointF(x, float(self.height())))
+        painter.end()
 
 
 class GrayscalePlotWidget(QWidget):
@@ -55,6 +119,7 @@ class GrayscalePlotWidget(QWidget):
         self.cell_ids = []
         self.current_image_index = None
         self.current_image_name = None
+        self.head_extend_points = 0
         self.tail_extend_points = 0
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
@@ -63,9 +128,10 @@ class GrayscalePlotWidget(QWidget):
         self.convolution_line_width = 1.0
         self.freeze_line_color = (220, 20, 60, 180)
         self.freeze_line_width = 1.0
-        self.current_frame_color = (255, 204, 0, 220)
-        self.current_frame_width = 2.0
+        self.current_frame_color = (255, 204, 0, 170)
+        self.current_frame_width = 1.25
         self.current_frame_line = None
+        self._last_current_frame_widget_x = None
         self._data_signature = None
         self._render_signature = None
         self._column_map_cache = None
@@ -130,6 +196,7 @@ class GrayscalePlotWidget(QWidget):
         freeze_rows,
         cell_ids,
         current_image_index=None,
+        head_extend_points=0,
         tail_extend_points=0,
         convolution_half_window_points=0,
         convolution_ramp_points=0,
@@ -138,13 +205,13 @@ class GrayscalePlotWidget(QWidget):
         convolution_line_width=1.0,
         freeze_line_color=(220, 20, 60, 180),
         freeze_line_width=1.0,
-        current_frame_color=(255, 204, 0, 220),
-        current_frame_width=2.0,
+        current_frame_color=(255, 204, 0, 170),
+        current_frame_width=1.5,
         current_image_name=None,
     ):
         normalized_headers = list(grayscale_headers or [])
-        normalized_rows = list(grayscale_rows or [])
-        normalized_freeze_rows = list(freeze_rows or [])
+        normalized_rows = grayscale_rows if isinstance(grayscale_rows, list) else list(grayscale_rows or [])
+        normalized_freeze_rows = freeze_rows if isinstance(freeze_rows, list) else list(freeze_rows or [])
         normalized_cell_ids = tuple(sorted(set(cell_ids or [])))
 
         data_signature = self._build_data_signature(
@@ -153,6 +220,7 @@ class GrayscalePlotWidget(QWidget):
             normalized_freeze_rows,
         )
         style_signature = (
+            int(max(0, head_extend_points)),
             int(max(0, tail_extend_points)),
             int(max(0, convolution_half_window_points)),
             int(max(0, convolution_ramp_points)),
@@ -179,16 +247,17 @@ class GrayscalePlotWidget(QWidget):
         self.grayscale_rows = normalized_rows
         self.freeze_rows = normalized_freeze_rows
         self.cell_ids = list(normalized_cell_ids)
-        self.tail_extend_points = style_signature[0]
-        self.convolution_half_window_points = style_signature[1]
-        self.convolution_ramp_points = style_signature[2]
-        self.timeseries_palette = style_signature[3]
-        self.timeseries_line_width = style_signature[4]
-        self.convolution_line_width = style_signature[5]
-        self.freeze_line_color = style_signature[6]
-        self.freeze_line_width = style_signature[7]
-        self.current_frame_color = style_signature[8]
-        self.current_frame_width = style_signature[9]
+        self.head_extend_points = style_signature[0]
+        self.tail_extend_points = style_signature[1]
+        self.convolution_half_window_points = style_signature[2]
+        self.convolution_ramp_points = style_signature[3]
+        self.timeseries_palette = style_signature[4]
+        self.timeseries_line_width = style_signature[5]
+        self.convolution_line_width = style_signature[6]
+        self.freeze_line_color = style_signature[7]
+        self.freeze_line_width = style_signature[8]
+        self.current_frame_color = style_signature[9]
+        self.current_frame_width = style_signature[10]
 
         # Fast path: if plot content/style/selected cells are unchanged, only move
         # the current-frame indicator instead of rebuilding all curves.
@@ -201,7 +270,7 @@ class GrayscalePlotWidget(QWidget):
         self._render_signature = render_signature
         self.refresh_plot()
 
-    def set_current_image_index(self, current_image_index, current_image_name=None):
+    def set_current_image_index(self, current_image_index, current_image_name=None, force=False):
         self.current_image_index = current_image_index
         self.current_image_name = current_image_name
         frame_x = self._current_frame_x()
@@ -210,10 +279,11 @@ class GrayscalePlotWidget(QWidget):
                 self._add_current_frame_line(frame_x, include_legend=False)
             return
         if frame_x is None:
-            self.plot_item.removeItem(self.current_frame_line)
-            self.current_frame_line = None
+            self._remove_current_frame_line()
             return
-        self.current_frame_line.setValue(frame_x)
+        if self._current_frame_line_update_is_invisible(frame_x, force=force):
+            return
+        self._move_current_frame_line(frame_x)
 
     def _palette_colors(self):
         return self.PALETTES.get(self.timeseries_palette, self.PALETTES["bright"])
@@ -245,17 +315,29 @@ class GrayscalePlotWidget(QWidget):
         # Clear plotted items while preserving the existing legend object.
         self.plot_item.clear()
         self.convolution_view_box.clear()
-        self.current_frame_line = None
+        self._remove_current_frame_line()
         self.plot_item.setTitle("Grayscale Time Series")
         self.plot_item.setLabel("bottom", "Frame / Image Index")
         self.plot_item.setLabel("left", "Mean Grayscale")
         self.plot_item.setLabel("right", "Convolution Signal")
 
     def _build_data_signature(self, headers, rows, freeze_rows):
+        row_count = len(rows)
+        freeze_row_count = len(freeze_rows)
+        first_row = tuple(rows[0]) if row_count else ()
+        last_row = tuple(rows[-1]) if row_count else ()
+        first_freeze_row = tuple(freeze_rows[0]) if freeze_row_count else ()
+        last_freeze_row = tuple(freeze_rows[-1]) if freeze_row_count else ()
         return (
             tuple(headers),
-            tuple(tuple(row) for row in rows),
-            tuple(tuple(row) for row in freeze_rows),
+            id(rows),
+            row_count,
+            first_row,
+            last_row,
+            id(freeze_rows),
+            freeze_row_count,
+            first_freeze_row,
+            last_freeze_row,
         )
 
     def _file_name_column_index(self):
@@ -333,14 +415,9 @@ class GrayscalePlotWidget(QWidget):
         self._convolution_cache = {}
 
     def _add_current_frame_line(self, frame_x, include_legend):
-        self.current_frame_line = pg.InfiniteLine(
-            pos=float(frame_x),
-            angle=90,
-            pen=self._current_frame_pen(),
-            movable=False,
-        )
-        self.current_frame_line.setZValue(1000)
-        self.plot_item.addItem(self.current_frame_line, ignoreBounds=True)
+        self.current_frame_line = CurrentFrameLineOverlay(self.plot_widget)
+        self.current_frame_line.set_line_style(self.current_frame_color, self.current_frame_width)
+        self._move_current_frame_line(frame_x)
         if include_legend:
             self._configure_data_item(
                 self.plot_item.plot(
@@ -351,9 +428,49 @@ class GrayscalePlotWidget(QWidget):
                 )
             )
 
+    def _remove_current_frame_line(self):
+        if self.current_frame_line is not None:
+            self.current_frame_line.clear_frame_position()
+            self.current_frame_line.deleteLater()
+        self.current_frame_line = None
+        self._last_current_frame_widget_x = None
+
+    def _sync_current_frame_overlay_geometry(self):
+        if self.current_frame_line is None:
+            return
+        self.current_frame_line.setGeometry(self.plot_widget.rect())
+        self.current_frame_line.raise_()
+
+    def _current_frame_widget_x(self, frame_x):
+        try:
+            scene_point = self.plot_item.vb.mapViewToScene(QPointF(float(frame_x), 0.0))
+            return float(self.plot_widget.mapFromScene(scene_point).x())
+        except Exception:
+            return None
+
+    def _current_frame_line_update_is_invisible(self, frame_x, force=False):
+        if force:
+            return False
+        if self._last_current_frame_widget_x is None:
+            return False
+        widget_x = self._current_frame_widget_x(frame_x)
+        if widget_x is None:
+            return False
+        return abs(widget_x - self._last_current_frame_widget_x) < 1.0
+
+    def _move_current_frame_line(self, frame_x):
+        widget_x = self._current_frame_widget_x(frame_x)
+        if widget_x is None:
+            return
+        self._sync_current_frame_overlay_geometry()
+        self.current_frame_line.set_frame_position(frame_x, widget_x)
+        self._last_current_frame_widget_x = widget_x
+
     def update_convolution_view_geometry(self):
         self.convolution_view_box.setGeometry(self.plot_item.vb.sceneBoundingRect())
         self.convolution_view_box.linkedViewChanged(self.plot_item.vb, self.convolution_view_box.XAxis)
+        if self.current_frame_line is not None:
+            self._move_current_frame_line(self.current_frame_line.value())
 
     def _grayscale_column_map(self):
         if self._column_map_cache is not None:
@@ -432,6 +549,7 @@ class GrayscalePlotWidget(QWidget):
         conv_key = (
             int(cell_id),
             len(y_values),
+            int(max(0, self.head_extend_points)),
             int(max(0, self.tail_extend_points)),
             int(max(0, self.convolution_half_window_points)),
             int(max(0, self.convolution_ramp_points)),
@@ -442,16 +560,18 @@ class GrayscalePlotWidget(QWidget):
 
         _, convolved_values = compute_convolution_timeseries(
             y_values,
+            head_extend_points=self.head_extend_points,
             tail_extend_points=self.tail_extend_points,
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
         )
         if len(convolved_values):
+            head_extend_count = int(max(0, self.head_extend_points))
             conv_offset = compute_convolution_center_offset(
-                len(y_values) + int(max(0, self.tail_extend_points)),
+                len(y_values) + head_extend_count + int(max(0, self.tail_extend_points)),
                 convolution_half_window_points=self.convolution_half_window_points,
                 convolution_ramp_points=self.convolution_ramp_points,
-            )
+            ) - head_extend_count
             conv_x_values = np.arange(len(convolved_values), dtype=float) + conv_offset
         else:
             conv_x_values = np.empty(0, dtype=float)
@@ -473,7 +593,54 @@ class GrayscalePlotWidget(QWidget):
         data_item.setClipToView(True)
         data_item.setDownsampling(auto=True, method="peak")
         data_item.setSkipFiniteCheck(True)
+        if hasattr(data_item, "setDynamicRangeLimit"):
+            data_item.setDynamicRangeLimit(1e6)
         return data_item
+
+    def _display_point_budget(self, series_count=1):
+        width = 0
+        try:
+            width = int(self.plot_widget.width())
+        except RuntimeError:
+            width = 0
+        curve_count = max(1, int(series_count) * 2)
+        per_curve_budget = int(max(1, width) * 8 / curve_count)
+        return max(1200, min(12000, per_curve_budget))
+
+    def _peak_downsample_arrays(self, x_values, y_values, max_points=None):
+        x_values = np.asarray(x_values, dtype=float)
+        y_values = np.asarray(y_values, dtype=float)
+        point_count = len(y_values)
+        if max_points is None:
+            max_points = self._display_point_budget()
+        max_points = int(max(2, max_points))
+        if point_count <= max_points:
+            return x_values, y_values
+
+        bucket_count = max(1, max_points // 2)
+        edges = np.linspace(0, point_count, bucket_count + 1, dtype=int)
+        sampled_x = []
+        sampled_y = []
+        for start, stop in zip(edges[:-1], edges[1:]):
+            if stop <= start:
+                continue
+            y_bucket = y_values[start:stop]
+            x_bucket = x_values[start:stop]
+            finite_mask = np.isfinite(y_bucket)
+            if not np.any(finite_mask):
+                continue
+            finite_indexes = np.flatnonzero(finite_mask)
+            finite_values = y_bucket[finite_mask]
+            min_local = int(finite_indexes[int(np.argmin(finite_values))])
+            max_local = int(finite_indexes[int(np.argmax(finite_values))])
+            ordered = sorted((min_local, max_local))
+            for local_index in ordered:
+                sampled_x.append(float(x_bucket[local_index]))
+                sampled_y.append(float(y_bucket[local_index]))
+
+        if not sampled_x:
+            return np.empty(0, dtype=float), np.empty(0, dtype=float)
+        return np.asarray(sampled_x, dtype=float), np.asarray(sampled_y, dtype=float)
 
     def _freeze_segment_arrays(self, freeze_indices, y_min, y_max):
         segment_count = len(freeze_indices)
@@ -513,13 +680,19 @@ class GrayscalePlotWidget(QWidget):
             convolution_y_min = None
             convolution_y_max = None
             unique_freeze_indices = set()
+            display_point_budget = self._display_point_budget(len(series))
 
             for series_index, (cell_id, x_values, y_values) in enumerate(series):
                 pen = self._timeseries_pen(series_index)
+                display_x_values, display_y_values = self._peak_downsample_arrays(
+                    x_values,
+                    y_values,
+                    max_points=display_point_budget,
+                )
                 self._configure_data_item(
                     self.plot_item.plot(
-                        x_values,
-                        y_values,
+                        display_x_values,
+                        display_y_values,
                         pen=pen,
                         name=f"Cell {cell_id}" if show_legend else None,
                     )
@@ -532,9 +705,14 @@ class GrayscalePlotWidget(QWidget):
                 conv_x_values, convolved_values = self._convolution_for_cell(cell_id, y_values)
                 if len(convolved_values):
                     conv_pen = self._convolution_pen(series_index)
-                    conv_curve_item = pg.PlotCurveItem(
+                    conv_display_x, conv_display_y = self._peak_downsample_arrays(
                         conv_x_values,
                         convolved_values,
+                        max_points=display_point_budget,
+                    )
+                    conv_curve_item = pg.PlotCurveItem(
+                        conv_display_x,
+                        conv_display_y,
                         pen=conv_pen,
                     )
                     conv_curve_item.setSkipFiniteCheck(True)
