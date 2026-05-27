@@ -6239,6 +6239,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.remove_selected_action.setEnabled(self.image_list_enabled and has_image_files and not self.output_state)
         self.clear_images_action.setEnabled(has_frames and not self.output_state)
         self.sort_images_action.setEnabled((has_image_files or has_sortable_video_clips) and not self.output_state)
+        self.sort_images_action.setText("Sort Video Clips" if has_sortable_video_clips else "Sort Images")
         self.relink_images_action.setEnabled(has_image_files and not self.output_state)
         self.sample_manager_action.setEnabled(interactive)
         self.new_session_action.setEnabled(not self.output_state)
@@ -7799,7 +7800,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def openSortImagesDialog(self):
         sorting_video_clips = self.supports_video_clip_sorting()
         if not self.supports_image_file_operations() and not sorting_video_clips:
-            QMessageBox.information(self, "Sort Images", "Sorting is available for image files or multi-clip video sources.")
+            QMessageBox.information(
+                self,
+                "Sort Source",
+                "Sorting is available for image files or multi-clip video sources.",
+            )
             return
         sort_paths = (
             self.active_frame_source().source_paths()
@@ -7809,13 +7814,24 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         availability = self.get_sort_availability(sort_paths)
         if sorting_video_clips:
             availability["exif_time"] = False
-        dialog = SortImagesDialog(self, availability, self.sort_mode, self)
+        dialog = SortImagesDialog(
+            self,
+            availability,
+            self.sort_mode,
+            self,
+            source_kind_label="video_clips" if sorting_video_clips else "images",
+        )
         if dialog.exec() != QDialog.Accepted:
             return
 
         selected_mode = dialog.selected_mode()
         if not self.is_sort_mode_available(selected_mode, sort_paths):
-            QMessageBox.warning(self, "Sort Images", "The selected sort method is not available for the current session.")
+            title = "Sort Video Clips" if sorting_video_clips else "Sort Images"
+            QMessageBox.warning(
+                self,
+                title,
+                "The selected sort method is not available for the current session.",
+            )
             return
 
         before_state = self.capture_session_state() if self.has_frames() else None

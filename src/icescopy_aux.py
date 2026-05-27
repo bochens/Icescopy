@@ -1788,16 +1788,25 @@ class SortImagesDialog(QDialog):
         ("EXIF Time", "exif_time"),
     ]
 
-    def __init__(self, main_window, availability, current_mode, parent=None):
+    def __init__(self, main_window, availability, current_mode, parent=None, source_kind_label="images"):
         super().__init__(parent)
         self.main_window = main_window
         self.availability = availability
-        self.setWindowTitle("Sort Images")
+        self.source_kind_label = source_kind_label
+        if source_kind_label == "video_clips":
+            self.setWindowTitle("Sort Video Clips")
+            intro_text = "Sort loaded video clips or choose the default ordering for new video clips."
+            future_text = "Applies the selected ordering to the current video session and future added video clips."
+        else:
+            self.setWindowTitle("Sort Images")
+            intro_text = "Sort loaded images or choose the default ordering for new images."
+            future_text = "Applies the selected ordering to the current image session and future added images."
+        self._future_text = future_text
         self.resize(460, 260)
 
         layout = QVBoxLayout(self)
 
-        title = QLabel("Sort loaded images or choose the default ordering for new images.")
+        title = QLabel(intro_text)
         title.setWordWrap(True)
         layout.addWidget(title)
 
@@ -1841,7 +1850,7 @@ class SortImagesDialog(QDialog):
         elif mode == "exif_time":
             self.info_label.setText("Uses EXIF capture timestamps. Disabled if any loaded image is missing EXIF date/time.")
         else:
-            self.info_label.setText("Applies the selected ordering to the current session and future added images.")
+            self.info_label.setText(self._future_text)
 
     def selected_mode(self):
         return self.sort_mode_combo.currentData()

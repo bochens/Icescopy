@@ -1,6 +1,10 @@
 # Icescopy
 
-Icescopy is a desktop application for ice assay image data. It supports droplet arrays, multiwell plates, and other image-based freezing assays by combining image annotation, sample metadata, grayscale timeseries review, freeze-event detection, and temperature-linked freeze count export in one session.
+Icescopy is a desktop application for ice assay image data. It supports droplet arrays, multiwell plates, and other image-based freezing assays by combining image annotation, sample metadata, grayscale timeseries review, freeze-event detection, and temperature-linked freeze count export in one workspace.
+
+Icescopy is currently used and tested by multiple university research groups, with support continuing to expand across different ice assay workflows.
+
+If you have a temperature file format or instrument workflow that is not yet supported, please open a GitHub issue or contact me. I am happy to help incorporate additional formats into Icescopy.
 
 ## Citation
 
@@ -35,9 +39,3 @@ Import a standard temperature timeseries file, use instrument-specific importers
 After annotation, use the sample catalog to enter sample names, collection information, sample type, dilution, volumes, and related metadata. Icescopy then keeps that metadata beside the image-derived measurements so freeze count timeseries, result tables, and exports remain connected to the samples they came from.
 
 ![Icescopy workspace showing sample metadata entry and freeze count timeseries results for a well-plate ice assay](resources/readme/icescopy-freeze-count-timeseries.png)
-
-## Notes
-
-- The packaged app does not include the repo `README.md`.
-- `.icescopy` session files are zip-based bundles containing the saved session state and result tables.
-- Please reach out to me if you have a special temperature file format that needs to be paired with the freezing detection workflow, and I will help incorporate it into Icescopy.

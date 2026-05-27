@@ -19,7 +19,8 @@ if str(SRC_DIR) not in sys.path:
 
 import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit  # noqa: E402
+from icescopy_aux import SortImagesDialog  # noqa: E402
 from icescopy_temperature_import import (  # noqa: E402
     StandardTemperatureTimeseries,
     TAMULinkamTimeseries,
@@ -40,13 +41,17 @@ from icescopy_session_io import (  # noqa: E402
 
 
 class SessionIoTests(unittest.TestCase):
-    def make_action_state_window(self, *, source_kind="image", frame_count=1):
+    def make_action_state_window(self, *, source_kind="image", frame_count=1, video_clip_sorting=False):
         class DummyAction:
             def __init__(self):
                 self.enabled = None
+                self.text = None
 
             def setEnabled(self, enabled):
                 self.enabled = bool(enabled)
+
+            def setText(self, text):
+                self.text = str(text)
 
         fake_window = SimpleNamespace(
             session_active=True,
@@ -58,7 +63,7 @@ class SessionIoTests(unittest.TestCase):
             viewer_image_count=1,
             has_frames=lambda: frame_count > 0,
             supports_image_file_operations=lambda: source_kind == "image",
-            supports_video_clip_sorting=lambda: False,
+            supports_video_clip_sorting=lambda: bool(video_clip_sorting),
             is_video_source=lambda: source_kind == "video",
             set_undo_status=lambda: None,
             set_redo_status=lambda: None,
@@ -128,6 +133,41 @@ class SessionIoTests(unittest.TestCase):
         self.assertTrue(fake_window.add_images_action.enabled)
         self.assertTrue(fake_window.add_folder_action.enabled)
         self.assertTrue(fake_window.open_video_action.enabled)
+
+    def test_update_session_actions_renames_sort_action_for_sortable_video_clips(self):
+        fake_window = self.make_action_state_window(
+            source_kind="video",
+            frame_count=5,
+            video_clip_sorting=True,
+        )
+
+        IceScopy.update_session_actions_state(fake_window)
+
+        self.assertTrue(fake_window.sort_images_action.enabled)
+        self.assertEqual(fake_window.sort_images_action.text, "Sort Video Clips")
+
+    def test_sort_dialog_uses_video_clip_text_when_sorting_video_source(self):
+        app = QApplication.instance() or QApplication([])
+        self.addCleanup(lambda: app.processEvents())
+
+        dialog = SortImagesDialog(
+            None,
+            {"natural_filename": True},
+            "natural_filename",
+            source_kind_label="video_clips",
+        )
+        self.addCleanup(dialog.close)
+
+        label_texts = [
+            child.text()
+            for child in dialog.findChildren(QLabel)
+            if child.text()
+        ]
+        self.assertEqual(dialog.windowTitle(), "Sort Video Clips")
+        self.assertIn(
+            "Sort loaded video clips or choose the default ordering for new video clips.",
+            label_texts,
+        )
 
     def test_load_video_refuses_to_replace_existing_image_source(self):
         fake_window = SimpleNamespace(
