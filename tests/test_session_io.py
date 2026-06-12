@@ -19,6 +19,7 @@ if str(SRC_DIR) not in sys.path:
 
 import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit  # noqa: E402
 from icescopy_aux import SortImagesDialog  # noqa: E402
 from icescopy_temperature_import import (  # noqa: E402
@@ -38,6 +39,7 @@ from icescopy_session_io import (  # noqa: E402
     load_session_bundle,
     save_session_bundle,
 )
+from icescopy_session import ImageListModel, SessionAnalysisMarkerCommand, SessionFreezeAnnotationCommand  # noqa: E402
 
 
 class SessionIoTests(unittest.TestCase):
@@ -168,6 +170,25 @@ class SessionIoTests(unittest.TestCase):
             "Sort loaded video clips or choose the default ordering for new video clips.",
             label_texts,
         )
+
+    def test_source_backed_image_list_model_can_filter_to_frozen_source_frames(self):
+        app = QApplication.instance() or QApplication([])
+        self.addCleanup(lambda: app.processEvents())
+
+        fake_window = SimpleNamespace(
+            frame_count=lambda: 8,
+            frame_list_row_count=lambda: 2,
+            frame_list_source_index_for_row=lambda row: [2, 5][row] if row in (0, 1) else None,
+            format_frame_list_entry=lambda source_index: f"frame {source_index}",
+            frame_tooltip=lambda source_index: f"tooltip {source_index}",
+        )
+        model = ImageListModel()
+        model.main_window = fake_window
+
+        self.assertEqual(model.rowCount(), 2)
+        self.assertEqual(model.data(model.index(0, 0)), "frame 2")
+        self.assertEqual(model.data(model.index(1, 0)), "frame 5")
+        self.assertEqual(model.data(model.index(1, 0), Qt.ToolTipRole), "tooltip 5")
 
     def test_load_video_refuses_to_replace_existing_image_source(self):
         fake_window = SimpleNamespace(
@@ -429,6 +450,7 @@ class SessionIoTests(unittest.TestCase):
         )
         fake_window.set_table_data = lambda *_args, **_kwargs: None
         fake_window.update_results_table_visibility = lambda: None
+        fake_window.refresh_freeze_flag_markers = lambda: None
         fake_window.refresh_grayscale_plot = lambda: None
         fake_window.refresh_cells_panel = lambda: None
         fake_window.update_cursor_record_edit_state = (
@@ -441,6 +463,359 @@ class SessionIoTests(unittest.TestCase):
         self.assertTrue(row_widget.visible)
         self.assertTrue(line_edit.isEnabled())
         self.assertTrue(apply_button.enabled)
+
+    def test_flag_button_toggles_current_frame_for_selected_cells(self):
+        records = {
+            0: SimpleNamespace(freeze_event_indices=[]),
+            1: SimpleNamespace(freeze_event_indices=[2]),
+        }
+        selected_items = [
+            SimpleNamespace(cell_id=0),
+            SimpleNamespace(cell_id=1),
+        ]
+
+        fake_window = SimpleNamespace(
+            image_index=2,
+            grayscale_results_rows=[],
+            freeze_results_headers=[],
+            freeze_results_rows=[["cell_1", "2", "frame_002.png"]],
+            last_freeze_output_path=None,
+            changed_reason=None,
+            result_updates=0,
+            freeze_view_refreshes=0,
+            fast_freeze_view_refreshes=0,
+            cursor_refreshes=0,
+            marker_refreshes=0,
+            pushed_history=None,
+            logged_messages=[],
+        )
+        fake_window.get_selected_cell_items = lambda: selected_items
+        fake_window.has_frames = lambda: True
+        fake_window.frame_count = lambda: 10
+        fake_window.frame_name = lambda index: f"frame_{index:03d}.png"
+        fake_window.ensure_cell_record = lambda cell_id: records[int(cell_id)]
+        fake_window.rebuild_freeze_rows_for_cell = (
+            lambda cell_id, values: IceScopy.rebuild_freeze_rows_for_cell(fake_window, cell_id, values)
+        )
+        fake_window.selected_cells_freeze_state_at_current_frame = (
+            lambda selected_items=None: IceScopy.selected_cells_freeze_state_at_current_frame(
+                fake_window,
+                selected_items,
+            )
+        )
+        fake_window.apply_manual_freeze_event_indices = (
+            lambda cell_id, values, refresh_tables=True, refresh_freeze_markers=True, refresh_freeze_count_table=True:
+            IceScopy.apply_manual_freeze_event_indices(
+                fake_window,
+                cell_id,
+                values,
+                refresh_tables=refresh_tables,
+                refresh_freeze_markers=refresh_freeze_markers,
+                refresh_freeze_count_table=refresh_freeze_count_table,
+            )
+        )
+        fake_window.apply_manual_freeze_event_indices_batch = (
+            lambda values_by_cell_id, refresh_tables=True, refresh_freeze_markers=True, refresh_freeze_count_table=True:
+            IceScopy.apply_manual_freeze_event_indices_batch(
+                fake_window,
+                values_by_cell_id,
+                refresh_tables=refresh_tables,
+                refresh_freeze_markers=refresh_freeze_markers,
+                refresh_freeze_count_table=refresh_freeze_count_table,
+            )
+        )
+        fake_window.extract_cell_id_from_label = lambda label: int(str(label).split("_", 1)[1])
+        fake_window.invalidate_freeze_count_timeseries_results = (
+            lambda reason=None, refresh_table=True: setattr(fake_window, "changed_reason", reason)
+        )
+        fake_window.update_results_tables = (
+            lambda: setattr(fake_window, "result_updates", fake_window.result_updates + 1)
+        )
+        fake_window.refresh_freeze_annotation_views = (
+            lambda selected_items=None: setattr(fake_window, "freeze_view_refreshes", fake_window.freeze_view_refreshes + 1)
+        )
+        fake_window.refresh_freeze_annotation_views_fast = (
+            lambda changed_cell_ids, **_kwargs: setattr(fake_window, "fast_freeze_view_refreshes", fake_window.fast_freeze_view_refreshes + 1)
+        )
+        fake_window.refresh_cursor_selection_info = (
+            lambda selected_items=None: setattr(fake_window, "cursor_refreshes", fake_window.cursor_refreshes + 1)
+        )
+        fake_window.refresh_freeze_flag_markers = (
+            lambda selected_items=None: setattr(fake_window, "marker_refreshes", fake_window.marker_refreshes + 1)
+        )
+        fake_window.capture_data_state = lambda: self.fail("flag toggle should not capture full data state")
+        fake_window.push_data_history = (
+            lambda text, before_state: self.fail("flag toggle should not push full data history")
+        )
+        fake_window.capture_freeze_annotation_state = lambda: {"before": True}
+        fake_window.push_freeze_annotation_history = (
+            lambda text, before_state: setattr(fake_window, "pushed_history", (text, before_state))
+        )
+        fake_window.summarize_integer_list = lambda values: IceScopy.summarize_integer_list(fake_window, values)
+        fake_window.log = lambda message: fake_window.logged_messages.append(message)
+
+        self.assertTrue(IceScopy.toggle_selected_cells_freeze_at_current_frame(fake_window))
+        self.assertEqual(records[0].freeze_event_indices, [2])
+        self.assertEqual(records[1].freeze_event_indices, [2])
+        self.assertEqual(fake_window.freeze_results_rows, [["cell_0", "2", "frame_002.png"], ["cell_1", "2", "frame_002.png"]])
+        self.assertEqual(fake_window.pushed_history[0], "Mark Freeze Frame")
+        self.assertEqual(fake_window.result_updates, 0)
+        self.assertEqual(fake_window.freeze_view_refreshes, 0)
+        self.assertEqual(fake_window.fast_freeze_view_refreshes, 1)
+
+        self.assertTrue(IceScopy.toggle_selected_cells_freeze_at_current_frame(fake_window))
+        self.assertEqual(records[0].freeze_event_indices, [])
+        self.assertEqual(records[1].freeze_event_indices, [])
+        self.assertEqual(fake_window.freeze_results_rows, [])
+        self.assertEqual(fake_window.pushed_history[0], "Clear Freeze Frame")
+        self.assertEqual(fake_window.result_updates, 0)
+        self.assertEqual(fake_window.freeze_view_refreshes, 0)
+        self.assertEqual(fake_window.fast_freeze_view_refreshes, 2)
+
+    def test_freeze_annotation_command_undo_redo_uses_restore_states(self):
+        fake_window = SimpleNamespace(restored_states=[])
+        fake_window.restore_freeze_annotation_state = (
+            lambda state, preserve_active_tool=False:
+            fake_window.restored_states.append((state, preserve_active_tool))
+        )
+        before_state = {"freeze": "before"}
+        after_state = {"freeze": "after"}
+
+        command = SessionFreezeAnnotationCommand(
+            fake_window,
+            "Toggle Freeze Frame",
+            before_state,
+            after_state,
+        )
+        command.redo()
+        self.assertEqual(fake_window.restored_states, [])
+
+        command.undo()
+        command.redo()
+        self.assertEqual(
+            fake_window.restored_states,
+            [(before_state, True), (after_state, True)],
+        )
+
+    def test_restore_freeze_annotation_state_uses_fast_row_and_marker_updates(self):
+        before_payload = {
+            "0": {
+                "cell_id": 0,
+                "sample_id": "",
+                "grayscale_timeseries": [],
+                "freeze_event_indices": [2],
+                "freeze_rows": [["cell_0", "2", "frame_002.png"]],
+            }
+        }
+        after_payload = {
+            "0": {
+                "cell_id": 0,
+                "sample_id": "",
+                "grayscale_timeseries": [],
+                "freeze_event_indices": [],
+                "freeze_rows": [],
+            }
+        }
+        state = {
+            "cell_records_by_id": after_payload,
+            "freeze_results_headers": ["cell", "image_index", "image_name"],
+            "freeze_results_rows": [],
+            "last_freeze_output_path": None,
+            "flagframe_list": [],
+            "tool_mode": "cursor",
+        }
+        fake_window = SimpleNamespace(
+            current_payload=before_payload,
+            cell_records_by_id={},
+            freeze_results_headers=["cell", "image_index", "image_name"],
+            freeze_results_rows=[["cell_0", "2", "frame_002.png"]],
+            freeze_count_timeseries_headers=["timestamp"],
+            freeze_count_timeseries_rows=[["2026-01-01"]],
+            freeze_count_timeseries_summary={"existing": True},
+            last_temperature_import_path="/tmp/temp.csv",
+            flagframe_list=[2],
+            row_updates=[],
+            marker_updates=[],
+            cleared_freeze_count_tables=0,
+            visibility_updates=0,
+            cursor_refreshes=0,
+            edit_state_updates=0,
+            session_action_updates=0,
+            undo_status_updates=0,
+            redo_status_updates=0,
+        )
+        fake_window.serialize_cell_records = lambda: fake_window.current_payload
+        fake_window.deserialize_cell_records = lambda payload: payload
+        fake_window.get_active_tool_for_restore = lambda: "cursor"
+        fake_window.freeze_annotation_changed_cell_ids = (
+            lambda before, after: IceScopy.freeze_annotation_changed_cell_ids(fake_window, before, after)
+        )
+        fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
+        fake_window.recompute_next_cell_id = lambda preserve_if_larger=True: None
+        fake_window.ensure_sample_catalog_matches_cell_records = lambda: None
+        fake_window.replace_freeze_table_rows_for_cells = lambda cell_ids: fake_window.row_updates.append(list(cell_ids))
+        fake_window.set_table_data = lambda *_args, **_kwargs: self.fail("freeze restore should not rebuild the whole freeze table")
+        fake_window.clear_freeze_count_timeseries_table_widget = (
+            lambda: setattr(fake_window, "cleared_freeze_count_tables", fake_window.cleared_freeze_count_tables + 1)
+        )
+        fake_window.update_results_table_visibility = (
+            lambda: setattr(fake_window, "visibility_updates", fake_window.visibility_updates + 1)
+        )
+        fake_window.selected_cell_freeze_frames = lambda selected_items=None: []
+        fake_window.set_freeze_flag_marker_fast = (
+            lambda frame_index, is_flagged: fake_window.marker_updates.append((frame_index, is_flagged))
+        )
+        fake_window.refresh_freeze_flag_markers = (
+            lambda selected_items=None: self.fail("freeze restore should not refresh all flag markers")
+        )
+        fake_window.refresh_cursor_selection_info = (
+            lambda selected_items=None: setattr(fake_window, "cursor_refreshes", fake_window.cursor_refreshes + 1)
+        )
+        fake_window.update_cursor_record_edit_state = (
+            lambda selected_items=None: setattr(fake_window, "edit_state_updates", fake_window.edit_state_updates + 1)
+        )
+        fake_window.update_session_actions_state = (
+            lambda: setattr(fake_window, "session_action_updates", fake_window.session_action_updates + 1)
+        )
+        fake_window.restore_tool_mode_ui = lambda *_args, **_kwargs: self.fail("preserved-tool undo should not restore the tool UI")
+        fake_window.set_undo_status = (
+            lambda: setattr(fake_window, "undo_status_updates", fake_window.undo_status_updates + 1)
+        )
+        fake_window.set_redo_status = (
+            lambda: setattr(fake_window, "redo_status_updates", fake_window.redo_status_updates + 1)
+        )
+
+        IceScopy.restore_freeze_annotation_state(fake_window, state, preserve_active_tool=True)
+
+        self.assertEqual(fake_window.row_updates, [[0]])
+        self.assertEqual(fake_window.marker_updates, [(2, False)])
+        self.assertEqual(fake_window.freeze_count_timeseries_headers, [])
+        self.assertEqual(fake_window.freeze_count_timeseries_rows, [])
+        self.assertEqual(fake_window.freeze_count_timeseries_summary, {})
+        self.assertIsNone(fake_window.last_temperature_import_path)
+        self.assertEqual(fake_window.cleared_freeze_count_tables, 1)
+
+    def test_no_selection_freeze_markers_show_all_cell_freeze_frames(self):
+        fake_window = SimpleNamespace(
+            cell_controller=object(),
+            scene=object(),
+            image_index=5,
+            cell_records_by_id={
+                0: SimpleNamespace(freeze_event_indices=[1, 5]),
+                1: SimpleNamespace(freeze_event_indices=[5, 7]),
+                2: SimpleNamespace(freeze_event_indices=[7, 20, "bad"]),
+            },
+        )
+        fake_window.get_selected_cell_items = lambda: []
+        fake_window.has_frames = lambda: True
+        fake_window.frame_count = lambda: 10
+
+        self.assertEqual(IceScopy.selected_cell_freeze_frames(fake_window), [1, 5, 7])
+        self.assertEqual(
+            IceScopy.selected_cells_freeze_state_at_current_frame(fake_window),
+            (True, False),
+        )
+
+    def test_analysis_start_marker_toggle_uses_single_marker_history(self):
+        class DummySlider:
+            def __init__(self):
+                self.analysis_startframes = set()
+                self.analysis_endframes = set()
+                self.marker_updates = []
+
+            def set_analysis_marker(self, marker_kind, frame_index, is_marked):
+                self.marker_updates.append((marker_kind, frame_index, is_marked))
+                marker_frames = self.analysis_startframes if marker_kind == "start" else self.analysis_endframes
+                if is_marked:
+                    marker_frames.add(frame_index)
+                else:
+                    marker_frames.discard(frame_index)
+
+        fake_window = SimpleNamespace(
+            image_index=12,
+            analysis_start_frame_list=[],
+            analysis_end_frame_list=[],
+            image_slider=DummySlider(),
+            updated_rows=[],
+            start_icon_updates=0,
+            end_icon_updates=0,
+            session_action_updates=0,
+            history_pushes=[],
+            logged_messages=[],
+        )
+        fake_window.has_frames = lambda: True
+        fake_window.frame_count = lambda: 100
+        fake_window.analysis_marker_list_attr = (
+            lambda marker_kind: IceScopy.analysis_marker_list_attr(fake_window, marker_kind)
+        )
+        fake_window.set_analysis_window_marker = (
+            lambda marker_kind, frame_index, is_marked:
+            IceScopy.set_analysis_window_marker(fake_window, marker_kind, frame_index, is_marked)
+        )
+        fake_window.update_image_list_annotations = lambda rows=None: fake_window.updated_rows.append(list(rows or []))
+        fake_window.update_toggle_analysis_start_button_icon = (
+            lambda: setattr(fake_window, "start_icon_updates", fake_window.start_icon_updates + 1)
+        )
+        fake_window.update_toggle_analysis_end_button_icon = (
+            lambda: setattr(fake_window, "end_icon_updates", fake_window.end_icon_updates + 1)
+        )
+        fake_window.update_session_actions_state = (
+            lambda: setattr(fake_window, "session_action_updates", fake_window.session_action_updates + 1)
+        )
+        fake_window.push_analysis_marker_history = (
+            lambda *args: fake_window.history_pushes.append(args)
+        )
+        fake_window.push_timeline_marker_history = (
+            lambda *_args: self.fail("analysis start/end markers should not use full timeline history")
+        )
+        fake_window.capture_timeline_marker_state = (
+            lambda: self.fail("analysis start/end markers should not capture full timeline state")
+        )
+        fake_window.log = lambda message: fake_window.logged_messages.append(message)
+
+        self.assertTrue(IceScopy.toggle_analysis_window_marker(fake_window, "start"))
+        self.assertEqual(fake_window.analysis_start_frame_list, [12])
+        self.assertEqual(fake_window.image_slider.analysis_startframes, {12})
+        self.assertEqual(fake_window.updated_rows, [[12]])
+        self.assertEqual(fake_window.image_slider.marker_updates, [("start", 12, True)])
+        self.assertEqual(
+            fake_window.history_pushes[-1],
+            ("Toggle Analysis Start", "start", 12, False, True),
+        )
+
+        self.assertTrue(IceScopy.toggle_analysis_window_marker(fake_window, "start"))
+        self.assertEqual(fake_window.analysis_start_frame_list, [])
+        self.assertEqual(fake_window.image_slider.analysis_startframes, set())
+        self.assertEqual(fake_window.image_slider.marker_updates[-1], ("start", 12, False))
+        self.assertEqual(
+            fake_window.history_pushes[-1],
+            ("Toggle Analysis Start", "start", 12, True, False),
+        )
+
+    def test_analysis_marker_command_undo_redo_uses_single_marker_restore(self):
+        fake_window = SimpleNamespace(restored_markers=[])
+        fake_window.restore_analysis_marker_state = (
+            lambda marker_kind, frame_index, is_marked, preserve_active_tool=False:
+            fake_window.restored_markers.append((marker_kind, frame_index, is_marked, preserve_active_tool))
+        )
+
+        command = SessionAnalysisMarkerCommand(
+            fake_window,
+            "Toggle Analysis Start",
+            "start",
+            12,
+            False,
+            True,
+        )
+        command.redo()
+        self.assertEqual(fake_window.restored_markers, [])
+
+        command.undo()
+        command.redo()
+        self.assertEqual(
+            fake_window.restored_markers,
+            [("start", 12, False, True), ("start", 12, True, True)],
+        )
 
     def test_sample_id_allocator_reuses_lowest_deleted_catalog_id(self):
         fake_window = SimpleNamespace(

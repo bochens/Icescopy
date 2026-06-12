@@ -17,6 +17,59 @@ from PySide6.QtGui import QImage
 SOURCE_KIND_IMAGE_SEQUENCE = "image_sequence"
 SOURCE_KIND_VIDEO = "video"
 SOURCE_KIND_VIDEO_SEQUENCE = "video_sequence"
+VIDEO_GRAYSCALE_MODE_GRAYSCALE = "grayscale"
+VIDEO_GRAYSCALE_MODE_LUMA = "luma"
+DEFAULT_VIDEO_GRAYSCALE_MODE = VIDEO_GRAYSCALE_MODE_GRAYSCALE
+VIDEO_GRAYSCALE_MODE_LABELS = {
+    VIDEO_GRAYSCALE_MODE_GRAYSCALE: "Converted grayscale",
+    VIDEO_GRAYSCALE_MODE_LUMA: "Video luma plane",
+}
+
+
+def normalize_video_grayscale_mode(value) -> str:
+    value = str(value or DEFAULT_VIDEO_GRAYSCALE_MODE).strip().lower()
+    if value in {VIDEO_GRAYSCALE_MODE_GRAYSCALE, VIDEO_GRAYSCALE_MODE_LUMA}:
+        return value
+    return DEFAULT_VIDEO_GRAYSCALE_MODE
+
+
+def normalize_frame_ranges(frame_ranges, frame_count: int) -> list[tuple[int, int]]:
+    frame_count = int(frame_count)
+    if frame_count <= 0:
+        return []
+    if frame_ranges is None:
+        return [(0, frame_count - 1)]
+
+    normalized = []
+    for start, end in list(frame_ranges or []):
+        try:
+            start = int(start)
+            end = int(end)
+        except (TypeError, ValueError):
+            continue
+        start = max(0, min(frame_count - 1, start))
+        end = max(0, min(frame_count - 1, end))
+        if end < start:
+            continue
+        normalized.append((start, end))
+
+    if not normalized:
+        return []
+
+    normalized.sort()
+    merged = []
+    for start, end in normalized:
+        if not merged or start > merged[-1][1] + 1:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    return [(int(start), int(end)) for start, end in merged]
+
+
+def iter_frame_range_indexes(frame_ranges, frame_count: int):
+    for start, end in normalize_frame_ranges(frame_ranges, frame_count):
+        for index in range(start, end + 1):
+            yield index
 
 
 @dataclass(frozen=True)
@@ -92,12 +145,12 @@ class FrameSource:
     def get_qimage(self, index: int) -> QImage:
         raise NotImplementedError
 
-    def get_gray_array(self, index: int) -> np.ndarray:
+    def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
         raise NotImplementedError
 
-    def iter_gray_arrays(self):
-        for index in range(self.frame_count()):
-            yield index, self.get_gray_array(index)
+    def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
+        for index in iter_frame_range_indexes(frame_ranges, self.frame_count()):
+            yield index, self.get_gray_array(index, grayscale_mode=grayscale_mode)
 
     def get_size(self, index: int) -> tuple[int, int]:
         qimage = self.get_qimage(index)
@@ -165,7 +218,7 @@ class ImageSequenceFrameSource(FrameSource):
     def get_qimage(self, index: int) -> QImage:
         return QImage(self._path_at(index))
 
-    def get_gray_array(self, index: int) -> np.ndarray:
+    def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
         image_path = self._path_at(index)
         image_gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if image_gray is None:
@@ -254,9 +307,20 @@ class VideoFrameSource(FrameSource):
     def available() -> bool:
         try:
             import av  # noqa: F401
-        except Exception:
+        except Exception as exc:
+            VideoFrameSource._last_import_error = exc
             return False
+        VideoFrameSource._last_import_error = None
         return True
+
+    _last_import_error = None
+
+    @staticmethod
+    def import_error_message() -> str:
+        exc = VideoFrameSource._last_import_error
+        if exc is None:
+            return ""
+        return f"{type(exc).__name__}: {exc}"
 
     def _import_av(self):
         try:
@@ -510,7 +574,46 @@ class VideoFrameSource(FrameSource):
         ).copy()
 
     @staticmethod
-    def _gray_array_from_frame(frame) -> np.ndarray:
+    def _frame_has_direct_luma_plane(frame) -> bool:
+        frame_format = getattr(getattr(frame, "format", None), "name", "")
+        frame_format = str(frame_format or "").lower()
+        return (
+            frame_format.startswith("yuv")
+            or frame_format.startswith("yuva")
+            or frame_format.startswith("yuvj")
+            or frame_format in {"nv12", "nv21", "gray", "gray8", "y8"}
+        )
+
+    @staticmethod
+    def _luma_array_from_frame(frame) -> np.ndarray | None:
+        if not VideoFrameSource._frame_has_direct_luma_plane(frame):
+            return None
+        planes = getattr(frame, "planes", None)
+        if not planes:
+            return None
+        plane = planes[0]
+        width = int(getattr(frame, "width", 0) or 0)
+        height = int(getattr(frame, "height", 0) or 0)
+        line_size = int(getattr(plane, "line_size", 0) or 0)
+        if width <= 0 or height <= 0 or line_size < width:
+            return None
+        try:
+            plane_data = np.frombuffer(plane, dtype=np.uint8)
+        except TypeError:
+            return None
+        expected_size = line_size * height
+        if plane_data.size < expected_size:
+            return None
+        luma_array = plane_data[:expected_size].reshape((height, line_size))[:, :width]
+        return np.ascontiguousarray(luma_array)
+
+    @staticmethod
+    def _gray_array_from_frame(frame, grayscale_mode=None) -> np.ndarray:
+        grayscale_mode = normalize_video_grayscale_mode(grayscale_mode)
+        if grayscale_mode == VIDEO_GRAYSCALE_MODE_LUMA:
+            luma_array = VideoFrameSource._luma_array_from_frame(frame)
+            if luma_array is not None:
+                return luma_array
         gray_array = frame.to_ndarray(format="gray")
         if gray_array.ndim == 3 and gray_array.shape[2] == 1:
             gray_array = gray_array[:, :, 0]
@@ -535,37 +638,115 @@ class VideoFrameSource(FrameSource):
                 self._qimage_cache.popitem(last=False)
             return image
 
-    def get_gray_array(self, index: int) -> np.ndarray:
+    def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
         key = int(index)
+        grayscale_mode = normalize_video_grayscale_mode(grayscale_mode)
+        cache_key = (key, grayscale_mode)
         with self._decode_lock:
-            cached = self._gray_cache.get(key)
+            cached = self._gray_cache.get(cache_key)
             if cached is not None:
-                self._gray_cache.move_to_end(key)
+                self._gray_cache.move_to_end(cache_key)
                 return cached.copy()
 
             frame = self._decode_frame(key)
-            gray_array = self._gray_array_from_frame(frame)
-            self._gray_cache[key] = gray_array
-            self._gray_cache.move_to_end(key)
+            gray_array = self._gray_array_from_frame(frame, grayscale_mode=grayscale_mode)
+            self._gray_cache[cache_key] = gray_array
+            self._gray_cache.move_to_end(cache_key)
             while len(self._gray_cache) > self._cache_size:
                 self._gray_cache.popitem(last=False)
             return gray_array.copy()
 
-    def iter_gray_arrays(self):
+    def _iter_gray_arrays_sequential_range(self, grayscale_mode=None, start=None, end=None):
+        grayscale_mode = normalize_video_grayscale_mode(grayscale_mode)
+        frame_count = self.frame_count()
+        start = 0 if start is None else max(0, int(start))
+        end = frame_count - 1 if end is None else min(frame_count - 1, int(end))
+        if frame_count <= 0 or end < start:
+            return
         container, stream = self._open_video_stream()
         decoded_count = 0
         try:
             for decoded_index, frame in enumerate(container.decode(stream)):
-                if decoded_index >= self.frame_count():
+                if decoded_index >= frame_count:
                     break
                 decoded_count = decoded_index + 1
-                yield decoded_index, self._gray_array_from_frame(frame)
-            if decoded_count < self.frame_count():
+                if decoded_index < start:
+                    continue
+                if decoded_index > end:
+                    break
+                yield decoded_index, self._gray_array_from_frame(frame, grayscale_mode=grayscale_mode)
+            if end >= frame_count - 1 and decoded_count < frame_count:
                 raise IndexError(
-                    f"Video ended after {decoded_count} frames; expected {self.frame_count()} frames"
+                    f"Video ended after {decoded_count} frames; expected {frame_count} frames"
                 )
         finally:
             container.close()
+
+    def _iter_gray_arrays_seek_range(self, grayscale_mode=None, start=None, end=None):
+        grayscale_mode = normalize_video_grayscale_mode(grayscale_mode)
+        frame_count = self.frame_count()
+        start = 0 if start is None else max(0, int(start))
+        end = frame_count - 1 if end is None else min(frame_count - 1, int(end))
+        if frame_count <= 0 or end < start:
+            return
+
+        metadata = self._metadata_at(start)
+        can_seek_by_pts = bool(self._index_by_pts) and metadata.pts is not None
+        if not can_seek_by_pts:
+            yield from self._iter_gray_arrays_sequential_range(
+                grayscale_mode=grayscale_mode,
+                start=start,
+                end=end,
+            )
+            return
+
+        container, stream = self._open_video_stream()
+        yielded_count = 0
+        fallback_to_sequential = False
+        try:
+            try:
+                container.seek(metadata.pts, stream=stream, backward=True, any_frame=False)
+            except Exception:
+                fallback_to_sequential = True
+
+            if not fallback_to_sequential:
+                for frame in container.decode(stream):
+                    decoded_index = None
+                    if frame.pts is not None:
+                        decoded_index = self._index_by_pts.get(int(frame.pts))
+                    if decoded_index is None:
+                        continue
+                    decoded_index = int(decoded_index)
+                    if decoded_index < start:
+                        continue
+                    if decoded_index > end:
+                        break
+                    yielded_count += 1
+                    yield decoded_index, self._gray_array_from_frame(frame, grayscale_mode=grayscale_mode)
+        finally:
+            container.close()
+
+        if fallback_to_sequential or yielded_count == 0:
+            yield from self._iter_gray_arrays_sequential_range(
+                grayscale_mode=grayscale_mode,
+                start=start,
+                end=end,
+            )
+
+    def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
+        ranges = normalize_frame_ranges(frame_ranges, self.frame_count())
+        if not ranges:
+            return
+        full_range = [(0, self.frame_count() - 1)]
+        if ranges == full_range:
+            yield from self._iter_gray_arrays_sequential_range(grayscale_mode=grayscale_mode)
+            return
+        for start, end in ranges:
+            yield from self._iter_gray_arrays_seek_range(
+                grayscale_mode=grayscale_mode,
+                start=start,
+                end=end,
+            )
 
     def get_size(self, index: int) -> tuple[int, int]:
         if self._width > 0 and self._height > 0:
@@ -774,16 +955,34 @@ class VideoSequenceFrameSource(FrameSource):
         segment, local_index = self._locate(index)
         return segment["source"].get_preview_qimage(local_index)
 
-    def get_gray_array(self, index: int) -> np.ndarray:
+    def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
         segment, local_index = self._locate(index)
-        return segment["source"].get_gray_array(local_index)
+        return segment["source"].get_gray_array(local_index, grayscale_mode=grayscale_mode)
 
-    def iter_gray_arrays(self):
-        global_index = 0
-        for source in self._sources:
-            for _local_index, gray_array in source.iter_gray_arrays():
-                yield global_index, gray_array
-                global_index += 1
+    def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
+        ranges = normalize_frame_ranges(frame_ranges, self.frame_count())
+        if not ranges:
+            return
+        for segment in self._segments:
+            frame_start = int(segment["frame_start"])
+            frame_count = int(segment["frame_count"])
+            frame_end = frame_start + frame_count - 1
+            if frame_count <= 0:
+                continue
+            local_ranges = []
+            for start, end in ranges:
+                overlap_start = max(frame_start, int(start))
+                overlap_end = min(frame_end, int(end))
+                if overlap_start <= overlap_end:
+                    local_ranges.append((overlap_start - frame_start, overlap_end - frame_start))
+            if not local_ranges:
+                continue
+            source = segment["source"]
+            for local_index, gray_array in source.iter_gray_arrays(
+                grayscale_mode=grayscale_mode,
+                frame_ranges=local_ranges,
+            ):
+                yield frame_start + int(local_index), gray_array
 
     def get_size(self, index: int) -> tuple[int, int]:
         segment, local_index = self._locate(index)

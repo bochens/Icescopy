@@ -537,15 +537,38 @@ class GrayscalePlotWidget(QWidget):
             return None
 
         x_array = np.arange(len(y_array), dtype=float)
-        if not np.all(finite_mask):
-            x_array = x_array[finite_mask]
-            y_array = y_array[finite_mask]
 
         series = (x_array, y_array)
         self._series_cache_by_cell[cell_id] = series
         return series
 
-    def _convolution_for_cell(self, cell_id, y_values):
+    @staticmethod
+    def _finite_runs(x_values, y_values):
+        x_values = np.asarray(x_values, dtype=float)
+        y_values = np.asarray(y_values, dtype=float)
+        finite_mask = np.isfinite(x_values) & np.isfinite(y_values)
+        finite_indexes = np.flatnonzero(finite_mask)
+        if not len(finite_indexes):
+            return []
+
+        runs = []
+        run_start = int(finite_indexes[0])
+        previous = int(finite_indexes[0])
+        for index in finite_indexes[1:]:
+            index = int(index)
+            if index != previous + 1:
+                runs.append((run_start, previous + 1))
+                run_start = index
+            previous = index
+        runs.append((run_start, previous + 1))
+        return runs
+
+    def _convolution_for_cell(self, cell_id, y_values, x_values=None):
+        y_values = np.asarray(y_values, dtype=float)
+        if x_values is None:
+            x_values = np.arange(len(y_values), dtype=float)
+        else:
+            x_values = np.asarray(x_values, dtype=float)
         conv_key = (
             int(cell_id),
             len(y_values),
@@ -553,28 +576,44 @@ class GrayscalePlotWidget(QWidget):
             int(max(0, self.tail_extend_points)),
             int(max(0, self.convolution_half_window_points)),
             int(max(0, self.convolution_ramp_points)),
+            tuple(self._finite_runs(x_values, y_values)),
         )
         cached = self._convolution_cache.get(conv_key)
         if cached is not None:
             return cached
 
-        _, convolved_values = compute_convolution_timeseries(
-            y_values,
-            head_extend_points=self.head_extend_points,
-            tail_extend_points=self.tail_extend_points,
-            convolution_half_window_points=self.convolution_half_window_points,
-            convolution_ramp_points=self.convolution_ramp_points,
-        )
-        if len(convolved_values):
+        conv_x_parts = []
+        conv_y_parts = []
+        for run_start, run_stop in self._finite_runs(x_values, y_values):
+            run_y = y_values[run_start:run_stop]
+            run_x = x_values[run_start:run_stop]
+            _, convolved_values = compute_convolution_timeseries(
+                run_y,
+                head_extend_points=self.head_extend_points,
+                tail_extend_points=self.tail_extend_points,
+                convolution_half_window_points=self.convolution_half_window_points,
+                convolution_ramp_points=self.convolution_ramp_points,
+            )
+            if not len(convolved_values):
+                continue
             head_extend_count = int(max(0, self.head_extend_points))
             conv_offset = compute_convolution_center_offset(
-                len(y_values) + head_extend_count + int(max(0, self.tail_extend_points)),
+                len(run_y) + head_extend_count + int(max(0, self.tail_extend_points)),
                 convolution_half_window_points=self.convolution_half_window_points,
                 convolution_ramp_points=self.convolution_ramp_points,
             ) - head_extend_count
-            conv_x_values = np.arange(len(convolved_values), dtype=float) + conv_offset
+            if conv_x_parts:
+                conv_x_parts.append(np.asarray([np.nan], dtype=float))
+                conv_y_parts.append(np.asarray([np.nan], dtype=float))
+            conv_x_parts.append(float(run_x[0]) + np.arange(len(convolved_values), dtype=float) + conv_offset)
+            conv_y_parts.append(np.asarray(convolved_values, dtype=float))
+
+        if conv_x_parts:
+            conv_x_values = np.concatenate(conv_x_parts)
+            convolved_values = np.concatenate(conv_y_parts)
         else:
             conv_x_values = np.empty(0, dtype=float)
+            convolved_values = np.empty(0, dtype=float)
         conv_data = (conv_x_values, np.asarray(convolved_values, dtype=float))
         self._convolution_cache[conv_key] = conv_data
         return conv_data
@@ -607,13 +646,11 @@ class GrayscalePlotWidget(QWidget):
         per_curve_budget = int(max(1, width) * 8 / curve_count)
         return max(1200, min(12000, per_curve_budget))
 
-    def _peak_downsample_arrays(self, x_values, y_values, max_points=None):
+    @staticmethod
+    def _peak_downsample_finite_arrays(x_values, y_values, max_points):
         x_values = np.asarray(x_values, dtype=float)
         y_values = np.asarray(y_values, dtype=float)
         point_count = len(y_values)
-        if max_points is None:
-            max_points = self._display_point_budget()
-        max_points = int(max(2, max_points))
         if point_count <= max_points:
             return x_values, y_values
 
@@ -641,6 +678,46 @@ class GrayscalePlotWidget(QWidget):
         if not sampled_x:
             return np.empty(0, dtype=float), np.empty(0, dtype=float)
         return np.asarray(sampled_x, dtype=float), np.asarray(sampled_y, dtype=float)
+
+    def _peak_downsample_arrays(self, x_values, y_values, max_points=None):
+        x_values = np.asarray(x_values, dtype=float)
+        y_values = np.asarray(y_values, dtype=float)
+        point_count = len(y_values)
+        if max_points is None:
+            max_points = self._display_point_budget()
+        max_points = int(max(2, max_points))
+        if point_count <= max_points:
+            return x_values, y_values
+
+        runs = self._finite_runs(x_values, y_values)
+        if not runs:
+            return np.empty(0, dtype=float), np.empty(0, dtype=float)
+        if len(runs) == 1:
+            start, stop = runs[0]
+            return self._peak_downsample_finite_arrays(x_values[start:stop], y_values[start:stop], max_points)
+
+        total_finite = sum(stop - start for start, stop in runs)
+        sampled_x_parts = []
+        sampled_y_parts = []
+        for start, stop in runs:
+            run_length = stop - start
+            run_budget = max(2, int(max_points * run_length / max(1, total_finite)))
+            run_x, run_y = self._peak_downsample_finite_arrays(
+                x_values[start:stop],
+                y_values[start:stop],
+                run_budget,
+            )
+            if len(run_x) == 0:
+                continue
+            if sampled_x_parts:
+                sampled_x_parts.append(np.asarray([np.nan], dtype=float))
+                sampled_y_parts.append(np.asarray([np.nan], dtype=float))
+            sampled_x_parts.append(run_x)
+            sampled_y_parts.append(run_y)
+
+        if not sampled_x_parts:
+            return np.empty(0, dtype=float), np.empty(0, dtype=float)
+        return np.concatenate(sampled_x_parts), np.concatenate(sampled_y_parts)
 
     def _freeze_segment_arrays(self, freeze_indices, y_min, y_max):
         segment_count = len(freeze_indices)
@@ -697,43 +774,48 @@ class GrayscalePlotWidget(QWidget):
                         name=f"Cell {cell_id}" if show_legend else None,
                     )
                 )
-                series_y_min = float(np.min(y_values))
-                series_y_max = float(np.max(y_values))
+                finite_y_values = y_values[np.isfinite(y_values)]
+                if not len(finite_y_values):
+                    continue
+                series_y_min = float(np.min(finite_y_values))
+                series_y_max = float(np.max(finite_y_values))
                 grayscale_y_min = series_y_min if grayscale_y_min is None else min(grayscale_y_min, series_y_min)
                 grayscale_y_max = series_y_max if grayscale_y_max is None else max(grayscale_y_max, series_y_max)
 
-                conv_x_values, convolved_values = self._convolution_for_cell(cell_id, y_values)
+                conv_x_values, convolved_values = self._convolution_for_cell(cell_id, y_values, x_values)
                 if len(convolved_values):
-                    conv_pen = self._convolution_pen(series_index)
-                    conv_display_x, conv_display_y = self._peak_downsample_arrays(
-                        conv_x_values,
-                        convolved_values,
-                        max_points=display_point_budget,
-                    )
-                    conv_curve_item = pg.PlotCurveItem(
-                        conv_display_x,
-                        conv_display_y,
-                        pen=conv_pen,
-                    )
-                    conv_curve_item.setSkipFiniteCheck(True)
-                    self.convolution_view_box.addItem(conv_curve_item)
-                    if show_legend:
-                        self._configure_data_item(
-                            self.plot_item.plot(
-                                np.empty(0, dtype=float),
-                                np.empty(0, dtype=float),
-                                pen=conv_pen,
-                                name=f"Cell {cell_id} Conv",
-                            )
+                    finite_convolved_values = convolved_values[np.isfinite(convolved_values)]
+                    if len(finite_convolved_values):
+                        conv_pen = self._convolution_pen(series_index)
+                        conv_display_x, conv_display_y = self._peak_downsample_arrays(
+                            conv_x_values,
+                            convolved_values,
+                            max_points=display_point_budget,
                         )
-                    series_conv_min = float(np.min(convolved_values))
-                    series_conv_max = float(np.max(convolved_values))
-                    convolution_y_min = (
-                        series_conv_min if convolution_y_min is None else min(convolution_y_min, series_conv_min)
-                    )
-                    convolution_y_max = (
-                        series_conv_max if convolution_y_max is None else max(convolution_y_max, series_conv_max)
-                    )
+                        conv_curve_item = pg.PlotCurveItem(
+                            conv_display_x,
+                            conv_display_y,
+                            pen=conv_pen,
+                        )
+                        conv_curve_item.setSkipFiniteCheck(True)
+                        self.convolution_view_box.addItem(conv_curve_item)
+                        if show_legend:
+                            self._configure_data_item(
+                                self.plot_item.plot(
+                                    np.empty(0, dtype=float),
+                                    np.empty(0, dtype=float),
+                                    pen=conv_pen,
+                                    name=f"Cell {cell_id} Conv",
+                                )
+                            )
+                        series_conv_min = float(np.min(finite_convolved_values))
+                        series_conv_max = float(np.max(finite_convolved_values))
+                        convolution_y_min = (
+                            series_conv_min if convolution_y_min is None else min(convolution_y_min, series_conv_min)
+                        )
+                        convolution_y_max = (
+                            series_conv_max if convolution_y_max is None else max(convolution_y_max, series_conv_max)
+                        )
 
                 unique_freeze_indices.update(freeze_map.get(cell_id, []))
 

@@ -3,8 +3,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
                                QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
-                               QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory)
-from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence
+                               QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory,
+                               QCheckBox)
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
@@ -43,12 +44,14 @@ from icescopy_dialogs import (
 from icescopy_dock import DockTitleBar
 from icescopy_frameslider import FrameSlider, SliderZoom_Slider
 from icescopy_frame_source import (
+    DEFAULT_VIDEO_GRAYSCALE_MODE,
     ImageSequenceFrameSource,
     SOURCE_KIND_IMAGE_SEQUENCE,
     SOURCE_KIND_VIDEO,
     VideoFrameSource,
     VideoSequenceFrameSource,
     frame_source_from_session_payload,
+    normalize_video_grayscale_mode,
 )
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
 from icescopy_sample_catalog import SampleCatalogPanelMixin
@@ -89,7 +92,9 @@ from icescopy_temperature_import import (
 from icescopy_session import (
     FrameNavigationCommand,
     ImageListModel,
+    SessionAnalysisMarkerCommand,
     SessionDataCommand,
+    SessionFreezeAnnotationCommand,
     SessionImageEditCommand,
     SessionImageListCommand,
     SessionLoadedImagesCommand,
@@ -128,6 +133,10 @@ from icescopy_tool_options import (
     TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT,
     ToolOptionsFormPage,
     ToolOptionsInfoPage,
+)
+from icescopy_analysis_windows import (
+    frame_count_from_ranges,
+    normalize_analysis_marker_ranges,
 )
 
 
@@ -249,6 +258,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.convolution_half_window_points = 0
         self.convolution_ramp_points = 0
         self.freeze_finder_detect_brightening = False
+        self.video_grayscale_mode = DEFAULT_VIDEO_GRAYSCALE_MODE
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
         self.timeseries_line_width = 2.0
@@ -298,6 +308,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.undo_stack = QUndoStack(self)
         self.undo_redo_enabled = True
         self.image_list_enabled = True
+        self.frame_list_frozen_only = False
+        self.frame_list_visible_indices = []
         self.history_restoring = False
         # Tool actions can fire during initUI, so temporary key/mode state has
         # to exist before any default tool is triggered.
@@ -380,6 +392,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
         self.freeze_finder_detect_brightening = bool(
             preferences.get('FreezeFinderDetectBrightening', self.freeze_finder_detect_brightening)
+        )
+        self.video_grayscale_mode = normalize_video_grayscale_mode(
+            preferences.get('VideoGrayscaleMode', self.video_grayscale_mode)
         )
         self.temperature_cycle_warmup_hysteresis_c = float(
             preferences.get(
@@ -1055,23 +1070,60 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             ])
         return rebuilt_rows
 
-    def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refresh_tables=True):
-        record = self.ensure_cell_record(cell_id)
-        if record is None:
-            return
+    def apply_manual_freeze_event_indices(
+        self,
+        cell_id,
+        freeze_event_indices,
+        refresh_tables=True,
+        refresh_freeze_markers=True,
+        refresh_freeze_count_table=True,
+    ):
+        return self.apply_manual_freeze_event_indices_batch(
+            {int(cell_id): freeze_event_indices},
+            refresh_tables=refresh_tables,
+            refresh_freeze_markers=refresh_freeze_markers,
+            refresh_freeze_count_table=refresh_freeze_count_table,
+        )
 
-        normalized_indices = [int(value) for value in freeze_event_indices]
-        record.freeze_event_indices = list(normalized_indices)
-        rebuilt_rows = self.rebuild_freeze_rows_for_cell(cell_id, normalized_indices)
-        record.freeze_rows = [list(row) for row in rebuilt_rows]
+    def apply_manual_freeze_event_indices_batch(
+        self,
+        freeze_event_indices_by_cell_id,
+        refresh_tables=True,
+        refresh_freeze_markers=True,
+        refresh_freeze_count_table=True,
+    ):
+        normalized_by_cell_id = {}
+        rebuilt_rows_by_cell_id = {}
+        for cell_id, freeze_event_indices in (freeze_event_indices_by_cell_id or {}).items():
+            try:
+                normalized_cell_id = int(cell_id)
+            except (TypeError, ValueError):
+                continue
+            record = self.ensure_cell_record(normalized_cell_id)
+            if record is None:
+                continue
 
-        target_label = f"cell_{int(cell_id)}"
+            normalized_indices = sorted({int(value) for value in freeze_event_indices})
+            record.freeze_event_indices = list(normalized_indices)
+            rebuilt_rows = self.rebuild_freeze_rows_for_cell(normalized_cell_id, normalized_indices)
+            record.freeze_rows = [list(row) for row in rebuilt_rows]
+            normalized_by_cell_id[normalized_cell_id] = normalized_indices
+            rebuilt_rows_by_cell_id[normalized_cell_id] = rebuilt_rows
+
+        if not normalized_by_cell_id:
+            return []
+
+        target_labels = {
+            f"cell_{int(cell_id)}"
+            for cell_id in normalized_by_cell_id
+        }
         kept_rows = [
             list(row)
             for row in self.freeze_results_rows
-            if not row or str(row[0]) != target_label
+            if not row or str(row[0]) not in target_labels
         ]
-        kept_rows.extend(rebuilt_rows)
+        for cell_id in sorted(rebuilt_rows_by_cell_id):
+            kept_rows.extend(rebuilt_rows_by_cell_id[cell_id])
         kept_rows.sort(
             key=lambda row: (
                 self.extract_cell_id_from_label(row[0] if row else None) or -1,
@@ -1079,14 +1131,160 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
         )
         self.freeze_results_rows = kept_rows
-        if rebuilt_rows and not self.freeze_results_headers:
+        if any(rebuilt_rows_by_cell_id.values()) and not self.freeze_results_headers:
             self.freeze_results_headers = ["cell", "image_index", "image_name"]
         self.last_freeze_output_path = None
         if hasattr(self, "grayscale_plot_widget"):
             self.grayscale_plot_widget.invalidate_render_cache()
-        self.invalidate_freeze_count_timeseries_results("freeze frame annotations changed")
+        self.invalidate_freeze_count_timeseries_results(
+            "freeze frame annotations changed",
+            refresh_table=refresh_freeze_count_table,
+        )
         if refresh_tables:
-            self.update_results_tables()
+            self.refresh_freeze_annotation_views()
+        elif refresh_freeze_markers:
+            self.refresh_freeze_flag_markers()
+        return sorted(normalized_by_cell_id)
+
+    def selected_cell_freeze_frames(self, selected_items=None):
+        if selected_items is None:
+            if not hasattr(self, "cell_controller") or not hasattr(self, "scene"):
+                return []
+            selected_items = self.get_selected_cell_items()
+        if not self.has_frames():
+            return []
+
+        selected_freeze_frames = set()
+        frame_count = self.frame_count()
+        if selected_items:
+            records = [
+                self.ensure_cell_record(getattr(item, "cell_id", None))
+                for item in selected_items
+            ]
+        else:
+            records = list(getattr(self, "cell_records_by_id", {}).values())
+        for record in records:
+            if record is None:
+                continue
+            for frame_value in getattr(record, "freeze_event_indices", []):
+                try:
+                    frame_index = int(frame_value)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= frame_index < frame_count:
+                    selected_freeze_frames.add(frame_index)
+        return sorted(selected_freeze_frames)
+
+    def refresh_freeze_flag_markers(self, selected_items=None):
+        if not hasattr(self, "image_slider"):
+            return
+
+        previous_frames = set(getattr(self, "flagframe_list", []))
+        self.flagframe_list = self.selected_cell_freeze_frames(selected_items=selected_items)
+        current_frames = set(self.flagframe_list)
+        self.image_slider.sync_marker_state(
+            self.keyframe_list,
+            self.flagframe_list,
+            self.analysis_start_frame_list,
+            self.analysis_end_frame_list,
+        )
+        changed_frames = previous_frames | current_frames
+        if changed_frames:
+            self.update_image_list_annotations(sorted(changed_frames))
+        self.update_toggle_flagging_button_icon()
+
+    def selected_cells_freeze_state_at_current_frame(self, selected_items=None):
+        if selected_items is None:
+            if not hasattr(self, "cell_controller") or not hasattr(self, "scene"):
+                return False, False
+            selected_items = self.get_selected_cell_items()
+        if not self.has_frames():
+            return False, False
+
+        frame_index = int(self.image_index)
+        has_any = False
+        has_all = True
+        if selected_items:
+            records = [
+                self.ensure_cell_record(getattr(item, "cell_id", None))
+                for item in selected_items
+            ]
+        else:
+            records = list(getattr(self, "cell_records_by_id", {}).values())
+        records = [record for record in records if record is not None]
+        if not records:
+            return False, False
+        for record in records:
+            freeze_values = set()
+            for value in getattr(record, "freeze_event_indices", []):
+                try:
+                    freeze_values.add(int(value))
+                except (TypeError, ValueError):
+                    continue
+            cell_has_frame = frame_index in freeze_values
+            has_any = has_any or cell_has_frame
+            has_all = has_all and cell_has_frame
+        return has_any, has_all
+
+    def toggle_selected_cells_freeze_at_current_frame(self):
+        selected_items = sorted(
+            self.get_selected_cell_items(),
+            key=lambda item: int(getattr(item, "cell_id", 0)),
+        )
+        if not selected_items or not self.has_frames():
+            return False
+
+        frame_index = int(self.image_index)
+        if not (0 <= frame_index < self.frame_count()):
+            return False
+
+        _has_any, has_all = self.selected_cells_freeze_state_at_current_frame(selected_items)
+        should_add = not has_all
+        before_state = self.capture_freeze_annotation_state()
+        updated_values_by_cell_id = {}
+        for item in selected_items:
+            cell_id = int(item.cell_id)
+            record = self.ensure_cell_record(cell_id)
+            current_values_set = set()
+            for value in getattr(record, "freeze_event_indices", []):
+                try:
+                    current_values_set.add(int(value))
+                except (TypeError, ValueError):
+                    continue
+            current_values = sorted(current_values_set)
+            if should_add:
+                if frame_index in current_values:
+                    continue
+                updated_values = sorted(current_values + [frame_index])
+            else:
+                if frame_index not in current_values:
+                    continue
+                updated_values = [value for value in current_values if value != frame_index]
+            updated_values_by_cell_id[cell_id] = updated_values
+
+        if not updated_values_by_cell_id:
+            return False
+
+        changed_cell_ids = self.apply_manual_freeze_event_indices_batch(
+            updated_values_by_cell_id,
+            refresh_tables=False,
+            refresh_freeze_markers=False,
+            refresh_freeze_count_table=False,
+        )
+        self.refresh_freeze_annotation_views_fast(
+            changed_cell_ids,
+            selected_items=selected_items,
+            marker_updates={frame_index: should_add},
+        )
+        self.refresh_cursor_selection_info(selected_items=selected_items)
+        action_text = "Mark Freeze Frame" if should_add else "Clear Freeze Frame"
+        self.push_freeze_annotation_history(action_text, before_state)
+        cell_text = self.summarize_integer_list(changed_cell_ids)
+        if should_add:
+            self.log(f"Mark frame {frame_index} as frozen for cell(s) {cell_text}")
+        else:
+            self.log(f"Clear frame {frame_index} as frozen for cell(s) {cell_text}")
+        return True
 
     def build_cells_panel_records(self):
         self.ensure_cell_registry_matches_scene_cells()
@@ -1369,11 +1567,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.view.viewport().setFocus()
             return True
 
-        before_state = self.capture_data_state()
-        self.apply_manual_freeze_event_indices(target_cell_id, parsed_values, refresh_tables=False)
-        self.update_results_tables()
+        before_state = self.capture_freeze_annotation_state()
+        changed_cell_ids = self.apply_manual_freeze_event_indices(
+            target_cell_id,
+            parsed_values,
+            refresh_tables=False,
+            refresh_freeze_markers=False,
+            refresh_freeze_count_table=False,
+        )
+        self.refresh_freeze_annotation_views_fast(
+            changed_cell_ids,
+            selected_items=selected_items,
+            refresh_plot=True,
+        )
         self.refresh_cursor_selection_info(selected_items=selected_items)
-        self.push_data_history("Edit Freeze Frames", before_state)
+        self.push_freeze_annotation_history("Edit Freeze Frames", before_state)
         self.log(
             f"Update freeze frames for cell {target_cell_id} to "
             f"{self.format_integer_list_csv(parsed_values)}"
@@ -1458,6 +1666,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.keyframe_list = []
         self.flagframe_list = []
+        self.analysis_start_frame_list = []
+        self.analysis_end_frame_list = []
         self.keyframe_cell_items_dict = {} # a dictionary. {frame number: cell_items}
         
         
@@ -3179,7 +3389,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_slider.sliderPressed.connect(self.handle_image_slider_pressed)
         self.image_slider.sliderReleased.connect(self.handle_image_slider_released)
         self.image_slider.keyframeClicked.connect(self.update_keyframe_list)
-        self.image_slider.flagframeClicked.connect(self.update_flaggedframe_list)
+        self.image_slider.analysisStartClicked.connect(self.update_analysis_start_frame_list)
+        self.image_slider.analysisEndClicked.connect(self.update_analysis_end_frame_list)
         self.image_preview_timer = QTimer(self)
         self.image_preview_timer.setSingleShot(True)
         self.image_preview_timer.timeout.connect(self.flush_pending_preview_image)
@@ -3208,11 +3419,18 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.rightButton = QPushButton()
         self.keyframe_toggle_button = QPushButton()
         self.flag_toggle_button = QPushButton()
+        self.analysis_start_toggle_button = QPushButton()
+        self.analysis_end_toggle_button = QPushButton()
+        self.flag_toggle_button.setToolTip("Mark or clear the current frame as frozen for selected cells")
+        self.analysis_start_toggle_button.setToolTip("Toggle analysis start marker at the current frame")
+        self.analysis_end_toggle_button.setToolTip("Toggle analysis end marker at the current frame")
 
         self.leftButton.clicked.connect(self.decreaseSliderValue)
         self.rightButton.clicked.connect(self.increaseSliderValue)
         self.keyframe_toggle_button.clicked.connect(self.image_slider.toggle_keyframe)
         self.flag_toggle_button.clicked.connect(self.image_slider.toggle_flagging)
+        self.analysis_start_toggle_button.clicked.connect(self.image_slider.toggle_analysis_start)
+        self.analysis_end_toggle_button.clicked.connect(self.image_slider.toggle_analysis_end)
 
         # Zoom slider for changing the granularity of the image_slider
         self.zoom_slider = SliderZoom_Slider(Qt.Horizontal, self)
@@ -3222,9 +3440,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         slider_buttons_layout.addStretch(1)
         slider_buttons_layout.addWidget(self.keyframe_toggle_button)
         slider_buttons_layout.addWidget(self.flag_toggle_button)
-        slider_buttons_layout.addWidget(self.zoom_slider)
         slider_buttons_layout.addWidget(self.leftButton)
+        slider_buttons_layout.addWidget(self.zoom_slider)
         slider_buttons_layout.addWidget(self.rightButton)
+        slider_buttons_layout.addWidget(self.analysis_start_toggle_button)
+        slider_buttons_layout.addWidget(self.analysis_end_toggle_button)
         slider_buttons_layout.addStretch(1)
         slider_buttons_layout.setContentsMargins(0, 0, 0, 3)
         self.slider_buttons_layout = slider_buttons_layout
@@ -3268,6 +3488,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_list_widget.setMinimumWidth(SIDE_PANEL_DEFAULT_WIDTH)
         self.image_list_widget.clicked.connect(self.handle_image_list_selection)
         self.image_list_widget.selectionModel().currentChanged.connect(self.handle_image_list_current_changed)
+        self.frozen_frames_only_checkbox = QCheckBox("Frozen only", self)
+        self.frozen_frames_only_checkbox.setToolTip("Show only frames with freeze events for the current cell selection.")
+        self.frozen_frames_only_checkbox.toggled.connect(self.set_frame_list_frozen_only)
+        image_list_toolbar = QWidget(self)
+        image_list_toolbar_layout = QHBoxLayout(image_list_toolbar)
+        image_list_toolbar_layout.setContentsMargins(6, 2, 6, 2)
+        image_list_toolbar_layout.setSpacing(6)
+        image_list_toolbar_layout.addStretch(1)
+        image_list_toolbar_layout.addWidget(self.frozen_frames_only_checkbox)
+        self.image_list_panel = QWidget(self)
+        image_list_panel_layout = QVBoxLayout(self.image_list_panel)
+        image_list_panel_layout.setContentsMargins(0, 0, 0, 0)
+        image_list_panel_layout.setSpacing(0)
+        image_list_panel_layout.addWidget(image_list_toolbar)
+        image_list_panel_layout.addWidget(self.image_list_widget)
 
         # These tables are retained for internal data/export handling only.
         # They are no longer docked in the UI, so they must not be visible
@@ -3312,7 +3547,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
         self.setTabPosition(Qt.AllDockWidgetAreas, QTabWidget.North)
 
-        self.image_list_dock = self.create_dock_widget("Images", self.image_list_widget, "imageListDock")
+        self.image_list_dock = self.create_dock_widget("Images", self.image_list_panel, "imageListDock")
         self.console_dock = self.create_dock_widget("Console", self.terminal, "consoleDock")
         self.tool_options_dock = self.create_dock_widget("Tool Options", self.tool_options_widget, "toolOptionsDock")
         self.sample_catalog_dock = self.create_dock_widget("Sample Catalog", self.sample_catalog_widget, "sampleCatalogDock")
@@ -4550,6 +4785,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if hasattr(self, "tool_options_stack"):
             self.sync_tool_options_panel()
         self.sync_cells_panel_selection()
+        self.refresh_freeze_flag_markers()
+        self.updateButtonStates()
         self.refresh_grayscale_plot()
         self.request_image_edit_histogram_refresh()
 
@@ -4768,14 +5005,135 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.set_table_data(self.data_table, self.grayscale_results_headers, self.grayscale_results_rows)
         self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
         self.update_results_table_visibility()
+        self.refresh_freeze_flag_markers()
         self.refresh_grayscale_plot()
         self.refresh_cells_panel()
         self.update_cursor_record_edit_state()
+
+    def refresh_freeze_annotation_views(self, selected_items=None):
+        if hasattr(self, "freeze_table"):
+            self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
+        self.update_results_table_visibility()
+        self.refresh_freeze_flag_markers(selected_items=selected_items)
+        self.refresh_grayscale_plot()
+        self.refresh_cells_panel()
+        self.update_cursor_record_edit_state(selected_items=selected_items)
+
+    def replace_freeze_table_rows_for_cells(self, cell_ids):
+        if not hasattr(self, "freeze_table"):
+            return
+        if not hasattr(self.freeze_table, "setUpdatesEnabled"):
+            self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
+            return
+
+        target_labels = {
+            f"cell_{int(cell_id)}"
+            for cell_id in (cell_ids or [])
+            if cell_id is not None
+        }
+        if not target_labels or not self.freeze_results_headers:
+            self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
+            return
+
+        table_widget = self.freeze_table
+        headers = self.freeze_results_headers
+        replacement_rows = [
+            (row_index, list(row_values))
+            for row_index, row_values in enumerate(self.freeze_results_rows)
+            if row_values and str(row_values[0]) in target_labels
+        ]
+
+        table_widget.setUpdatesEnabled(False)
+        try:
+            if table_widget.columnCount() != len(headers):
+                table_widget.clear()
+                table_widget.setColumnCount(len(headers))
+            table_widget.setHorizontalHeaderLabels(headers)
+
+            for row_index in range(table_widget.rowCount() - 1, -1, -1):
+                item = table_widget.item(row_index, 0)
+                if item is not None and item.text() in target_labels:
+                    table_widget.removeRow(row_index)
+
+            for desired_index, row_values in replacement_rows:
+                insert_at = min(desired_index, table_widget.rowCount())
+                table_widget.insertRow(insert_at)
+                for column_index in range(len(headers)):
+                    value = row_values[column_index] if column_index < len(row_values) else ""
+                    table_widget.setItem(
+                        insert_at,
+                        column_index,
+                        QTableWidgetItem("" if value is None else str(value)),
+                    )
+
+            table_widget.setVerticalHeaderLabels([
+                str(index)
+                for index in range(table_widget.rowCount())
+            ])
+            if len(headers) <= 12 and table_widget.rowCount() <= 300:
+                table_widget.resizeColumnsToContents()
+            else:
+                table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+            table_widget.horizontalHeader().setStretchLastSection(False)
+        finally:
+            table_widget.setUpdatesEnabled(True)
+
+    def set_freeze_flag_marker_fast(self, frame_index, is_flagged):
+        try:
+            frame_index = int(frame_index)
+        except (TypeError, ValueError):
+            return
+        current_flags = set(getattr(self, "flagframe_list", []))
+        if is_flagged:
+            current_flags.add(frame_index)
+        else:
+            current_flags.discard(frame_index)
+        self.flagframe_list = sorted(current_flags)
+        if hasattr(self, "image_slider") and hasattr(self.image_slider, "set_flag_marker"):
+            self.image_slider.set_flag_marker(frame_index, is_flagged)
+        elif hasattr(self, "image_slider"):
+            self.image_slider.sync_marker_state(
+                self.keyframe_list,
+                self.flagframe_list,
+                self.analysis_start_frame_list,
+                self.analysis_end_frame_list,
+            )
+        self.update_image_list_annotations([frame_index])
+        self.update_toggle_flagging_button_icon()
+
+    def refresh_freeze_annotation_views_fast(
+        self,
+        changed_cell_ids,
+        *,
+        selected_items=None,
+        marker_updates=None,
+        refresh_plot=False,
+    ):
+        self.replace_freeze_table_rows_for_cells(changed_cell_ids)
+        self.update_results_table_visibility()
+        if marker_updates is None:
+            self.refresh_freeze_flag_markers(selected_items=selected_items)
+        else:
+            for frame_index, is_flagged in marker_updates.items():
+                self.set_freeze_flag_marker_fast(frame_index, is_flagged)
+        if refresh_plot:
+            self.refresh_grayscale_plot()
+        self.update_cursor_record_edit_state(selected_items=selected_items)
 
     def update_freeze_count_timeseries_table(self):
         if hasattr(self, "freeze_count_timeseries_table"):
             self.set_table_data(self.freeze_count_timeseries_table, self.freeze_count_timeseries_headers, self.freeze_count_timeseries_rows)
         self.update_results_table_visibility()
+
+    def clear_freeze_count_timeseries_table_widget(self):
+        if not hasattr(self, "freeze_count_timeseries_table"):
+            return
+        table_widget = self.freeze_count_timeseries_table
+        table_widget.setUpdatesEnabled(False)
+        table_widget.clear()
+        table_widget.setRowCount(0)
+        table_widget.setColumnCount(0)
+        table_widget.setUpdatesEnabled(True)
 
     def update_results_table_visibility(self):
         if hasattr(self, "results_table_tabs"):
@@ -4922,13 +5280,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_session_actions_state()
         return True
 
-    def invalidate_freeze_count_timeseries_results(self, reason=None):
+    def invalidate_freeze_count_timeseries_results(self, reason=None, refresh_table=True):
         had_results = bool(self.freeze_count_timeseries_headers or self.freeze_count_timeseries_rows)
         self.freeze_count_timeseries_headers = []
         self.freeze_count_timeseries_rows = []
         self.freeze_count_timeseries_summary = {}
         self.last_temperature_import_path = None
-        self.update_freeze_count_timeseries_table()
+        if refresh_table:
+            self.update_freeze_count_timeseries_table()
+        else:
+            self.clear_freeze_count_timeseries_table_widget()
+            self.update_results_table_visibility()
         self.update_session_actions_state()
         if had_results and reason:
             self.log(f"Freeze Count Timeseries cleared: {reason}. Re-import the temperature data file.")
@@ -5037,6 +5399,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
             "flagframe_list": self.flagframe_list.copy(),
+            "analysis_start_frame_list": self.analysis_start_frame_list.copy(),
+            "analysis_end_frame_list": self.analysis_end_frame_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
             "image_width": self.image_width,
             "frame_source": copy.deepcopy(self.frame_source_session_payload()),
@@ -5076,6 +5440,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
             "flagframe_list": self.flagframe_list.copy(),
+            "analysis_start_frame_list": self.analysis_start_frame_list.copy(),
+            "analysis_end_frame_list": self.analysis_end_frame_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
             "image_index": self.image_index,
             "tool_mode": getattr(self, "tool_mode", "cursor"),
@@ -5136,6 +5502,40 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "tool_mode": getattr(self, "tool_mode", "cursor"),
         }
 
+    def capture_freeze_annotation_state(self):
+        return {
+            "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
+            "freeze_results_headers": self.freeze_results_headers.copy(),
+            "freeze_results_rows": copy.deepcopy(self.freeze_results_rows),
+            "last_freeze_output_path": self.last_freeze_output_path,
+            "flagframe_list": self.flagframe_list.copy(),
+            "image_index": int(getattr(self, "image_index", 0)),
+            "tool_mode": getattr(self, "tool_mode", "cursor"),
+        }
+
+    def freeze_annotation_changed_cell_ids(self, before_payload, after_payload):
+        before_payload = before_payload if isinstance(before_payload, dict) else {}
+        after_payload = after_payload if isinstance(after_payload, dict) else {}
+        changed_cell_ids = []
+        def sort_key(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        for key in sorted(set(before_payload) | set(after_payload), key=sort_key):
+            before_record = before_payload.get(key, {}) if isinstance(before_payload.get(key, {}), dict) else {}
+            after_record = after_payload.get(key, {}) if isinstance(after_payload.get(key, {}), dict) else {}
+            if (
+                before_record.get("freeze_event_indices", []) != after_record.get("freeze_event_indices", [])
+                or before_record.get("freeze_rows", []) != after_record.get("freeze_rows", [])
+            ):
+                try:
+                    changed_cell_ids.append(int(key))
+                except (TypeError, ValueError):
+                    continue
+        return changed_cell_ids
+
     def capture_image_edit_history_state(self):
         return {
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
@@ -5153,6 +5553,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "next_sample_id": int(getattr(self, "next_sample_id", 0)),
             "keyframe_list": self.keyframe_list.copy(),
             "flagframe_list": self.flagframe_list.copy(),
+            "analysis_start_frame_list": self.analysis_start_frame_list.copy(),
+            "analysis_end_frame_list": self.analysis_end_frame_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
             "frame_source": copy.deepcopy(self.frame_source_session_payload()),
             "imagePaths": self.imagePaths.copy(),
@@ -5185,6 +5587,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return {
             "keyframe_list": self.keyframe_list.copy(),
             "flagframe_list": self.flagframe_list.copy(),
+            "analysis_start_frame_list": self.analysis_start_frame_list.copy(),
+            "analysis_end_frame_list": self.analysis_end_frame_list.copy(),
             "keyframe_cell_items_dict": copy.deepcopy(self.keyframe_cell_items_dict),
             "image_index": int(self.image_index),
             "tool_mode": getattr(self, "tool_mode", "cursor"),
@@ -5324,6 +5728,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.next_sample_id = int(getattr(self, "next_sample_id", 0))
             self.keyframe_list = state["keyframe_list"].copy()
             self.flagframe_list = state["flagframe_list"].copy()
+            self.analysis_start_frame_list = state.get("analysis_start_frame_list", []).copy()
+            self.analysis_end_frame_list = state.get("analysis_end_frame_list", []).copy()
             self.keyframe_cell_items_dict = copy.deepcopy(state["keyframe_cell_items_dict"])
             frame_source_payload = state.get("frame_source", {
                 "kind": SOURCE_KIND_IMAGE_SEQUENCE,
@@ -5375,7 +5781,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+                self.image_slider.sync_marker_state(
+                    self.keyframe_list,
+                    self.flagframe_list,
+                    self.analysis_start_frame_list,
+                    self.analysis_end_frame_list,
+                )
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5400,6 +5811,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     self.updateButtonStates()
                     self.update_toggle_keyframe_button_icon()
                     self.update_toggle_flagging_button_icon()
+                    self.update_toggle_analysis_start_button_icon()
+                    self.update_toggle_analysis_end_button_icon()
                     self.sync_image_list_selection()
             else:
                 self.populate_image_list()
@@ -5504,7 +5917,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+                self.image_slider.sync_marker_state(
+                    self.keyframe_list,
+                    self.flagframe_list,
+                    self.analysis_start_frame_list,
+                    self.analysis_end_frame_list,
+                )
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5528,6 +5946,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     self.updateButtonStates()
                     self.update_toggle_keyframe_button_icon()
                     self.update_toggle_flagging_button_icon()
+                    self.update_toggle_analysis_start_button_icon()
+                    self.update_toggle_analysis_end_button_icon()
                     self.sync_image_list_selection()
             else:
                 self.populate_image_list()
@@ -5598,6 +6018,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.next_sample_id = int(getattr(self, "next_sample_id", 0))
             self.keyframe_list = state["keyframe_list"].copy()
             self.flagframe_list = state["flagframe_list"].copy()
+            self.analysis_start_frame_list = state.get("analysis_start_frame_list", []).copy()
+            self.analysis_end_frame_list = state.get("analysis_end_frame_list", []).copy()
             self.keyframe_cell_items_dict = copy.deepcopy(state["keyframe_cell_items_dict"])
             self.image_width = state["image_width"]
             frame_source_payload = state.get("frame_source", {
@@ -5663,7 +6085,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.image_slider.setMaximum(self.frame_count() - 1)
                 self.image_slider.setValue(self.image_index)
                 self.image_slider.blockSignals(False)
-                self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+                self.image_slider.sync_marker_state(
+                    self.keyframe_list,
+                    self.flagframe_list,
+                    self.analysis_start_frame_list,
+                    self.analysis_end_frame_list,
+                )
                 self.image_textbox.setText(str(self.image_index))
 
                 self.select_tool_action.setEnabled(True)
@@ -5710,6 +6137,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.zoom_slider_set_maximum()
             self.update_toggle_keyframe_button_icon()
             self.update_toggle_flagging_button_icon()
+            self.update_toggle_analysis_start_button_icon()
+            self.update_toggle_analysis_end_button_icon()
             if self.freeze_count_timeseries_headers:
                 if hasattr(self, "results_table_tabs"):
                     self.results_table_tabs.setCurrentIndex(2)
@@ -5749,6 +6178,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     self.next_sample_id = int(getattr(self, "next_sample_id", 0))
                 self.keyframe_list = []
                 self.flagframe_list = []
+                self.analysis_start_frame_list = []
+                self.analysis_end_frame_list = []
                 self.keyframe_cell_items_dict = {}
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
@@ -5769,6 +6200,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             restored_flagframes = sorted(
                 frame
                 for frame in state.get("flagframe_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            restored_analysis_starts = sorted(
+                frame
+                for frame in state.get("analysis_start_frame_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            restored_analysis_ends = sorted(
+                frame
+                for frame in state.get("analysis_end_frame_list", [])
                 if isinstance(frame, int) and 0 <= frame < frame_count
             )
             restored_keyframe_dict = {
@@ -5792,6 +6233,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.next_sample_id = int(getattr(self, "next_sample_id", 0))
             self.keyframe_list = restored_keyframes
             self.flagframe_list = restored_flagframes
+            self.analysis_start_frame_list = restored_analysis_starts
+            self.analysis_end_frame_list = restored_analysis_ends
             self.keyframe_cell_items_dict = restored_keyframe_dict
             has_analysis_payload = any(
                 key in state
@@ -5862,7 +6305,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.image_slider.blockSignals(True)
             self.image_slider.setValue(target_index)
             self.image_slider.blockSignals(False)
-            self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+            self.image_slider.sync_marker_state(
+                self.keyframe_list,
+                self.flagframe_list,
+                self.analysis_start_frame_list,
+                self.analysis_end_frame_list,
+            )
             self.update_image_list_annotations()
 
             if target_index != self.image_index:
@@ -5891,10 +6339,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             if frame_count <= 0:
                 self.keyframe_list = []
                 self.flagframe_list = []
+                self.analysis_start_frame_list = []
+                self.analysis_end_frame_list = []
                 self.keyframe_cell_items_dict = {}
                 self.image_slider.clear_marker_state()
                 self.update_toggle_keyframe_button_icon()
                 self.update_toggle_flagging_button_icon()
+                self.update_toggle_analysis_start_button_icon()
+                self.update_toggle_analysis_end_button_icon()
                 self.update_image_list_annotations()
                 self.restore_tool_mode_ui(restore_tool_mode)
                 return
@@ -5905,6 +6357,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             self.flagframe_list = sorted(
                 frame for frame in state.get("flagframe_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            self.analysis_start_frame_list = sorted(
+                frame for frame in state.get("analysis_start_frame_list", [])
+                if isinstance(frame, int) and 0 <= frame < frame_count
+            )
+            self.analysis_end_frame_list = sorted(
+                frame for frame in state.get("analysis_end_frame_list", [])
                 if isinstance(frame, int) and 0 <= frame < frame_count
             )
             self.keyframe_cell_items_dict = {
@@ -5922,7 +6382,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.image_slider.blockSignals(True)
             self.image_slider.setValue(target_index)
             self.image_slider.blockSignals(False)
-            self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+            self.image_slider.sync_marker_state(
+                self.keyframe_list,
+                self.flagframe_list,
+                self.analysis_start_frame_list,
+                self.analysis_end_frame_list,
+            )
             self.update_image_list_annotations()
 
             if target_index != self.image_index:
@@ -5934,9 +6399,23 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
             self.update_toggle_keyframe_button_icon()
             self.update_toggle_flagging_button_icon()
+            self.update_toggle_analysis_start_button_icon()
+            self.update_toggle_analysis_end_button_icon()
             self.update_session_actions_state()
             self.updateButtonStates()
             self.restore_tool_mode_ui(restore_tool_mode)
+        finally:
+            self.history_restoring = False
+            self.set_undo_status()
+            self.set_redo_status()
+
+    def restore_analysis_marker_state(self, marker_kind, frame_index, is_marked, preserve_active_tool=False):
+        self.history_restoring = True
+        try:
+            self.set_analysis_window_marker(marker_kind, frame_index, is_marked)
+            if not preserve_active_tool:
+                restore_tool_mode = getattr(self, "tool_mode", "cursor")
+                self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
             self.set_undo_status()
@@ -5994,6 +6473,50 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.refresh_sample_catalog_tree(preserve_selection=False)
             self.update_session_actions_state()
             self.restore_tool_mode_ui(restore_tool_mode)
+        finally:
+            self.history_restoring = False
+            self.set_undo_status()
+            self.set_redo_status()
+
+    def restore_freeze_annotation_state(self, state, preserve_active_tool=False):
+        self.history_restoring = True
+        try:
+            restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
+            previous_cell_records_payload = self.serialize_cell_records()
+            previous_flag_frames = set(getattr(self, "flagframe_list", []))
+            selected_items = self.get_selected_cell_items() if hasattr(self, "cell_controller") else []
+            self.last_freeze_output_path = state.get("last_freeze_output_path")
+            restored_cell_records_payload = state.get("cell_records_by_id", self.serialize_cell_records())
+            self.cell_records_by_id = self.deserialize_cell_records(restored_cell_records_payload)
+            self.freeze_results_headers = state.get("freeze_results_headers", []).copy()
+            self.freeze_results_rows = copy.deepcopy(state.get("freeze_results_rows", []))
+            self.freeze_count_timeseries_headers = []
+            self.freeze_count_timeseries_rows = []
+            self.freeze_count_timeseries_summary = {}
+            self.last_temperature_import_path = None
+            self.ensure_cell_registry_matches_scene_cells()
+            self.recompute_next_cell_id(preserve_if_larger=True)
+            self.ensure_sample_catalog_matches_cell_records()
+
+            changed_cell_ids = self.freeze_annotation_changed_cell_ids(
+                previous_cell_records_payload,
+                restored_cell_records_payload,
+            )
+            if changed_cell_ids:
+                self.replace_freeze_table_rows_for_cells(changed_cell_ids)
+            elif hasattr(self, "freeze_table"):
+                self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
+            self.clear_freeze_count_timeseries_table_widget()
+            self.update_results_table_visibility()
+
+            desired_flag_frames = set(self.selected_cell_freeze_frames(selected_items=selected_items))
+            for frame_index in sorted(previous_flag_frames | desired_flag_frames):
+                self.set_freeze_flag_marker_fast(frame_index, frame_index in desired_flag_frames)
+            self.refresh_cursor_selection_info(selected_items=selected_items)
+            self.update_cursor_record_edit_state(selected_items=selected_items)
+            self.update_session_actions_state()
+            if not preserve_active_tool:
+                self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
             self.set_undo_status()
@@ -6069,6 +6592,25 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         after_state = self.capture_timeline_marker_state()
         self.undo_stack.push(SessionTimelineMarkersCommand(self, text, before_state, after_state))
 
+    def push_analysis_marker_history(self, text, marker_kind, frame_index, before_active, after_active):
+        if not self.undo_redo_enabled:
+            return
+        if self.history_restoring:
+            return
+        if bool(before_active) == bool(after_active):
+            return
+
+        self.undo_stack.push(
+            SessionAnalysisMarkerCommand(
+                self,
+                text,
+                marker_kind,
+                frame_index,
+                before_active,
+                after_active,
+            )
+        )
+
     def push_image_session_history(self, text, before_state):
         if not self.undo_redo_enabled:
             return
@@ -6096,6 +6638,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         after_state = self.capture_data_state()
         self.undo_stack.push(SessionDataCommand(self, text, before_state, after_state))
 
+    def push_freeze_annotation_history(self, text, before_state):
+        if not self.undo_redo_enabled:
+            return
+        if self.history_restoring:
+            return
+
+        after_state = self.capture_freeze_annotation_state()
+        self.undo_stack.push(SessionFreezeAnnotationCommand(self, text, before_state, after_state))
+
     def push_image_edit_history(self, text, before_state):
         if not self.undo_redo_enabled:
             return
@@ -6122,6 +6673,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             markers.append("K")
         if index in self.flagframe_list:
             markers.append("F")
+        if index in self.analysis_start_frame_list:
+            markers.append("S")
+        if index in self.analysis_end_frame_list:
+            markers.append("E")
 
         marker_text = f"[{' '.join(markers)}] " if markers else ""
         if self.is_video_source():
@@ -6132,24 +6687,82 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def format_image_list_entry(self, index):
         return self.format_frame_list_entry(index)
 
+    def frame_list_row_count(self):
+        if getattr(self, "frame_list_frozen_only", False):
+            return len(getattr(self, "frame_list_visible_indices", []))
+        return self.frame_count()
+
+    def frame_list_source_index_for_row(self, row):
+        try:
+            row = int(row)
+        except (TypeError, ValueError):
+            return None
+        if getattr(self, "frame_list_frozen_only", False):
+            visible_indices = getattr(self, "frame_list_visible_indices", [])
+            if 0 <= row < len(visible_indices):
+                return int(visible_indices[row])
+            return None
+        if 0 <= row < self.frame_count():
+            return row
+        return None
+
+    def frame_list_row_for_source_index(self, source_index):
+        try:
+            source_index = int(source_index)
+        except (TypeError, ValueError):
+            return None
+        if getattr(self, "frame_list_frozen_only", False):
+            visible_indices = getattr(self, "frame_list_visible_indices", [])
+            try:
+                return visible_indices.index(source_index)
+            except ValueError:
+                return None
+        if 0 <= source_index < self.frame_count():
+            return source_index
+        return None
+
+    def refresh_frame_list_filter(self, *, preserve_selection=True):
+        if getattr(self, "frame_list_frozen_only", False):
+            self.frame_list_visible_indices = self.selected_cell_freeze_frames()
+        else:
+            self.frame_list_visible_indices = []
+        if hasattr(self, "image_list_model"):
+            self.image_list_model.set_items([], [])
+        if preserve_selection:
+            self.sync_image_list_selection()
+
+    def set_frame_list_frozen_only(self, checked):
+        checked = bool(checked)
+        if getattr(self, "frame_list_frozen_only", False) == checked:
+            return
+        self.frame_list_frozen_only = checked
+        self.refresh_frame_list_filter()
+
     def populate_image_list(self):
         if not self.image_list_enabled:
             self.image_list_model.set_items([], [])
             return
-        self.image_list_model.set_items([], [])
+        self.refresh_frame_list_filter(preserve_selection=False)
         self.sync_image_list_selection()
 
     def update_image_list_annotations(self, rows=None):
         if not self.image_list_enabled:
             return
+        if getattr(self, "frame_list_frozen_only", False):
+            self.refresh_frame_list_filter()
+            return
         if rows is None:
             rows = range(self.frame_count())
 
         row_data = {}
-        for row in rows:
-            if not (0 <= row < self.frame_count()):
+        for source_row in rows:
+            model_row = self.frame_list_row_for_source_index(source_row)
+            if model_row is None:
                 continue
-            row_data[row] = (self.format_frame_list_entry(row), self.frame_tooltip(row))
+            row_data[model_row] = (
+                self.format_frame_list_entry(source_row),
+                self.frame_tooltip(source_row),
+            )
 
         self.image_list_model.update_items(row_data)
 
@@ -6169,7 +6782,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.syncing_image_list_selection = False
             return
 
-        model_index = self.image_list_model.index(self.image_index, 0)
+        model_row = self.frame_list_row_for_source_index(self.image_index)
+        if model_row is None:
+            self.syncing_image_list_selection = True
+            try:
+                selection_model.clearSelection()
+                self.image_list_widget.setCurrentIndex(QModelIndex())
+            finally:
+                self.syncing_image_list_selection = False
+            return
+
+        model_index = self.image_list_model.index(model_row, 0)
         if not model_index.isValid():
             return
 
@@ -6206,8 +6829,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if modifiers & (Qt.ControlModifier | Qt.ShiftModifier | Qt.MetaModifier):
             return
 
-        row = index.row()
-        if 0 <= row < self.frame_count() and row != self.image_index:
+        row = self.frame_list_source_index_for_row(index.row())
+        if row is not None and 0 <= row < self.frame_count() and row != self.image_index:
             self.navigate_to_image(row)
 
     def handle_image_list_current_changed(self, current, previous):
@@ -6322,11 +6945,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         selection_model = self.image_list_widget.selectionModel()
         if selection_model is None:
             return []
-        return sorted({
-            model_index.row()
-            for model_index in selection_model.selectedRows(0)
-            if model_index.isValid()
-        })
+        source_rows = set()
+        for model_index in selection_model.selectedRows(0):
+            if not model_index.isValid():
+                continue
+            source_row = self.frame_list_source_index_for_row(model_index.row())
+            if source_row is not None:
+                source_rows.add(source_row)
+        return sorted(source_rows)
 
     def navigate_to_image(self, index, history_text="Change Frame"):
         if not self.has_frames():
@@ -7251,11 +7877,80 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_toggle_keyframe_button_icon()
 
     
-    def update_flaggedframe_list(self, is_flagging):
-        self.flagframe_list = list(sorted(self.image_slider.flaggedframes))
+    def update_analysis_start_frame_list(self, is_adding):
+        self.analysis_start_frame_list = list(sorted(self.image_slider.analysis_startframes))
         self.update_image_list_annotations([self.image_index])
-        self.update_toggle_flagging_button_icon()
-            
+        self.update_toggle_analysis_start_button_icon()
+
+    def update_analysis_end_frame_list(self, is_adding):
+        self.analysis_end_frame_list = list(sorted(self.image_slider.analysis_endframes))
+        self.update_image_list_annotations([self.image_index])
+        self.update_toggle_analysis_end_button_icon()
+
+    def analysis_marker_list_attr(self, marker_kind):
+        if marker_kind == "start":
+            return "analysis_start_frame_list"
+        if marker_kind == "end":
+            return "analysis_end_frame_list"
+        raise ValueError(f"Unknown analysis marker kind: {marker_kind}")
+
+    def set_analysis_window_marker(self, marker_kind, frame_index, is_marked):
+        if not self.has_frames():
+            return False
+        try:
+            frame_index = int(frame_index)
+        except (TypeError, ValueError):
+            return False
+        if not (0 <= frame_index < self.frame_count()):
+            return False
+
+        list_attr = self.analysis_marker_list_attr(marker_kind)
+        marker_frames = set(getattr(self, list_attr, []))
+        was_marked = frame_index in marker_frames
+        if is_marked:
+            marker_frames.add(frame_index)
+        else:
+            marker_frames.discard(frame_index)
+        setattr(self, list_attr, sorted(marker_frames))
+
+        if hasattr(self, "image_slider") and hasattr(self.image_slider, "set_analysis_marker"):
+            self.image_slider.set_analysis_marker(marker_kind, frame_index, is_marked)
+        elif hasattr(self, "image_slider"):
+            self.image_slider.sync_marker_state(
+                self.keyframe_list,
+                self.flagframe_list,
+                self.analysis_start_frame_list,
+                self.analysis_end_frame_list,
+            )
+
+        self.update_image_list_annotations([frame_index])
+        self.update_toggle_analysis_start_button_icon()
+        self.update_toggle_analysis_end_button_icon()
+        self.update_session_actions_state()
+        return was_marked != bool(is_marked)
+
+    def toggle_analysis_window_marker(self, marker_kind):
+        if not self.has_frames():
+            return False
+        frame_index = int(self.image_index)
+        list_attr = self.analysis_marker_list_attr(marker_kind)
+        before_active = frame_index in set(getattr(self, list_attr, []))
+        after_active = not before_active
+        self.set_analysis_window_marker(marker_kind, frame_index, after_active)
+
+        label = "start" if marker_kind == "start" else "end"
+        action = "Added" if after_active else "Removed"
+        self.log(f"{action} analysis {label} marker at frame {frame_index}")
+        history_text = "Toggle Analysis Start" if marker_kind == "start" else "Toggle Analysis End"
+        self.push_analysis_marker_history(
+            history_text,
+            marker_kind,
+            frame_index,
+            before_active,
+            after_active,
+        )
+        return True
+
     
     def edit_current_keyframe_cell_item(self):
         # this function will be called if edits are made to the current cell_items
@@ -7875,6 +8570,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_list_entry_ids = [entry[2] for entry in sorted_entries]
         self.keyframe_list = sorted(old_to_new[index] for index in self.keyframe_list if index in old_to_new)
         self.flagframe_list = sorted(old_to_new[index] for index in self.flagframe_list if index in old_to_new)
+        self.analysis_start_frame_list = sorted(
+            old_to_new[index]
+            for index in self.analysis_start_frame_list
+            if index in old_to_new
+        )
+        self.analysis_end_frame_list = sorted(
+            old_to_new[index]
+            for index in self.analysis_end_frame_list
+            if index in old_to_new
+        )
         self.keyframe_cell_items_dict = {
             old_to_new[index]: circles
             for index, circles in self.keyframe_cell_items_dict.items()
@@ -7906,6 +8611,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             for index in self.flagframe_list
             if 0 <= int(index) < old_source.frame_count()
         }
+        analysis_start_references = {
+            int(index): old_source.frame_reference(index)
+            for index in self.analysis_start_frame_list
+            if 0 <= int(index) < old_source.frame_count()
+        }
+        analysis_end_references = {
+            int(index): old_source.frame_reference(index)
+            for index in self.analysis_end_frame_list
+            if 0 <= int(index) < old_source.frame_count()
+        }
         keyframe_items_by_reference = {
             old_source.frame_reference(index): circles
             for index, circles in self.keyframe_cell_items_dict.items()
@@ -7935,6 +8650,22 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             if new_index is not None
         )
+        self.analysis_start_frame_list = sorted(
+            new_index
+            for new_index in (
+                frame_source.global_index_for_reference(*reference)
+                for reference in analysis_start_references.values()
+            )
+            if new_index is not None
+        )
+        self.analysis_end_frame_list = sorted(
+            new_index
+            for new_index in (
+                frame_source.global_index_for_reference(*reference)
+                for reference in analysis_end_references.values()
+            )
+            if new_index is not None
+        )
         self.keyframe_cell_items_dict = {
             new_index: circles
             for reference, circles in keyframe_items_by_reference.items()
@@ -7951,7 +8682,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_slider.setMaximum(self.frame_count() - 1)
         self.image_slider.setValue(self.image_index)
         self.image_slider.blockSignals(False)
-        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+        self.image_slider.sync_marker_state(
+            self.keyframe_list,
+            self.flagframe_list,
+            self.analysis_start_frame_list,
+            self.analysis_end_frame_list,
+        )
         self.updateImage(self.image_index)
         self.finalize_frame_update(self.image_index)
         self.invalidate_analysis_results("video clip order changed")
@@ -8017,10 +8753,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return
 
         if not VideoFrameSource.available():
+            detail = VideoFrameSource.import_error_message()
+            message = (
+                "Video input requires PyAV, but the app could not load it."
+            )
+            if detail:
+                message += f"\n\nImport error:\n{detail}"
             QMessageBox.warning(
                 self,
                 "Open Video",
-                "Video input requires PyAV. Install the 'av' package in the Icescopy environment, then rebuild the app.",
+                message,
             )
             return
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -8069,6 +8811,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.clear_image_caches()
         self.keyframe_list = []
         self.flagframe_list = []
+        self.analysis_start_frame_list = []
+        self.analysis_end_frame_list = []
         self.keyframe_cell_items_dict = {}
         self.image_width = None
         self.image_index = 0
@@ -8086,7 +8830,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_slider.setValue(0)
         self.image_slider.blockSignals(False)
         self.image_slider.setEnabled(True)
-        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+        self.image_slider.sync_marker_state(
+            self.keyframe_list,
+            self.flagframe_list,
+            self.analysis_start_frame_list,
+            self.analysis_end_frame_list,
+        )
         self.image_textbox.setText("0")
         self.populate_image_list()
         self.updateImage(0)
@@ -8539,7 +9288,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if not selected_rows:
             current_index = self.image_list_widget.currentIndex()
             if current_index.isValid():
-                selected_rows = [current_index.row()]
+                current_source_row = self.frame_list_source_index_for_row(current_index.row())
+                selected_rows = [] if current_source_row is None else [current_source_row]
             else:
                 selected_rows = [self.image_index]
 
@@ -8590,6 +9340,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             for old_index in self.flagframe_list
             if old_index not in removed_rows
         ]
+        self.analysis_start_frame_list = [
+            old_index - sum(1 for removed_row in rows_to_remove if removed_row < old_index)
+            for old_index in self.analysis_start_frame_list
+            if old_index not in removed_rows
+        ]
+        self.analysis_end_frame_list = [
+            old_index - sum(1 for removed_row in rows_to_remove if removed_row < old_index)
+            for old_index in self.analysis_end_frame_list
+            if old_index not in removed_rows
+        ]
 
         new_image_index = max(0, min(old_image_index - removed_before_current, len(self.imagePaths) - 1))
 
@@ -8598,7 +9358,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_slider.setMaximum(self.frame_count() - 1)
         self.image_slider.setValue(new_image_index)
         self.image_slider.blockSignals(False)
-        self.image_slider.sync_marker_state(self.keyframe_list, self.flagframe_list)
+        self.image_slider.sync_marker_state(
+            self.keyframe_list,
+            self.flagframe_list,
+            self.analysis_start_frame_list,
+            self.analysis_end_frame_list,
+        )
         self.image_textbox.setText(str(new_image_index))
 
         self.image_list_model.remove_rows(rows_to_remove)
@@ -8645,6 +9410,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.clear_image_caches()
         self.keyframe_list = []
         self.flagframe_list = []
+        self.analysis_start_frame_list = []
+        self.analysis_end_frame_list = []
         self.keyframe_cell_items_dict = {}
         self.image_width = None
         stop_video_preview_decoder = getattr(self, "stop_video_preview_decoder", None)
@@ -9030,6 +9797,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.updateButtonStates()
         self.update_toggle_keyframe_button_icon()
         self.update_toggle_flagging_button_icon()
+        self.update_toggle_analysis_start_button_icon()
+        self.update_toggle_analysis_end_button_icon()
         self.sync_image_list_selection()
         self.update_grayscale_plot_current_frame(force=True)
 
@@ -9378,6 +10147,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def updateButtonStates(self):
         frame_count = self.frame_count()
         has_frames = frame_count > 0
+        has_selected_cells = (
+            hasattr(self, "cell_controller")
+            and hasattr(self, "scene")
+            and bool(self.get_selected_cell_items())
+        )
         # Update left button state
         if (self.image_slider.value() <= 0) or self.output_state or (not has_frames):
             self.leftButton.setEnabled(False)
@@ -9393,10 +10167,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if self.output_state or (not has_frames):
             self.keyframe_toggle_button.setEnabled(False)
             self.flag_toggle_button.setEnabled(False)
+            self.analysis_start_toggle_button.setEnabled(False)
+            self.analysis_end_toggle_button.setEnabled(False)
             self.zoom_slider.setEnabled(False)
         else:
             self.keyframe_toggle_button.setEnabled(True)
-            self.flag_toggle_button.setEnabled(True)
+            self.flag_toggle_button.setEnabled(has_selected_cells)
+            self.analysis_start_toggle_button.setEnabled(True)
+            self.analysis_end_toggle_button.setEnabled(True)
             self.zoom_slider.setEnabled(True)
 
     def set_undo_status(self):
@@ -9571,6 +10349,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         else:
             super().keyReleaseEvent(event)
 
+    @staticmethod
+    def normalize_analysis_marker_ranges(start_frames, end_frames, frame_count):
+        return normalize_analysis_marker_ranges(start_frames, end_frames, frame_count)
+
+    def analysis_frame_ranges(self):
+        return self.normalize_analysis_marker_ranges(
+            self.analysis_start_frame_list,
+            self.analysis_end_frame_list,
+            self.frame_count(),
+        )
+
+    @staticmethod
+    def frame_count_from_ranges(frame_ranges):
+        return frame_count_from_ranges(frame_ranges)
+
     def outputData(self):
         if not self.has_frames():
             self.log("No images loaded")
@@ -9581,14 +10374,22 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.analysis_progress_navigation_suppressed = True
         self.log("Start analyzing")
 
-        list_of_cell_items = self.out_put_interpolation()
+        analysis_frame_ranges = self.analysis_frame_ranges()
+        analysis_frame_count = self.frame_count_from_ranges(analysis_frame_ranges)
+        if analysis_frame_count <= 0:
+            self.log("No frames inside analysis windows")
+            return
+        if analysis_frame_ranges != [(0, self.frame_count() - 1)]:
+            range_text = ", ".join(f"{start}-{end}" for start, end in analysis_frame_ranges)
+            self.log(f"Analysis windows: {range_text}")
+
+        list_of_cell_items = self.out_put_interpolation(analysis_frame_ranges)
 
         self.worker = Image_analysis_thread(
             None,
             self.imagePaths.copy(),
             self.imageNames.copy(),
             list_of_cell_items,
-            self.flagframe_list,
             image_edit_exposure=self.image_edit_exposure,
             image_edit_contrast=self.image_edit_contrast,
             image_edit_uniform_exposure_offsets=copy.deepcopy(getattr(self, "image_edit_uniform_exposure_offsets", {})),
@@ -9600,7 +10401,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             convolution_half_window_points=self.convolution_half_window_points,
             convolution_ramp_points=self.convolution_ramp_points,
             freeze_finder_detect_brightening=self.freeze_finder_detect_brightening,
+            video_grayscale_mode=self.video_grayscale_mode,
             frame_source=self.active_frame_source(),
+            analysis_frame_ranges=analysis_frame_ranges,
         )
         self.worker.analysis_done.connect(self.onAnalysisDone)
         self.updateButtonStates()
@@ -9622,10 +10425,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.worker.start()
         self.worker.finished.connect(self.onThreadFinished)
 
-    def out_put_interpolation(self):
-        list_of_cell_items = []
-        for an_image_index in range(self.frame_count()):
-            list_of_cell_items.append(self.keyframe_interpolation(an_image_index))
+    def out_put_interpolation(self, analysis_frame_ranges=None):
+        frame_count = self.frame_count()
+        list_of_cell_items = [[] for _ in range(frame_count)]
+        frame_ranges = analysis_frame_ranges or [(0, frame_count - 1)]
+        for start, end in frame_ranges:
+            for an_image_index in range(int(start), int(end) + 1):
+                if 0 <= an_image_index < frame_count:
+                    list_of_cell_items[an_image_index] = self.keyframe_interpolation(an_image_index)
         
         return list_of_cell_items
             
@@ -9649,6 +10456,38 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if getattr(worker, 'freeze_output_path', None):
             self.log(f"Saved freeze detection output at {worker.freeze_output_path}")
         self.log(f"Time used: {elapsed_time:.3f} seconds")
+        timing = getattr(worker, "analysis_timing", {}) or {}
+        if timing:
+            frames_analyzed = int(timing.get("frames_analyzed", 0) or 0)
+            frame_count = int(timing.get("frame_count", 0) or 0)
+            cell_count = int(timing.get("cell_count", 0) or 0)
+            worker_seconds = float(timing.get("total_worker_seconds", elapsed_time) or 0.0)
+            fps = frames_analyzed / worker_seconds if worker_seconds > 0 else 0.0
+            cell_frames_per_second = (
+                (frames_analyzed * cell_count) / worker_seconds
+                if worker_seconds > 0 and cell_count > 0
+                else 0.0
+            )
+            self.log(
+                "Analysis timing: "
+                f"source={timing.get('source_kind', 'unknown')}, "
+                f"video_gray={timing.get('video_grayscale_mode', 'n/a')}, "
+                f"frames={frames_analyzed}/{frame_count}, "
+                f"cells={cell_count}, "
+                f"decode+gray={float(timing.get('decode_gray_seconds', 0.0)):.3f}s, "
+                f"ROI mean={float(timing.get('grayscale_mean_seconds', 0.0)):.3f}s, "
+                f"freeze finder={float(timing.get('freeze_finder_seconds', 0.0)):.3f}s, "
+                f"result tables={float(timing.get('result_build_seconds', 0.0)):.3f}s"
+            )
+            self.log(
+                "Analysis rate: "
+                f"{fps:.2f} frames/s"
+                + (
+                    f", {cell_frames_per_second:.0f} cell-frames/s"
+                    if cell_count > 0
+                    else ""
+                )
+            )
         self.last_grayscale_output_path = getattr(worker, 'filePath', None)
         self.last_freeze_output_path = getattr(worker, 'freeze_output_path', None)
         self.timer = None
@@ -9746,6 +10585,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             for widget in (
                 getattr(self, "keyframe_toggle_button", None),
                 getattr(self, "flag_toggle_button", None),
+                getattr(self, "analysis_start_toggle_button", None),
+                getattr(self, "analysis_end_toggle_button", None),
                 getattr(self, "leftButton", None),
                 getattr(self, "rightButton", None),
             )
@@ -9789,11 +10630,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.leftButton.setStyleSheet(icescopy_stylesheet.dark_mode_button_stylesheet)
             self.rightButton.setStyleSheet(icescopy_stylesheet.dark_mode_button_stylesheet)
             self.flag_toggle_button.setStyleSheet(icescopy_stylesheet.dark_mode_button_stylesheet)
+            self.analysis_start_toggle_button.setStyleSheet(icescopy_stylesheet.dark_mode_button_stylesheet)
+            self.analysis_end_toggle_button.setStyleSheet(icescopy_stylesheet.dark_mode_button_stylesheet)
         else:
             self.keyframe_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
             self.leftButton.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
             self.rightButton.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
             self.flag_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
+            self.analysis_start_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
+            self.analysis_end_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
 
     def toolbar_icon(self, mode_folder, icon_name):
         return QIcon(os.path.join(resources_dir, "tool_bar", mode_folder, "large", icon_name))
@@ -9866,6 +10711,37 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if self.has_frames() and self.viewer_image_count in (2, 3):
             self.updateImage(self.image_index)
 
+    def _analysis_triangle_icon(self, direction, active):
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        color = QColor(52, 199, 89, 255) if direction == "start" else QColor(255, 149, 0, 255)
+        inactive_color = QColor(128, 128, 128, 190)
+        if direction == "start":
+            points = QPolygonF([
+                QPointF(11, 10),
+                QPointF(11, 22),
+                QPointF(22, 16),
+            ])
+        else:
+            points = QPolygonF([
+                QPointF(21, 10),
+                QPointF(21, 22),
+                QPointF(10, 16),
+            ])
+        if active:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(color))
+        else:
+            pen = QPen(inactive_color)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+        painter.drawPolygon(points)
+        painter.end()
+        return QIcon(pixmap)
+
     def update_toggle_keyframe_button_icon(self, theme=None):
         is_keyframe = self.image_index in self.keyframe_list
         if darkdetect.isDark():
@@ -9880,7 +10756,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.keyframe_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'diamond_2.png')))
     
     def update_toggle_flagging_button_icon(self, theme=None):
-        is_flagged = self.image_index in self.flagframe_list
+        is_flagged, _has_all = self.selected_cells_freeze_state_at_current_frame()
         if darkdetect.isDark():
             if is_flagged:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag_red.png')))
@@ -9892,9 +10768,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             else:
                 self.flag_toggle_button.setIcon(QIcon(os.path.join(ui_images_dir, 'flag_2.png')))
 
+    def update_toggle_analysis_start_button_icon(self, theme=None):
+        is_start = self.image_index in self.analysis_start_frame_list
+        self.analysis_start_toggle_button.setIcon(self._analysis_triangle_icon("start", is_start))
+        self.analysis_start_toggle_button.setIconSize(QSize(20, 20))
+
+    def update_toggle_analysis_end_button_icon(self, theme=None):
+        is_end = self.image_index in self.analysis_end_frame_list
+        self.analysis_end_toggle_button.setIcon(self._analysis_triangle_icon("end", is_end))
+        self.analysis_end_toggle_button.setIconSize(QSize(20, 20))
+
     def reset_button_icon(self, theme=None):
         self.update_toggle_keyframe_button_icon()
         self.update_toggle_flagging_button_icon()
+        self.update_toggle_analysis_start_button_icon()
+        self.update_toggle_analysis_end_button_icon()
         if darkdetect.isDark():
             self.leftButton.setIcon(QIcon(os.path.join(ui_images_dir, "caret-left.png")))
             self.rightButton.setIcon(QIcon(os.path.join(ui_images_dir, 'caret-right.png')))
@@ -10060,6 +10948,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 str(freeze_finder_detect_brightening_element.text).strip().lower() in {"1", "true", "yes", "on"}
             )
 
+        video_grayscale_mode_element = root.find('VideoGrayscaleMode')
+        if video_grayscale_mode_element is not None and video_grayscale_mode_element.text is not None:
+            preferences['VideoGrayscaleMode'] = normalize_video_grayscale_mode(
+                video_grayscale_mode_element.text
+            )
+
         temperature_cycle_warmup_hysteresis_c_element = root.find('TemperatureCycleWarmupHysteresisC')
         if (
             temperature_cycle_warmup_hysteresis_c_element is not None
@@ -10130,6 +11024,13 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return preferences
 
 if __name__ == '__main__':
+    if "--check-video-dependencies" in sys.argv:
+        if VideoFrameSource.available():
+            print("PyAV import OK")
+            sys.exit(0)
+        print(f"PyAV import failed: {VideoFrameSource.import_error_message()}", file=sys.stderr)
+        sys.exit(1)
+
     app = IcescopyApplication(sys.argv)
     if platform.system() == "Windows" and "Fusion" in QStyleFactory.keys():
         app.setStyle(QStyleFactory.create("Fusion"))

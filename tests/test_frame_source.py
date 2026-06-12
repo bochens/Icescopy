@@ -16,17 +16,22 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PIL import Image  # noqa: E402
+import numpy as np  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from icescopy_frame_source import (  # noqa: E402
     ImageSequenceFrameSource,
     SOURCE_KIND_IMAGE_SEQUENCE,
+    VIDEO_GRAYSCALE_MODE_GRAYSCALE,
+    VIDEO_GRAYSCALE_MODE_LUMA,
     VideoFrameMetadata,
     VideoFrameSource,
     VideoSequenceFrameSource,
     format_seconds_for_frame_list,
+    normalize_frame_ranges,
 )
+from icescopy_analysis_windows import normalize_analysis_marker_ranges  # noqa: E402
 from icescopy_session import ImageListModel  # noqa: E402
 
 
@@ -56,6 +61,9 @@ class FrameSourceTests(unittest.TestCase):
             iterated = list(source.iter_gray_arrays())
             self.assertEqual([index for index, _gray in iterated], [0, 1])
             self.assertEqual([gray.shape for _index, gray in iterated], [(2, 3), (5, 4)])
+            ranged = list(source.iter_gray_arrays(frame_ranges=[(1, 1)]))
+            self.assertEqual([index for index, _gray in ranged], [1])
+            self.assertEqual(int(ranged[0][1][0, 0]), 23)
             self.assertEqual(
                 source.to_session_payload(),
                 {
@@ -85,6 +93,20 @@ class FrameSourceTests(unittest.TestCase):
         self.assertEqual(format_seconds_for_frame_list(4.967), "00:04.967")
         self.assertEqual(format_seconds_for_frame_list(65.25), "01:05.250")
         self.assertEqual(format_seconds_for_frame_list(3661.5), "01:01:01.500")
+
+    def test_normalize_frame_ranges_clips_and_merges_ranges(self):
+        self.assertEqual(
+            normalize_frame_ranges([(-5, 2), (3, 4), (8, 99), (7, 6)], 10),
+            [(0, 4), (8, 9)],
+        )
+
+    def test_analysis_marker_ranges_pair_starts_and_ends(self):
+        self.assertEqual(normalize_analysis_marker_ranges([], [], 10), [(0, 9)])
+        self.assertEqual(normalize_analysis_marker_ranges([], [3], 10), [(0, 3)])
+        self.assertEqual(normalize_analysis_marker_ranges([6], [], 10), [(6, 9)])
+        self.assertEqual(normalize_analysis_marker_ranges([2, 4], [7], 10), [(4, 7)])
+        self.assertEqual(normalize_analysis_marker_ranges([2], [5, 7], 10), [(2, 5)])
+        self.assertEqual(normalize_analysis_marker_ranges([3], [3], 10), [(3, 3)])
 
     def test_video_sequence_frame_source_concatenates_clip_metadata(self):
         with tempfile.TemporaryDirectory() as td:
@@ -160,6 +182,77 @@ class FrameSourceTests(unittest.TestCase):
             self.assertEqual([index for index, _gray in gray_frames], [0, 1, 2])
             self.assertEqual([gray.shape for _index, gray in gray_frames], [(24, 32), (24, 32), (24, 32)])
             source.close()
+
+    def test_video_luma_mode_reads_direct_luma_plane(self):
+        class FakePlane(bytearray):
+            pass
+
+        plane = FakePlane([
+            1, 2, 3, 99,
+            4, 5, 6, 99,
+        ])
+        plane.line_size = 4
+        frame = SimpleNamespace(
+            width=3,
+            height=2,
+            format=SimpleNamespace(name="yuv420p"),
+            planes=[plane],
+        )
+
+        gray = VideoFrameSource._gray_array_from_frame(
+            frame,
+            grayscale_mode=VIDEO_GRAYSCALE_MODE_LUMA,
+        )
+
+        self.assertEqual(gray.tolist(), [[1, 2, 3], [4, 5, 6]])
+
+    def test_video_luma_mode_falls_back_to_converted_grayscale(self):
+        class FakeRgbFrame:
+            width = 2
+            height = 2
+            format = SimpleNamespace(name="rgb24")
+            planes = []
+
+            def __init__(self):
+                self.requested_formats = []
+
+            def to_ndarray(self, format):
+                self.requested_formats.append(format)
+                return np.array([[7, 8], [9, 10]], dtype=np.uint8)
+
+        frame = FakeRgbFrame()
+
+        gray = VideoFrameSource._gray_array_from_frame(
+            frame,
+            grayscale_mode=VIDEO_GRAYSCALE_MODE_LUMA,
+        )
+
+        self.assertEqual(frame.requested_formats, ["gray"])
+        self.assertEqual(gray.tolist(), [[7, 8], [9, 10]])
+
+    def test_video_grayscale_mode_uses_converted_grayscale(self):
+        class FakeYuvFrame:
+            width = 2
+            height = 2
+            format = SimpleNamespace(name="yuv420p")
+            planes = []
+
+            def __init__(self):
+                self.requested_formats = []
+
+            def to_ndarray(self, format):
+                self.requested_formats.append(format)
+                return np.array([[11, 12], [13, 14]], dtype=np.uint8)
+
+        frame = FakeYuvFrame()
+
+        gray = VideoFrameSource._gray_array_from_frame(
+            frame,
+            grayscale_mode=VIDEO_GRAYSCALE_MODE_GRAYSCALE,
+        )
+
+        self.assertEqual(frame.requested_formats, ["gray"])
+        self.assertEqual(gray.tolist(), [[11, 12], [13, 14]])
 
     def test_video_decoder_maps_pts_to_frame_index_while_decoding_forward(self):
         source = object.__new__(VideoFrameSource)

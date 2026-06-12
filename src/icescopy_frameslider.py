@@ -1,5 +1,6 @@
 import os
 import platform
+import math
 
 from PySide6.QtWidgets import QSlider, QStyle, QStyleOptionSlider, QSizePolicy
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QPolygonF, QPainterPath, QPixmap
@@ -13,14 +14,40 @@ if not os.path.isdir(resources_dir):
 ui_images_dir = os.path.abspath(os.path.join(resources_dir, "ui_images"))
 slider_handle_path = os.path.abspath(os.path.join(ui_images_dir, "slider_handle.png"))
 
+
+def timeline_zoom_factor_from_slider_value(zoom_value, maximum_zoom_value):
+    """Map the resolution slider position to a logarithmic timeline zoom factor."""
+    try:
+        zoom_value = int(zoom_value)
+    except (TypeError, ValueError):
+        zoom_value = 1
+    try:
+        maximum_zoom_value = int(maximum_zoom_value)
+    except (TypeError, ValueError):
+        maximum_zoom_value = 1
+
+    zoom_value = max(1, zoom_value)
+    maximum_zoom_value = max(1, maximum_zoom_value)
+    if maximum_zoom_value <= 1 or zoom_value <= 1:
+        return 1.0
+    if zoom_value >= maximum_zoom_value:
+        return float(maximum_zoom_value)
+
+    normalized_position = (zoom_value - 1) / max(1, maximum_zoom_value - 1)
+    return math.exp(math.log(float(maximum_zoom_value)) * normalized_position)
+
+
 class FrameSlider(QSlider):
     keyframeClicked = Signal(bool)  # Signal emitted when a keyframe indicator is clicked
-    flagframeClicked = Signal(bool)
+    analysisStartClicked = Signal(bool)
+    analysisEndClicked = Signal(bool)
 
     def __init__(self, orientation=Qt.Horizontal, main_window=None, parent=None):
         super(FrameSlider, self).__init__(orientation, parent)
         self.keyframes = set()  # List to store positions of keyframes
         self.flaggedframes = set()
+        self.analysis_startframes = set()
+        self.analysis_endframes = set()
         
         self.main_window = main_window
         self.setSingleStep(1)
@@ -48,13 +75,36 @@ class FrameSlider(QSlider):
         self._handle_pixmap = QPixmap(slider_handle_path)
         QTimer.singleShot(0, self.sync_timeline_geometry)
 
-    def sync_marker_state(self, keyframes, flaggedframes):
+    def sync_marker_state(self, keyframes, flaggedframes, analysis_startframes=None, analysis_endframes=None):
         self.keyframes = set(keyframes)
         self.flaggedframes = set(flaggedframes)
+        self.analysis_startframes = set(analysis_startframes or [])
+        self.analysis_endframes = set(analysis_endframes or [])
         self.update()
 
+    def set_flag_marker(self, frame_index, is_flagged):
+        frame_index = int(frame_index)
+        was_flagged = frame_index in self.flaggedframes
+        if is_flagged:
+            self.flaggedframes.add(frame_index)
+        else:
+            self.flaggedframes.discard(frame_index)
+        if was_flagged != bool(is_flagged):
+            self.update()
+
+    def set_analysis_marker(self, marker_kind, frame_index, is_marked):
+        frame_index = int(frame_index)
+        marker_frames = self.analysis_startframes if marker_kind == "start" else self.analysis_endframes
+        was_marked = frame_index in marker_frames
+        if is_marked:
+            marker_frames.add(frame_index)
+        else:
+            marker_frames.discard(frame_index)
+        if was_marked != bool(is_marked):
+            self.update()
+
     def clear_marker_state(self):
-        self.sync_marker_state([], [])
+        self.sync_marker_state([], [], [], [])
 
     def _current_slider_position(self):
         if self.isSliderDown():
@@ -148,8 +198,13 @@ class FrameSlider(QSlider):
             return
 
         zoom_value = max(1, int(zoom_value))
+        if self.main_window is not None and hasattr(self.main_window, "zoom_slider"):
+            maximum_zoom_value = self.main_window.zoom_slider.maximum()
+        else:
+            maximum_zoom_value = zoom_value
+        zoom_factor = timeline_zoom_factor_from_slider_value(zoom_value, maximum_zoom_value)
         center_position = int(self.value())  # Get current handle position
-        new_slider_range = max(0, int(round(original_range / zoom_value - 1)))
+        new_slider_range = max(0, int(round(original_range / zoom_factor - 1)))
 
         if self.left_ratio is not None:
             left_ratio = float(self.left_ratio)
@@ -198,23 +253,19 @@ class FrameSlider(QSlider):
             
 
     def toggle_flagging(self):
-        """Toggle a keyframe at the given position."""
+        """Toggle freeze-frame annotation for the selected cell(s)."""
         if self.isEnabled():
-            before_state = self.main_window.capture_timeline_marker_state()
-            position = self.main_window.image_index
-            if position in self.flaggedframes:
-                self.flaggedframes.remove(position)
-                self.update()  # Trigger repaint
-                self.flagframeClicked.emit(False)
-                self.main_window.log(f"Removed flagged frame at {position}")
-                
-            else:
-                self.flaggedframes.add(position)
-                self.update()  # Trigger repaint
-                self.flagframeClicked.emit(True)
-                self.main_window.log(f"Added flagged frame at {position}")
-        
-            self.main_window.push_timeline_marker_history("Toggle Flagged Frame", before_state)
+            self.main_window.toggle_selected_cells_freeze_at_current_frame()
+
+    def toggle_analysis_start(self):
+        """Toggle an analysis-start marker at the current frame."""
+        if self.isEnabled():
+            self.main_window.toggle_analysis_window_marker("start")
+
+    def toggle_analysis_end(self):
+        """Toggle an analysis-end marker at the current frame."""
+        if self.isEnabled():
+            self.main_window.toggle_analysis_window_marker("end")
 
 
     def paintEvent(self, event):
@@ -237,6 +288,30 @@ class FrameSlider(QSlider):
         tick_radius = metrics["tick_radius"]
 
         painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(52, 199, 89, 255)))
+        for startframe in self.analysis_startframes:
+            if startframe < visible_min or startframe > visible_max:
+                continue
+            x = self.sliderPositionToX(startframe)
+            y = marker_y
+            painter.drawPolygon(QPolygonF([
+                QPointF(x - keyframe_half, y - keyframe_half),
+                QPointF(x - keyframe_half, y + keyframe_half),
+                QPointF(x + keyframe_half, y),
+            ]))
+
+        painter.setBrush(QBrush(QColor(255, 149, 0, 255)))
+        for endframe in self.analysis_endframes:
+            if endframe < visible_min or endframe > visible_max:
+                continue
+            x = self.sliderPositionToX(endframe)
+            y = marker_y
+            painter.drawPolygon(QPolygonF([
+                QPointF(x + keyframe_half, y - keyframe_half),
+                QPointF(x + keyframe_half, y + keyframe_half),
+                QPointF(x - keyframe_half, y),
+            ]))
+
         painter.setBrush(QBrush(QColor(10, 132, 255, 255)))
         for keyframe in self.keyframes:
             if keyframe < visible_min or keyframe > visible_max:
@@ -289,6 +364,30 @@ class FrameSlider(QSlider):
         visible_max = int(self.maximum())
 
         painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(52, 199, 89, 255)))
+        for startframe in self.analysis_startframes:
+            if startframe < visible_min or startframe > visible_max:
+                continue
+            x = self.sliderPositionToX(startframe)
+            y = self.height() - 5.5
+            painter.drawPolygon(QPolygonF([
+                QPointF(x - 5.0, y - 5.0),
+                QPointF(x - 5.0, y + 5.0),
+                QPointF(x + 5.0, y),
+            ]))
+
+        painter.setBrush(QBrush(QColor(255, 149, 0, 255)))
+        for endframe in self.analysis_endframes:
+            if endframe < visible_min or endframe > visible_max:
+                continue
+            x = self.sliderPositionToX(endframe)
+            y = self.height() - 5.5
+            painter.drawPolygon(QPolygonF([
+                QPointF(x + 5.0, y - 5.0),
+                QPointF(x + 5.0, y + 5.0),
+                QPointF(x - 5.0, y),
+            ]))
+
         painter.setBrush(QBrush(QColor(10, 132, 255, 255)))
         for keyframe in self.keyframes:
             if keyframe < visible_min or keyframe > visible_max:
@@ -416,6 +515,19 @@ class FrameSlider(QSlider):
         metrics = self._indicator_metrics()
         keyframe_threshold_sq = (metrics["keyframe_half"] + 1.5) ** 2
         flag_threshold_sq = (metrics["flag_radius"] + 1.0) ** 2
+        triangle_threshold_sq = (metrics["keyframe_half"] + 2.0) ** 2
+        for startframe in self.analysis_startframes:
+            startframe_x = self.sliderPositionToX(startframe)
+            if ((startframe_x - x)**2 + (marker_y - y)**2) <= triangle_threshold_sq:
+                self.main_window.navigate_to_image(startframe)
+                return True
+
+        for endframe in self.analysis_endframes:
+            endframe_x = self.sliderPositionToX(endframe)
+            if ((endframe_x - x)**2 + (marker_y - y)**2) <= triangle_threshold_sq:
+                self.main_window.navigate_to_image(endframe)
+                return True
+
         for keyframe in self.keyframes:
             keyframe_x = self.sliderPositionToX(keyframe)
             if ((keyframe_x - x)**2 + (marker_y - y)**2) <= keyframe_threshold_sq:
@@ -438,6 +550,20 @@ class FrameSlider(QSlider):
         return False
 
     def _mouse_press_default(self, x, y, clicked_position):
+        for startframe in self.analysis_startframes:
+            startframe_x = self.sliderPositionToX(startframe)
+            startframe_y = self.height() - 5.5
+            if ((startframe_x - x)**2 + (startframe_y - y)**2) <= 36:
+                self.main_window.navigate_to_image(startframe)
+                return True
+
+        for endframe in self.analysis_endframes:
+            endframe_x = self.sliderPositionToX(endframe)
+            endframe_y = self.height() - 5.5
+            if ((endframe_x - x)**2 + (endframe_y - y)**2) <= 36:
+                self.main_window.navigate_to_image(endframe)
+                return True
+
         for keyframe in self.keyframes:
             keyframe_x = self.sliderPositionToX(keyframe)
             keyframe_y = self.height() - 5.5

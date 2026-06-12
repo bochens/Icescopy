@@ -180,6 +180,8 @@ def build_session_payload(main_window):
         "next_sample_id": int(main_window.next_sample_id),
         "keyframe_list": main_window.keyframe_list.copy(),
         "flagframe_list": main_window.flagframe_list.copy(),
+        "analysis_start_frame_list": getattr(main_window, "analysis_start_frame_list", []).copy(),
+        "analysis_end_frame_list": getattr(main_window, "analysis_end_frame_list", []).copy(),
         "keyframe_cell_items_dict": keyframe_cell_items_dict,
         "tool_mode": main_window.tool_mode,
         "tool_settings": main_window.serialize_tool_settings(),
@@ -232,6 +234,8 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
         "next_sample_id": payload["next_sample_id"],
         "keyframe_list": payload["keyframe_list"],
         "flagframe_list": payload["flagframe_list"],
+        "analysis_start_frame_list": payload.get("analysis_start_frame_list", []),
+        "analysis_end_frame_list": payload.get("analysis_end_frame_list", []),
         "keyframe_cell_items_dict": keyframe_cell_items_dict,
         "image_width": payload["image_width"],
         "frame_source": payload.get("frame_source", {

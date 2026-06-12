@@ -12,6 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
+import numpy as np  # noqa: E402
 from icescopy_freezfinder import compute_convolution_center_offset  # noqa: E402
 from icescopy_plot import GrayscalePlotWidget  # noqa: E402
 
@@ -29,12 +30,11 @@ class GrayscalePlotWidgetTests(unittest.TestCase):
     def sample_plot_data(self):
         headers = [
             "file_name",
-            "flag_state",
             "cell_1_grayscale",
             "cell_2_grayscale",
         ]
         rows = [
-            [f"image_{index}.png", "", str(100 + index), str(200 + index * 2)]
+            [f"image_{index}.png", str(100 + index), str(200 + index * 2)]
             for index in range(10)
         ]
         return headers, rows
@@ -114,6 +114,35 @@ class GrayscalePlotWidgetTests(unittest.TestCase):
         self.assertIn(7.0, sampled_y)
         self.assertIn(-3.0, sampled_y)
         self.assertIn(9.0, sampled_y)
+
+    def test_series_preserves_nan_gaps_for_unanalyzed_frames(self):
+        widget = self.make_widget()
+        widget.grayscale_headers = ["file_name", "cell_1_grayscale"]
+        widget.grayscale_rows = [
+            ["frame_0", "10"],
+            ["frame_1", "nan"],
+            ["frame_2", "nan"],
+            ["frame_3", "20"],
+        ]
+
+        x_values, y_values = widget._series_for_cell(1)
+
+        self.assertEqual(x_values.tolist(), [0.0, 1.0, 2.0, 3.0])
+        self.assertTrue(np.isnan(y_values[1]))
+        self.assertTrue(np.isnan(y_values[2]))
+
+    def test_convolution_preserves_source_frame_x_after_nan_gap(self):
+        widget = self.make_widget()
+        widget.convolution_half_window_points = 1
+        y_values = np.asarray([10.0, 11.0, np.nan, np.nan, 20.0, 21.0])
+        x_values = np.arange(len(y_values), dtype=float)
+
+        conv_x_values, conv_y_values = widget._convolution_for_cell(1, y_values, x_values)
+
+        finite_x_values = conv_x_values[np.isfinite(conv_y_values)]
+        self.assertIn(0.5, finite_x_values.tolist())
+        self.assertIn(4.5, finite_x_values.tolist())
+        self.assertTrue(np.any(np.isnan(conv_x_values)))
 
     def test_cell_switch_autoscales_visible_plot_ranges(self):
         headers, rows = self.sample_plot_data()

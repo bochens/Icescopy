@@ -56,6 +56,36 @@ class SessionTimelineMarkersCommand(QUndoCommand):
         self.main_window.restore_timeline_marker_state(self.after_state, preserve_active_tool=True)
 
 
+class SessionAnalysisMarkerCommand(QUndoCommand):
+    def __init__(self, main_window, text, marker_kind, frame_index, before_active, after_active):
+        super().__init__(text)
+        self.main_window = main_window
+        self.marker_kind = str(marker_kind)
+        self.frame_index = int(frame_index)
+        self.before_active = bool(before_active)
+        self.after_active = bool(after_active)
+        self._first_redo = True
+
+    def undo(self):
+        self.main_window.restore_analysis_marker_state(
+            self.marker_kind,
+            self.frame_index,
+            self.before_active,
+            preserve_active_tool=True,
+        )
+
+    def redo(self):
+        if self._first_redo:
+            self._first_redo = False
+            return
+        self.main_window.restore_analysis_marker_state(
+            self.marker_kind,
+            self.frame_index,
+            self.after_active,
+            preserve_active_tool=True,
+        )
+
+
 class SessionImageListCommand(QUndoCommand):
     def __init__(self, main_window, text, before_state, after_state):
         super().__init__(text)
@@ -110,6 +140,24 @@ class SessionDataCommand(QUndoCommand):
         self.main_window.restore_data_state(self.after_state, preserve_active_tool=True)
 
 
+class SessionFreezeAnnotationCommand(QUndoCommand):
+    def __init__(self, main_window, text, before_state, after_state):
+        super().__init__(text)
+        self.main_window = main_window
+        self.before_state = before_state
+        self.after_state = after_state
+        self._first_redo = True
+
+    def undo(self):
+        self.main_window.restore_freeze_annotation_state(self.before_state, preserve_active_tool=True)
+
+    def redo(self):
+        if self._first_redo:
+            self._first_redo = False
+            return
+        self.main_window.restore_freeze_annotation_state(self.after_state, preserve_active_tool=True)
+
+
 class SessionImageEditCommand(QUndoCommand):
     def __init__(self, main_window, text, before_state, after_state):
         super().__init__(text)
@@ -160,6 +208,8 @@ class ImageListModel(QAbstractListModel):
         if parent.isValid():
             return 0
         if self._uses_frame_source():
+            if hasattr(self.main_window, "frame_list_row_count"):
+                return int(self.main_window.frame_list_row_count())
             return int(self.main_window.frame_count())
         return len(self._entries)
 
@@ -172,10 +222,15 @@ class ImageListModel(QAbstractListModel):
             return None
 
         if self._uses_frame_source():
+            source_row = row
+            if hasattr(self.main_window, "frame_list_source_index_for_row"):
+                source_row = self.main_window.frame_list_source_index_for_row(row)
+            if source_row is None:
+                return None
             if role in (Qt.DisplayRole, Qt.EditRole):
-                return self.main_window.format_frame_list_entry(row)
+                return self.main_window.format_frame_list_entry(source_row)
             if role == Qt.ToolTipRole:
-                return self.main_window.frame_tooltip(row)
+                return self.main_window.frame_tooltip(source_row)
             return None
 
         if role in (Qt.DisplayRole, Qt.EditRole):

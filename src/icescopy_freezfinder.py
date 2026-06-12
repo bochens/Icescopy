@@ -84,6 +84,7 @@ def compute_freeze_result_rows(
     cell_ids=None,
     interpolated_image_temps=None,
     correction_func=None,
+    frame_indexes=None,
 ):
     freeze_result_rows = []
     peak_indexes_by_cell = []
@@ -98,6 +99,10 @@ def compute_freeze_result_rows(
     resolved_cell_ids = None
     if cell_ids is not None:
         resolved_cell_ids = [int(value) for value in cell_ids]
+    if frame_indexes is None:
+        resolved_frame_indexes = list(range(len(filename_array)))
+    else:
+        resolved_frame_indexes = [int(value) for value in frame_indexes]
 
     for cell_index in np.arange(image_grayscale_data.shape[1]):
         raw_grayscale = np.asarray(image_grayscale_data[:, cell_index], dtype=float)
@@ -148,9 +153,14 @@ def compute_freeze_result_rows(
 
         for peak_index in event_indexes:
             refined_index = int(peak_index)
+            output_frame_index = (
+                int(resolved_frame_indexes[refined_index])
+                if 0 <= refined_index < len(resolved_frame_indexes)
+                else refined_index
+            )
             row = [
                 f'cell_{cell_id}',
-                str(refined_index),
+                str(output_frame_index),
                 str(filename_array[refined_index]),
             ]
             freeze_result_rows.append(row)

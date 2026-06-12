@@ -54,6 +54,24 @@ class FreezeFinderPaddingTests(unittest.TestCase):
         self.assertEqual(front_padding_rows, [["cell_0", "1", "frame_1"]])
         self.assertTrue(np.all(front_padding_peaks[0] >= 0))
 
+    def test_freeze_rows_map_limited_window_rows_to_source_frame_indexes(self):
+        raw = np.asarray([100.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(-1, 1)
+        frame_names = [f"frame_{index}" for index in range(raw.shape[0])]
+
+        rows, _ = compute_freeze_result_rows(
+            frame_names,
+            np.array([""] * len(frame_names), dtype=object),
+            raw,
+            width=0.1,
+            prominence=1.0,
+            head_extend_points=2,
+            tail_extend_points=0,
+            convolution_half_window_points=2,
+            frame_indexes=[20, 21, 22, 23, 24, 25],
+        )
+
+        self.assertEqual(rows, [["cell_0", "21", "frame_1"]])
+
 
 if __name__ == "__main__":
     unittest.main()

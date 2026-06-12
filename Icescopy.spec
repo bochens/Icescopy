@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import importlib.util
+import shutil
 import sys
 
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
@@ -47,6 +48,35 @@ def patch_cv2_loader_configs(collect_root):
                 "] + PYTHON_EXTENSIONS_PATHS\n",
                 encoding="utf-8",
             )
+
+
+def patch_glib_runtime_conflicts(collect_root):
+    collect_root = Path(collect_root)
+    runtime_dirs = [
+        collect_root / "_internal",
+        collect_root / "Contents" / "Frameworks",
+        collect_root / "Contents" / "Resources",
+    ]
+    conda_lib_dir = Path(sys.prefix) / "lib"
+    glib_runtime_names = [
+        "libglib-2.0.0.dylib",
+        "libgobject-2.0.0.dylib",
+        "libpcre2-8.0.dylib",
+        "libintl.8.dylib",
+        "libiconv.2.dylib",
+    ]
+
+    for runtime_dir in runtime_dirs:
+        if not runtime_dir.is_dir():
+            continue
+        for library_name in glib_runtime_names:
+            source_path = conda_lib_dir / library_name
+            target_path = runtime_dir / library_name
+            if not source_path.exists() or not target_path.exists():
+                continue
+            if target_path.is_symlink() or target_path.is_file():
+                target_path.unlink()
+            shutil.copy2(source_path, target_path)
 
 
 def optional_pyav_bundle_entries():
@@ -109,6 +139,7 @@ coll = COLLECT(
     name='Icescopy',
 )
 patch_cv2_loader_configs(project_root / "dist" / "Icescopy")
+patch_glib_runtime_conflicts(project_root / "dist" / "Icescopy")
 app = BUNDLE(
     coll,
     name='Icescopy.app',
@@ -139,3 +170,5 @@ app = BUNDLE(
 )
 patch_cv2_loader_configs(project_root / "dist" / "Icescopy")
 patch_cv2_loader_configs(project_root / "dist" / "Icescopy.app")
+patch_glib_runtime_conflicts(project_root / "dist" / "Icescopy")
+patch_glib_runtime_conflicts(project_root / "dist" / "Icescopy.app")

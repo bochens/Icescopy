@@ -35,10 +35,16 @@ import numpy as np
 import darkdetect
 import multiprocessing
 import os
+from time import perf_counter
 
 
 from icescopy_cell_items import CellCircle
-from icescopy_frame_source import ImageSequenceFrameSource
+from icescopy_frame_source import (
+    DEFAULT_VIDEO_GRAYSCALE_MODE,
+    ImageSequenceFrameSource,
+    VIDEO_GRAYSCALE_MODE_LABELS,
+    normalize_video_grayscale_mode,
+)
 from icescopy_freezfinder import (
     DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     DEFAULT_CONVOLUTION_RAMP_POINTS,
@@ -119,6 +125,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "ConvolutionHalfWindowPoints": DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     "ConvolutionRampPoints": DEFAULT_CONVOLUTION_RAMP_POINTS,
     "FreezeFinderDetectBrightening": DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
+    "VideoGrayscaleMode": DEFAULT_VIDEO_GRAYSCALE_MODE,
     "TemperatureCycleWarmupHysteresisC": 0.02,
     "TimeseriesPalette": "bright",
     "TimeseriesLineWidth": 2.0,
@@ -411,7 +418,6 @@ class Image_analysis_thread(QThread):
         imagePaths,
         imageNames,
         list_of_cell_items,
-        list_of_red_flags,
         image_edit_exposure=0.0,
         image_edit_contrast=0.0,
         image_edit_uniform_exposure_offsets=None,
@@ -423,7 +429,9 @@ class Image_analysis_thread(QThread):
         convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
         convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
         freeze_finder_detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
+        video_grayscale_mode=DEFAULT_VIDEO_GRAYSCALE_MODE,
         frame_source=None,
+        analysis_frame_ranges=None,
     ):
         super().__init__()
         self.filePath   = filePath
@@ -434,7 +442,6 @@ class Image_analysis_thread(QThread):
         # self.circle_sizes = circle_sizes
 
         self.list_of_cell_items = list_of_cell_items
-        self.list_of_red_flags = list_of_red_flags
         self.image_edit_exposure = float(image_edit_exposure)
         self.image_edit_contrast = float(image_edit_contrast)
         self.image_edit_uniform_exposure_offsets = dict(image_edit_uniform_exposure_offsets or {})
@@ -448,6 +455,8 @@ class Image_analysis_thread(QThread):
         self.convolution_half_window_points = convolution_half_window_points
         self.convolution_ramp_points = convolution_ramp_points
         self.freeze_finder_detect_brightening = bool(freeze_finder_detect_brightening)
+        self.video_grayscale_mode = normalize_video_grayscale_mode(video_grayscale_mode)
+        self.analysis_frame_ranges = list(analysis_frame_ranges or [])
         self.grayscale_result_headers = []
         self.grayscale_result_rows = []
         self.freeze_result_headers = list(DEFAULT_FREEZE_RESULT_HEADERS)
@@ -455,15 +464,31 @@ class Image_analysis_thread(QThread):
         self.freeze_output_path = build_freeze_output_path(self.filePath) if self.filePath else None
         self._circular_mask_cache = {}
         self._circular_grid_cache = {}
+        self.analysis_timing = {}
 
     def run(self):
+        total_start = perf_counter()
+        frame_count = int(self.frame_source.frame_count())
+        analysis_frame_ranges = (
+            list(self.analysis_frame_ranges)
+            if self.analysis_frame_ranges
+            else ([(0, frame_count - 1)] if frame_count > 0 else [])
+        )
+        timing = {
+            "frame_count": frame_count,
+            "source_kind": self.frame_source.source_kind(),
+            "video_grayscale_mode": self.video_grayscale_mode,
+            "analysis_frame_ranges": [list(frame_range) for frame_range in analysis_frame_ranges],
+        }
         file_name_list = []
+        frame_index_list = []
         gss_table = []
         circle_pixel_positions_table = []
         circle_radius_table = []
         ordered_cell_ids = []
         seen_cell_ids = set()
 
+        setup_start = perf_counter()
         for frame_items in self.list_of_cell_items:
             for circle in frame_items:
                 try:
@@ -474,11 +499,33 @@ class Image_analysis_thread(QThread):
                     continue
                 seen_cell_ids.add(cell_id)
                 ordered_cell_ids.append(cell_id)
+        timing["setup_seconds"] = perf_counter() - setup_start
+        timing["cell_count"] = int(len(ordered_cell_ids))
 
-        frame_count = self.frame_source.frame_count()
-        for i, image_gray in self.frame_source.iter_gray_arrays():
+        decoded_frame_iterator = iter(
+            self.frame_source.iter_gray_arrays(
+                grayscale_mode=self.video_grayscale_mode,
+                frame_ranges=analysis_frame_ranges,
+            )
+        )
+        decode_seconds = 0.0
+        frame_prepare_seconds = 0.0
+        grayscale_mean_seconds = 0.0
+        table_append_seconds = 0.0
+        progress_emit_seconds = 0.0
+        frames_analyzed = 0
+        while True:
+            decode_start = perf_counter()
+            try:
+                i, image_gray = next(decoded_frame_iterator)
+            except StopIteration:
+                decode_seconds += perf_counter() - decode_start
+                break
+            decode_seconds += perf_counter() - decode_start
             if i >= frame_count:
                 break
+
+            frame_prepare_start = perf_counter()
             file_name = self.frame_source.frame_name(i)
             frame_items = self.list_of_cell_items[i] if i < len(self.list_of_cell_items) else []
             frame_item_by_id = {}
@@ -497,53 +544,39 @@ class Image_analysis_thread(QThread):
                 float(item.circle_sizes) if item is not None else float("nan")
                 for item in ordered_frame_items
             ]
+            frame_prepare_seconds += perf_counter() - frame_prepare_start
 
+            grayscale_mean_start = perf_counter()
             gss_list = self.gray_scale_mean_from_array(i, image_gray, circle_pixel_positions, circle_sizes)
-            
+            grayscale_mean_seconds += perf_counter() - grayscale_mean_start
+
+            table_append_start = perf_counter()
             file_name_list.append(file_name)
+            frame_index_list.append(int(i))
             gss_table.append(gss_list)
             circle_pixel_positions_table.append(circle_pixel_positions)
             circle_radius_table.append(circle_sizes)
-            
-            # Emit a signal to update the UI, if needed
-            self.analysis_done.emit(i, {'file_name': file_name, 'gss_list': gss_list})
-        
-        # Auto analysis keeps its outputs in memory. A real CSV is only written
-        # when an explicit path is supplied for an external workflow.
-        if self.filePath:
-            with open(self.filePath, 'w') as the_file:
-                the_file.write(self.imageFolderPath)
-                the_file.write("\n")
-                the_file.write('file_name,flag_state')
-                for cell_id in ordered_cell_ids:
-                    the_file.write(",")
-                    the_file.write(f'cell_{cell_id}_grayscale')
-                    the_file.write(",")
-                    the_file.write(f'cell_{cell_id}_circle_x')
-                    the_file.write(",")
-                    the_file.write(f'cell_{cell_id}_circle_y')
-                    the_file.write(",")
-                    the_file.write(f'cell_{cell_id}_circle_radius')
-                the_file.write("\n")
-                for i in range(len(file_name_list)):
-                    the_file.write(str(file_name_list[i]))
-                    the_file.write(",")
-                    if i in self.list_of_red_flags:
-                        the_file.write('flagged')
-                    else:
-                        the_file.write(' ')
-                    for j in range(len(gss_table[i])):
-                        the_file.write(",")
-                        the_file.write(str(gss_table[i][j]))
-                        the_file.write(",")
-                        the_file.write(str(circle_pixel_positions_table[i][j][0]))
-                        the_file.write(",")
-                        the_file.write(str(circle_pixel_positions_table[i][j][1]))
-                        the_file.write(",")
-                        the_file.write(str(circle_radius_table[i][j]))
-                    the_file.write("\n")
+            table_append_seconds += perf_counter() - table_append_start
+            frames_analyzed += 1
 
-        self.grayscale_result_headers = ['file_name', 'flag_state']
+            # Emit a signal to update the UI, if needed
+            progress_emit_start = perf_counter()
+            self.analysis_done.emit(i, {'file_name': file_name, 'gss_list': gss_list})
+            progress_emit_seconds += perf_counter() - progress_emit_start
+
+        timing.update(
+            {
+                "frames_analyzed": int(frames_analyzed),
+                "decode_gray_seconds": float(decode_seconds),
+                "frame_prepare_seconds": float(frame_prepare_seconds),
+                "grayscale_mean_seconds": float(grayscale_mean_seconds),
+                "table_append_seconds": float(table_append_seconds),
+                "progress_emit_seconds": float(progress_emit_seconds),
+            }
+        )
+
+        result_build_start = perf_counter()
+        self.grayscale_result_headers = ['file_name']
         for cell_id in ordered_cell_ids:
             self.grayscale_result_headers.extend([
                 f'cell_{cell_id}_grayscale',
@@ -552,38 +585,85 @@ class Image_analysis_thread(QThread):
                 f'cell_{cell_id}_circle_radius',
             ])
 
+        analyzed_position_by_frame = {
+            int(frame_index): position
+            for position, frame_index in enumerate(frame_index_list)
+        }
         self.grayscale_result_rows = []
-        for i in range(len(file_name_list)):
+        for frame_index in range(frame_count):
+            analyzed_position = analyzed_position_by_frame.get(int(frame_index))
             row = [
-                str(file_name_list[i]),
-                'flagged' if i in self.list_of_red_flags else ' ',
+                str(self.frame_source.frame_name(frame_index)),
             ]
-            for j in range(len(gss_table[i])):
-                row.extend([
-                    str(gss_table[i][j]),
-                    str(circle_pixel_positions_table[i][j][0]),
-                    str(circle_pixel_positions_table[i][j][1]),
-                    str(circle_radius_table[i][j]),
-                ])
+            if analyzed_position is None:
+                for _cell_id in ordered_cell_ids:
+                    row.extend(["nan", "nan", "nan", "nan"])
+            else:
+                for j in range(len(gss_table[analyzed_position])):
+                    row.extend([
+                        str(gss_table[analyzed_position][j]),
+                        str(circle_pixel_positions_table[analyzed_position][j][0]),
+                        str(circle_pixel_positions_table[analyzed_position][j][1]),
+                        str(circle_radius_table[analyzed_position][j]),
+                    ])
             self.grayscale_result_rows.append(row)
+        timing["result_build_seconds"] = perf_counter() - result_build_start
+
+        # Auto analysis keeps its outputs in memory. A real CSV is only written
+        # when an explicit path is supplied for an external workflow.
+        file_write_start = perf_counter()
+        if self.filePath:
+            with open(self.filePath, 'w') as the_file:
+                the_file.write(self.imageFolderPath)
+                the_file.write("\n")
+                the_file.write(",".join(self.grayscale_result_headers))
+                the_file.write("\n")
+                for row in self.grayscale_result_rows:
+                    the_file.write(",".join(str(value) for value in row))
+                    the_file.write("\n")
+        timing["file_write_seconds"] = perf_counter() - file_write_start
 
         image_datetime_array = np.array([""] * len(file_name_list), dtype=object)
         image_grayscale_data = np.array(gss_table, dtype=float)
-        self.freeze_result_rows, _ = compute_freeze_result_rows(
-            file_name_list,
-            image_datetime_array,
-            image_grayscale_data,
-            width=self.freeze_finder_width,
-            prominence=self.freeze_finder_prominence,
-            head_extend_points=self.freeze_finder_head_extend_points,
-            tail_extend_points=self.freeze_finder_tail_extend_points,
-            convolution_half_window_points=self.convolution_half_window_points,
-            convolution_ramp_points=self.convolution_ramp_points,
-            detect_brightening=self.freeze_finder_detect_brightening,
-            cell_ids=ordered_cell_ids,
-        )
+        freeze_finder_start = perf_counter()
+        self.freeze_result_rows = []
+        if len(file_name_list) > 0:
+            frame_positions = {
+                int(frame_index): position
+                for position, frame_index in enumerate(frame_index_list)
+            }
+            for range_start, range_end in analysis_frame_ranges:
+                positions = [
+                    frame_positions[frame_index]
+                    for frame_index in range(int(range_start), int(range_end) + 1)
+                    if frame_index in frame_positions
+                ]
+                if not positions:
+                    continue
+                first_position = min(positions)
+                last_position = max(positions)
+                segment_rows, _ = compute_freeze_result_rows(
+                    file_name_list[first_position:last_position + 1],
+                    image_datetime_array[first_position:last_position + 1],
+                    image_grayscale_data[first_position:last_position + 1],
+                    width=self.freeze_finder_width,
+                    prominence=self.freeze_finder_prominence,
+                    head_extend_points=self.freeze_finder_head_extend_points,
+                    tail_extend_points=self.freeze_finder_tail_extend_points,
+                    convolution_half_window_points=self.convolution_half_window_points,
+                    convolution_ramp_points=self.convolution_ramp_points,
+                    detect_brightening=self.freeze_finder_detect_brightening,
+                    cell_ids=ordered_cell_ids,
+                    frame_indexes=frame_index_list[first_position:last_position + 1],
+                )
+                self.freeze_result_rows.extend(segment_rows)
+        timing["freeze_finder_seconds"] = perf_counter() - freeze_finder_start
+        freeze_write_start = perf_counter()
         if self.freeze_output_path:
             write_freeze_results_csv(self.freeze_output_path, self.freeze_result_headers, self.freeze_result_rows)
+        timing["freeze_write_seconds"] = perf_counter() - freeze_write_start
+        timing["total_worker_seconds"] = perf_counter() - total_start
+        self.analysis_timing = timing
 
     def gray_scale_mean(self, frame_index, circle_pixel_positions, circle_sizes):
         image_gray = self.frame_source.get_gray_array(frame_index)
@@ -877,6 +957,14 @@ class PreferencesDialog(QDialog):
         self.convolution_ramp_points_field = self.make_spinbox(0, 1000, self.pref_value("ConvolutionRampPoints"))
         self.freeze_finder_detect_brightening_field = QCheckBox("Detect freezing from brightening")
         self.freeze_finder_detect_brightening_field.setChecked(bool(self.pref_value("FreezeFinderDetectBrightening")))
+        self.video_grayscale_mode_field = QComboBox()
+        for value, label in VIDEO_GRAYSCALE_MODE_LABELS.items():
+            self.video_grayscale_mode_field.addItem(label, value)
+        self.video_grayscale_mode_field.setCurrentIndex(
+            max(0, self.video_grayscale_mode_field.findData(
+                normalize_video_grayscale_mode(self.pref_value("VideoGrayscaleMode"))
+            ))
+        )
         self.temperature_cycle_warmup_hysteresis_c_field = self.make_double_spinbox(
             0.0,
             10.0,
@@ -934,6 +1022,7 @@ class PreferencesDialog(QDialog):
             self.convolution_half_window_points_field,
             self.convolution_ramp_points_field,
             self.freeze_finder_detect_brightening_field,
+            self.video_grayscale_mode_field,
             self.temperature_cycle_warmup_hysteresis_c_field,
             self.timeseries_palette_field,
             self.timeseries_line_width_field,
@@ -1302,6 +1391,21 @@ class PreferencesDialog(QDialog):
         )
         page.content_layout.insertWidget(
             3,
+            self.build_group_box(
+                "Video Grayscale",
+                [
+                    (
+                        "Video Grayscale Source",
+                        self.build_field_with_help(
+                            self.video_grayscale_mode_field,
+                            "Converted grayscale preserves the current behavior. Video luma plane can be faster for YUV video and falls back to converted grayscale when a usable luma plane is not available.",
+                        ),
+                    ),
+                ],
+            ),
+        )
+        page.content_layout.insertWidget(
+            4,
             self.build_group_box(
                 "Freeze Finding",
                 [
@@ -1728,6 +1832,9 @@ class PreferencesDialog(QDialog):
         SubElement(root, "ConvolutionHalfWindowPoints").text = str(self.convolution_half_window_points_field.value())
         SubElement(root, "ConvolutionRampPoints").text = str(self.convolution_ramp_points_field.value())
         SubElement(root, "FreezeFinderDetectBrightening").text = "true" if self.freeze_finder_detect_brightening_field.isChecked() else "false"
+        SubElement(root, "VideoGrayscaleMode").text = normalize_video_grayscale_mode(
+            self.video_grayscale_mode_field.currentData()
+        )
         SubElement(root, "TemperatureCycleWarmupHysteresisC").text = str(
             self.temperature_cycle_warmup_hysteresis_c_field.value()
         )
