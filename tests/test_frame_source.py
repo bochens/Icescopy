@@ -205,6 +205,8 @@ class FrameSourceTests(unittest.TestCase):
         )
 
         self.assertEqual(gray.tolist(), [[1, 2, 3], [4, 5, 6]])
+        self.assertFalse(gray.flags.c_contiguous)
+        self.assertEqual(gray.strides, (4, 1))
 
     def test_video_luma_mode_falls_back_to_converted_grayscale(self):
         class FakeRgbFrame:

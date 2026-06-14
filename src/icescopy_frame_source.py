@@ -604,8 +604,7 @@ class VideoFrameSource(FrameSource):
         expected_size = line_size * height
         if plane_data.size < expected_size:
             return None
-        luma_array = plane_data[:expected_size].reshape((height, line_size))[:, :width]
-        return np.ascontiguousarray(luma_array)
+        return plane_data[:expected_size].reshape((height, line_size))[:, :width]
 
     @staticmethod
     def _gray_array_from_frame(frame, grayscale_mode=None) -> np.ndarray:

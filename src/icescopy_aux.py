@@ -32,6 +32,7 @@ from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QCol
 from PySide6.QtCore import QRectF, QThread, Signal, QTimer
 from xml.etree.ElementTree import Element, SubElement, ElementTree, parse
 import numpy as np
+import cv2
 import darkdetect
 import multiprocessing
 import os
@@ -464,6 +465,7 @@ class Image_analysis_thread(QThread):
         self.freeze_output_path = build_freeze_output_path(self.filePath) if self.filePath else None
         self._circular_mask_cache = {}
         self._circular_grid_cache = {}
+        self._roi_descriptor_cache = {}
         self.analysis_timing = {}
 
     def run(self):
@@ -712,33 +714,69 @@ class Image_analysis_thread(QThread):
                 gss_list.append(float("nan"))
                 continue
 
-            # Restrict work to the local circular bounding box instead of creating
-            # a full-image mask for every circle on every frame.
-            left = max(0, int(np.floor(x - radius)))
-            right = min(image_width, int(np.ceil(x + radius)) + 1)
-            top = max(0, int(np.floor(y - radius)))
-            bottom = min(image_height, int(np.ceil(y + radius)) + 1)
-
-            if (left >= right) or (top >= bottom):
-                gss_list.append(float("nan"))
-                continue
-
-            image_patch = image_gray[top:bottom, left:right]
-            patch_mask, mask_count = self.get_cached_circular_mask(
-                bottom - top,
-                right - left,
-                x - left,
-                y - top,
+            roi_descriptor = self.get_cached_roi_descriptor(
+                image_height,
+                image_width,
+                x,
+                y,
                 radius,
             )
-            if mask_count == 0:
+            if roi_descriptor is None:
                 gss_list.append(float("nan"))
                 continue
 
-            gray_scale_mean = float(np.sum(image_patch[patch_mask]) / mask_count)
+            top, bottom, left, right, patch_mask = roi_descriptor
+            image_patch = image_gray[top:bottom, left:right]
+            gray_scale_mean = float(cv2.mean(image_patch, mask=patch_mask)[0])
             gss_list.append(gray_scale_mean)
         
         return gss_list
+
+    def get_cached_roi_descriptor(self, image_height, image_width, center_x, center_y, radius):
+        image_height = int(image_height)
+        image_width = int(image_width)
+        center_x = float(center_x)
+        center_y = float(center_y)
+        radius = float(radius)
+        descriptor_key = (
+            image_height,
+            image_width,
+            round(center_x, 6),
+            round(center_y, 6),
+            round(radius, 6),
+        )
+        cached = self._roi_descriptor_cache.get(descriptor_key)
+        if cached is not None:
+            return cached
+
+        left = max(0, int(np.floor(center_x - radius)))
+        right = min(image_width, int(np.ceil(center_x + radius)) + 1)
+        top = max(0, int(np.floor(center_y - radius)))
+        bottom = min(image_height, int(np.ceil(center_y + radius)) + 1)
+        if (left >= right) or (top >= bottom):
+            self._roi_descriptor_cache[descriptor_key] = None
+            return None
+
+        patch_mask, mask_count = self.get_cached_circular_mask(
+            bottom - top,
+            right - left,
+            center_x - left,
+            center_y - top,
+            radius,
+        )
+        if mask_count == 0:
+            self._roi_descriptor_cache[descriptor_key] = None
+            return None
+
+        cached = (
+            int(top),
+            int(bottom),
+            int(left),
+            int(right),
+            patch_mask,
+        )
+        self._roi_descriptor_cache[descriptor_key] = cached
+        return cached
 
     def get_cached_circular_mask(self, height, width, center_x, center_y, radius):
         mask_key = (
@@ -759,7 +797,7 @@ class Image_analysis_thread(QThread):
             self._circular_grid_cache[grid_key] = cached_grid
         y_grid, x_grid = cached_grid
         patch_mask = ((x_grid - center_x) ** 2 + (y_grid - center_y) ** 2) <= (radius ** 2)
-        cached = (patch_mask, int(np.count_nonzero(patch_mask)))
+        cached = (patch_mask.astype(np.uint8), int(np.count_nonzero(patch_mask)))
         self._circular_mask_cache[mask_key] = cached
         return cached
 
