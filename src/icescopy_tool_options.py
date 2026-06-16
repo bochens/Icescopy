@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 
-TOOL_OPTIONS_CONTENT_WIDTH = 252
+TOOL_OPTIONS_CONTENT_WIDTH = 300
 TOOL_OPTIONS_BUTTON_SPACING = 8
 TOOL_OPTIONS_LABEL_WIDTH = 84
 TOOL_OPTIONS_FIELD_WIDTH = 96
-TOOL_OPTIONS_SHORTCUT_WIDTH = 56
+TOOL_OPTIONS_SHORTCUT_WIDTH = 96
 TOOL_OPTIONS_PANEL_DEFAULT_WIDTH = TOOL_OPTIONS_CONTENT_WIDTH + 20
 TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT = 30
 TOOL_OPTIONS_CONTROL_QSS = """
@@ -72,10 +72,11 @@ class ToolOptionsInfoPage(QWidget):
         self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
         self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_contents_layout.setSpacing(0)
-        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.scroll_contents_layout.setAlignment(Qt.AlignTop)
 
         self.column_widget = QWidget(self.scroll_contents)
-        self.column_widget.setFixedWidth(self.content_width)
+        self.column_widget.setMinimumWidth(self.content_width)
+        self.column_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.column_layout = QVBoxLayout(self.column_widget)
         self.column_layout.setContentsMargins(0, 0, 0, 0)
         self.column_layout.setSpacing(10)
@@ -123,10 +124,11 @@ class ToolOptionsFormPage(QWidget):
         self.scroll_contents_layout = QVBoxLayout(self.scroll_contents)
         self.scroll_contents_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_contents_layout.setSpacing(0)
-        self.scroll_contents_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.scroll_contents_layout.setAlignment(Qt.AlignTop)
 
         self.column_widget = QWidget(self.scroll_contents)
-        self.column_widget.setFixedWidth(self.content_width)
+        self.column_widget.setMinimumWidth(self.content_width)
+        self.column_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.column_layout = QVBoxLayout(self.column_widget)
         self.column_layout.setContentsMargins(0, 0, 0, 0)
         self.column_layout.setSpacing(10)
@@ -225,11 +227,16 @@ class ToolOptionsFormPage(QWidget):
         self._configure_control(editor)
         row_layout.addWidget(editor)
 
-        shortcut_label = QLabel(shortcut_text, row_widget)
-        shortcut_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        shortcut_label.setStyleSheet("color: #7a7a7a; font-size: 11px;")
-        shortcut_label.setFixedWidth(self.shortcut_width)
-        row_layout.addWidget(shortcut_label)
+        if shortcut_text:
+            shortcut_label = QLabel(shortcut_text, row_widget)
+            shortcut_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            shortcut_label.setStyleSheet("color: #7a7a7a; font-size: 11px;")
+            shortcut_label.setWordWrap(False)
+            shortcut_label.setMinimumWidth(max(self.shortcut_width, shortcut_label.sizeHint().width()))
+            shortcut_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            row_layout.addWidget(shortcut_label)
+        else:
+            row_layout.addStretch(1)
 
         self.column_layout.addWidget(row_widget)
         return row_widget

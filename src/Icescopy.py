@@ -235,7 +235,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.circle_radius = 22 #default value
         self.pen_width = 1
         self.maximum_zoom = 10
-        self.dot_size = 1
         self.slider_maxzoom_pixel_interval = 10
         self.slider_tick_pixel_interval = 20
         self.undo_limit = 20
@@ -345,7 +344,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
-        self.dot_size = preferences.get('DotSize', self.dot_size)
         self.slider_maxzoom_pixel_interval = preferences.get('SliderMaxZoomPixelInterval', self.slider_maxzoom_pixel_interval)
         self.slider_tick_pixel_interval = preferences.get('SliderTickPixelInterval', self.slider_tick_pixel_interval)
         self.undo_limit = int(preferences.get('UndoLimit', self.undo_limit))
@@ -1275,6 +1273,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             changed_cell_ids,
             selected_items=selected_items,
             marker_updates={frame_index: should_add},
+            refresh_plot=True,
         )
         self.refresh_cursor_selection_info(selected_items=selected_items)
         action_text = "Mark Freeze Frame" if should_add else "Clear Freeze Frame"
@@ -3488,8 +3487,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_list_widget.setMinimumWidth(SIDE_PANEL_DEFAULT_WIDTH)
         self.image_list_widget.clicked.connect(self.handle_image_list_selection)
         self.image_list_widget.selectionModel().currentChanged.connect(self.handle_image_list_current_changed)
-        self.frozen_frames_only_checkbox = QCheckBox("Frozen only", self)
-        self.frozen_frames_only_checkbox.setToolTip("Show only frames with freeze events for the current cell selection.")
+        self.frozen_frames_only_checkbox = QCheckBox("Freeze frame only", self)
+        self.frozen_frames_only_checkbox.setToolTip("Show only frames marked as freeze frames for the current cell selection.")
         self.frozen_frames_only_checkbox.toggled.connect(self.set_frame_list_frozen_only)
         image_list_toolbar = QWidget(self)
         image_list_toolbar_layout = QHBoxLayout(image_list_toolbar)
@@ -5116,8 +5115,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         else:
             for frame_index, is_flagged in marker_updates.items():
                 self.set_freeze_flag_marker_fast(frame_index, is_flagged)
-        if refresh_plot:
-            self.refresh_grayscale_plot()
+        plot_is_visible = getattr(self, "grayscale_plot_is_visible", None)
+        plot_widget = getattr(self, "grayscale_plot_widget", None)
+        if refresh_plot and callable(plot_is_visible) and plot_is_visible() and plot_widget is not None:
+            plot_widget.update_freeze_rows(self.freeze_results_rows)
         self.update_cursor_record_edit_state(selected_items=selected_items)
 
     def update_freeze_count_timeseries_table(self):
@@ -6512,6 +6513,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             desired_flag_frames = set(self.selected_cell_freeze_frames(selected_items=selected_items))
             for frame_index in sorted(previous_flag_frames | desired_flag_frames):
                 self.set_freeze_flag_marker_fast(frame_index, frame_index in desired_flag_frames)
+            plot_is_visible = getattr(self, "grayscale_plot_is_visible", None)
+            plot_widget = getattr(self, "grayscale_plot_widget", None)
+            if callable(plot_is_visible) and plot_is_visible() and plot_widget is not None:
+                plot_widget.update_freeze_rows(self.freeze_results_rows)
             self.refresh_cursor_selection_info(selected_items=selected_items)
             self.update_cursor_record_edit_state(selected_items=selected_items)
             self.update_session_actions_state()
@@ -8752,19 +8757,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             return
 
-        if not VideoFrameSource.available():
-            detail = VideoFrameSource.import_error_message()
-            message = (
-                "Video input requires PyAV, but the app could not load it."
-            )
-            if detail:
-                message += f"\n\nImport error:\n{detail}"
-            QMessageBox.warning(
-                self,
-                "Open Video",
-                message,
-            )
-            return
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Open Video(s)",
@@ -8799,8 +8791,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 else VideoSequenceFrameSource(video_paths)
             )
         except Exception as err:
-            QMessageBox.warning(self, "Open Video Failed", str(err))
-            self.log(f"Failed to open video: {err}")
+            message = str(err)
+            cause = getattr(err, "__cause__", None)
+            if cause is not None:
+                message += f"\n\nImport error:\n{type(cause).__name__}: {cause}"
+            QMessageBox.warning(self, "Open Video Failed", message)
+            self.log(f"Failed to open video: {message}")
             return
         if frame_source.frame_count() <= 0:
             QMessageBox.warning(self, "Open Video Failed", "The selected video does not contain decoded frames.")
@@ -10839,10 +10835,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         pen_width_element = root.find('PenWidth')
         if pen_width_element is not None and pen_width_element.text is not None:
             preferences['PenWidth'] = float(pen_width_element.text)
-
-        dot_size_element = root.find('DotSize')
-        if dot_size_element is not None and dot_size_element.text is not None:
-            preferences['DotSize'] = float(dot_size_element.text)
 
         slide_maxzoom_element = root.find('SliderMaxZoomPixelInterval')
         if slide_maxzoom_element is not None and slide_maxzoom_element.text is not None:

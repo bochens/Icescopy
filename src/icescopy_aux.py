@@ -103,7 +103,6 @@ DEFAULT_PREFERENCE_VALUES = {
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
     "MaximumZoom": 10.0,
-    "DotSize": 1.0,
     "SliderMaxZoomPixelInterval": 10.0,
     "SliderTickPixelInterval": 20.0,
     "UndoLimit": 20,
@@ -907,7 +906,6 @@ class PreferencesDialog(QDialog):
         self.default_circle_radius_field = self.make_double_spinbox(0.1, 100000.0, self.pref_value("DefaultCircleRadius"), 1)
         self.pen_width_field = self.make_double_spinbox(0.1, 100.0, self.pref_value("PenWidth"), 1)
         self.maximum_zoom_field = self.make_double_spinbox(0.1, 1000.0, self.pref_value("MaximumZoom"), 1)
-        self.dot_size_field = self.make_double_spinbox(0.1, 100.0, self.pref_value("DotSize"), 1)
         self.slider_maxzoom_pixel_interval_field = self.make_double_spinbox(1.0, 1000.0, self.pref_value("SliderMaxZoomPixelInterval"), 1)
         self.slider_tick_pixel_interval_field = self.make_double_spinbox(1.0, 1000.0, self.pref_value("SliderTickPixelInterval"), 1)
         self.undo_limit_field = self.make_spinbox(1, 1000, self.pref_value("UndoLimit"))
@@ -930,20 +928,14 @@ class PreferencesDialog(QDialog):
         )
         self.sample_metadata_schema_table.verticalHeader().setVisible(False)
         self.sample_metadata_schema_table.verticalHeader().setDefaultSectionSize(34)
-        self.sample_metadata_schema_table.horizontalHeader().setStretchLastSection(False)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.sample_metadata_schema_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self.sample_metadata_schema_table.setColumnWidth(0, 190)
-        self.sample_metadata_schema_table.setColumnWidth(1, 260)
-        self.sample_metadata_schema_table.setColumnWidth(2, 112)
-        self.sample_metadata_schema_table.setColumnWidth(3, 66)
-        self.sample_metadata_schema_table.setColumnWidth(4, 48)
+        sample_metadata_header = self.sample_metadata_schema_table.horizontalHeader()
+        sample_metadata_header.setStretchLastSection(False)
+        for column in range(self.sample_metadata_schema_table.columnCount()):
+            sample_metadata_header.setSectionResizeMode(column, QHeaderView.Stretch)
         self.sample_metadata_schema_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.sample_metadata_schema_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.sample_metadata_schema_table.setMinimumWidth(0)
+        self.sample_metadata_schema_table.setMaximumWidth(920)
         self.sample_metadata_schema_table.setWordWrap(False)
         self.sample_metadata_schema_table.setFixedHeight(300)
         self.sample_metadata_schema_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -1038,7 +1030,6 @@ class PreferencesDialog(QDialog):
             self.default_circle_radius_field,
             self.pen_width_field,
             self.maximum_zoom_field,
-            self.dot_size_field,
             self.slider_maxzoom_pixel_interval_field,
             self.slider_tick_pixel_interval_field,
             self.undo_limit_field,
@@ -1284,7 +1275,7 @@ class PreferencesDialog(QDialog):
 
     def build_sample_metadata_editor(self):
         section = QWidget()
-        section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         section_layout = QVBoxLayout(section)
         section_layout.setContentsMargins(0, 0, 0, 0)
         section_layout.setSpacing(8)
@@ -1298,13 +1289,16 @@ class PreferencesDialog(QDialog):
         section_layout.addWidget(title_label)
 
         body = QWidget(section)
+        body.setMaximumWidth(960)
+        body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(16, 0, 0, 0)
-        body_layout.setSpacing(8)
+        body_layout.setSpacing(0)
         body_layout.addWidget(self.sample_metadata_schema_table)
-        body_layout.addSpacing(18)
+        body_layout.addSpacing(8)
 
         button_row = QWidget(body)
+        button_row.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         button_layout = QHBoxLayout(button_row)
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setSpacing(8)
@@ -1315,18 +1309,22 @@ class PreferencesDialog(QDialog):
             self.sample_move_field_down_button,
         ]:
             button_layout.addWidget(button)
-        button_layout.addStretch(1)
-        body_layout.addWidget(button_row)
+        button_row.setFixedSize(button_row.sizeHint())
+        body_layout.addWidget(button_row, 0, Qt.AlignLeft)
+        body_layout.addSpacing(8)
         body_layout.addWidget(self.sample_restore_default_fields_button, 0, Qt.AlignLeft)
-        body_layout.addWidget(
-            self.make_help_label(
-                "Fixed identity fields are always present. Custom keys must be lowercase snake_case. "
-                "Exported fields appear as metadata rows in exported freeze count timeseries CSV files. "
-                "Same-for-all fields copy one edited value to every sample in the catalog."
-            )
+        body_layout.addSpacing(8)
+        help_label = self.make_help_label(
+            "Fixed identity fields are always present. Custom keys must be lowercase snake_case. "
+            "Exported fields appear as metadata rows in exported freeze count timeseries CSV files. "
+            "Same-for-all fields copy one edited value to every sample in the catalog."
         )
+        help_label.setMaximumWidth(self.sample_metadata_schema_table.maximumWidth())
+        body_layout.addWidget(help_label)
+        body.setFixedHeight(body_layout.sizeHint().height())
 
         section_layout.addWidget(body)
+        section.setFixedHeight(section_layout.sizeHint().height())
         return section
 
     def build_samples_page(self):
@@ -1377,7 +1375,6 @@ class PreferencesDialog(QDialog):
                 ]),
                 ("Handles & Labels", [
                     ("Pen Width", self.pen_width_field),
-                    ("Dot Size", self.dot_size_field),
                     ("Preview Handle Size", self.preview_handle_size_field),
                     ("Cell Number Font Size", self.circle_label_font_size_field),
                     ("Label X Offset", self.circle_label_offset_x_field),
@@ -1602,7 +1599,12 @@ class PreferencesDialog(QDialog):
                 type_combo.addItem(type_name, type_name)
             type_combo.setCurrentIndex(max(0, type_combo.findData(field_type)))
             type_combo.setFixedHeight(28)
-            self.sample_metadata_schema_table.setCellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE, type_combo)
+            type_widget = QWidget(self.sample_metadata_schema_table)
+            type_layout = QHBoxLayout(type_widget)
+            type_layout.setContentsMargins(6, 2, 6, 2)
+            type_layout.setSpacing(0)
+            type_layout.addWidget(type_combo)
+            self.sample_metadata_schema_table.setCellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE, type_widget)
 
         export_item = self.make_sample_metadata_table_item(
             "",
@@ -1743,8 +1745,9 @@ class PreferencesDialog(QDialog):
             label = str(label_item.text() or "").strip()
             fixed = self.sample_metadata_row_is_fixed(row)
             type_widget = self.sample_metadata_schema_table.cellWidget(row, self.SAMPLE_FIELD_COLUMN_TYPE)
-            if isinstance(type_widget, QComboBox):
-                field_type = str(type_widget.currentData() or "text")
+            type_combo = type_widget.findChild(QComboBox) if type_widget is not None else None
+            if isinstance(type_combo, QComboBox):
+                field_type = str(type_combo.currentData() or "text")
             else:
                 type_item = self.sample_metadata_schema_table.item(row, self.SAMPLE_FIELD_COLUMN_TYPE)
                 field_type = str(type_item.text() if type_item is not None else "text")
@@ -1847,7 +1850,6 @@ class PreferencesDialog(QDialog):
         SubElement(root, "DefaultCircleRadius").text = str(self.default_circle_radius_field.value())
         SubElement(root, "PenWidth").text = str(self.pen_width_field.value())
         SubElement(root, "MaximumZoom").text = str(self.maximum_zoom_field.value())
-        SubElement(root, "DotSize").text = str(self.dot_size_field.value())
         SubElement(root, "SliderMaxZoomPixelInterval").text = str(self.slider_maxzoom_pixel_interval_field.value())
         SubElement(root, "SliderTickPixelInterval").text = str(self.slider_tick_pixel_interval_field.value())
         SubElement(root, "UndoLimit").text = str(self.undo_limit_field.value())
@@ -1909,7 +1911,6 @@ class PreferencesDialog(QDialog):
 
     def restore_visual_defaults(self):
         self.pen_width_field.setValue(1.0)
-        self.dot_size_field.setValue(1.0)
         self.preview_handle_size_field.setValue(float(DEFAULT_PREFERENCE_VALUES["PreviewHandleSize"]))
         self.circle_label_font_size_field.setValue(float(DEFAULT_PREFERENCE_VALUES["CircleLabelFontSize"]))
         self.circle_label_offset_x_field.setValue(float(DEFAULT_PREFERENCE_VALUES["CircleLabelOffsetX"]))

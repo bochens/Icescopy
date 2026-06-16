@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSize, QTimer, Qt
-from PySide6.QtGui import QBrush, QDoubleValidator, QPalette, QPen
+from PySide6.QtCore import QAbstractItemModel, QModelIndex, QRect, QSize, QTimer, Qt
+from PySide6.QtGui import QBrush, QDoubleValidator, QFont, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QHeaderView,
     QHBoxLayout,
@@ -14,6 +15,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOptionViewItem,
     QStyledItemDelegate,
     QTreeView,
     QVBoxLayout,
@@ -36,8 +39,11 @@ SAMPLE_CATALOG_PANEL_MIN_WIDTH = 280
 SAMPLE_CATALOG_TREE_HEADERS = ("Sample Number", "Value")
 SAMPLE_CATALOG_TREE_ROW_HEIGHT = 30
 SAMPLE_CATALOG_TREE_EDITOR_HEIGHT = 26
-SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH = 136
+SAMPLE_CATALOG_TREE_LABEL_COLUMN_WIDTH = 172
 SAMPLE_CATALOG_TREE_INDENTATION = 12
+SAMPLE_CATALOG_COLOR_SWATCH_SIZE = 12
+SAMPLE_CATALOG_TREE_EDITOR_LEFT_MARGIN = 6
+SAMPLE_CATALOG_TREE_EDITOR_RIGHT_MARGIN = 24
 SAMPLE_CATALOG_DATETIME_INPUT_FORMAT = "%Y-%m-%d %H:%M:%S"
 SAMPLE_CATALOG_DATETIME_STORAGE_FORMAT = "%Y-%m-%d %H:%M:%S"
 SAMPLE_CATALOG_DATETIME_INPUT_MASK = "0000-00-00 00:00:00;_"
@@ -174,6 +180,17 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             return f"{label} [all]"
         return label
 
+    def sample_color_swatch(self, sample_id):
+        color_getter = getattr(self.main_window, "sample_visual_color", None)
+        if not callable(color_getter):
+            return None
+        color = color_getter(sample_id)
+        if color is None or not color.isValid():
+            return None
+        pixmap = QPixmap(SAMPLE_CATALOG_COLOR_SWATCH_SIZE, SAMPLE_CATALOG_COLOR_SWATCH_SIZE)
+        pixmap.fill(color)
+        return pixmap
+
     def field_index(self, sample_id, field_key, column=1):
         sample_id = int(sample_id)
         for sample_row, sample_node in enumerate(self.root_node.children):
@@ -205,6 +222,12 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             return bool(node.kind == "field" and column == 1 and self.field_is_relevant(node.sample_id, node.field_key))
 
         if node.kind == "sample":
+            if role == Qt.DecorationRole and column == 0:
+                return self.sample_color_swatch(node.sample_id)
+            if role == Qt.FontRole and column == 0:
+                font = QFont()
+                font.setBold(True)
+                return font
             if role in (Qt.DisplayRole, Qt.EditRole):
                 return str(node.sample_id) if column == 0 else ""
             return None
@@ -335,6 +358,20 @@ class SampleCatalogTreeModel(QAbstractItemModel):
 
 
 class SampleCatalogTreeDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        if int(index.column()) == 1 and str(index.data(SampleCatalogTreeModel.FIELD_NAME_ROLE) or ""):
+            option_without_text = QStyleOptionViewItem(option)
+            self.initStyleOption(option_without_text, index)
+            option_without_text.text = ""
+            style = (
+                option_without_text.widget.style()
+                if option_without_text.widget is not None
+                else QApplication.style()
+            )
+            style.drawControl(QStyle.CE_ItemViewItem, option_without_text, painter, option_without_text.widget)
+            return
+        super().paint(painter, option, index)
+
     def createEditor(self, parent, option, index):
         if int(index.column()) != 1:
             return None
@@ -351,12 +388,14 @@ class SampleCatalogTreeDelegate(QStyledItemDelegate):
             editor.setEditable(False)
             editor.setInsertPolicy(QComboBox.NoInsert)
             editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
+            editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             editor.setEnabled(is_editable)
             editor.activated.connect(self.commit_combo_data)
             return editor
 
         editor = QLineEdit(parent)
         editor.setFixedHeight(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT)
+        editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         editor.setFocusPolicy(Qt.ClickFocus)
         editor.setEnabled(is_editable)
         editor.setReadOnly(not is_editable)
@@ -410,6 +449,24 @@ class SampleCatalogTreeDelegate(QStyledItemDelegate):
             editor.deselect()
             return
         super().setEditorData(editor, index)
+
+    def updateEditorGeometry(self, editor, option, index):
+        if int(index.column()) != 1:
+            super().updateEditorGeometry(editor, option, index)
+            return
+        editor_height = min(SAMPLE_CATALOG_TREE_EDITOR_HEIGHT, max(18, option.rect.height() - 4))
+        editor_rect = QRect(
+            option.rect.left() + SAMPLE_CATALOG_TREE_EDITOR_LEFT_MARGIN,
+            option.rect.top() + max(0, int((option.rect.height() - editor_height) / 2)),
+            max(
+                40,
+                option.rect.width()
+                - SAMPLE_CATALOG_TREE_EDITOR_LEFT_MARGIN
+                - SAMPLE_CATALOG_TREE_EDITOR_RIGHT_MARGIN,
+            ),
+            editor_height,
+        )
+        editor.setGeometry(editor_rect)
 
     def setModelData(self, editor, model, index):
         field_type = str(index.data(SampleCatalogTreeModel.FIELD_TYPE_ROLE) or "text")
@@ -488,9 +545,9 @@ class SampleCatalogPanelMixin:
         self.sample_catalog_tree.setAllColumnsShowFocus(True)
         self.sample_catalog_tree.setIndentation(SAMPLE_CATALOG_TREE_INDENTATION)
         self.sample_catalog_tree.header().setStretchLastSection(False)
-        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.sample_catalog_tree.header().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.sample_catalog_tree.header().resizeSection(1, SAMPLE_CATALOG_TREE_VALUE_COLUMN_WIDTH)
+        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.sample_catalog_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.sample_catalog_tree.header().resizeSection(0, SAMPLE_CATALOG_TREE_LABEL_COLUMN_WIDTH)
         self.sample_catalog_tree.setStyleSheet(
             f"QTreeView::item {{ min-height: {SAMPLE_CATALOG_TREE_ROW_HEIGHT}px; }}"
         )

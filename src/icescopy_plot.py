@@ -131,6 +131,8 @@ class GrayscalePlotWidget(QWidget):
         self.current_frame_color = (255, 204, 0, 170)
         self.current_frame_width = 1.25
         self.current_frame_line = None
+        self.freeze_segments_item = None
+        self._last_grayscale_y_range = None
         self._last_current_frame_widget_x = None
         self._data_signature = None
         self._render_signature = None
@@ -316,6 +318,8 @@ class GrayscalePlotWidget(QWidget):
         self.plot_item.clear()
         self.convolution_view_box.clear()
         self._remove_current_frame_line()
+        self.freeze_segments_item = None
+        self._last_grayscale_y_range = None
         self.plot_item.setTitle("Grayscale Time Series")
         self.plot_item.setLabel("bottom", "Frame / Image Index")
         self.plot_item.setLabel("left", "Mean Grayscale")
@@ -727,6 +731,62 @@ class GrayscalePlotWidget(QWidget):
         y_values[1::2] = float(y_max)
         return x_values, y_values
 
+    def _selected_freeze_indices(self):
+        freeze_map = self._freeze_index_map()
+        unique_freeze_indices = set()
+        for cell_id in self.cell_ids:
+            unique_freeze_indices.update(freeze_map.get(cell_id, []))
+        return unique_freeze_indices
+
+    def _remove_freeze_segments_item(self):
+        if self.freeze_segments_item is None:
+            return
+        try:
+            self.plot_item.removeItem(self.freeze_segments_item)
+        except Exception:
+            pass
+        self.freeze_segments_item = None
+
+    def _add_freeze_segments_item(self, freeze_indices, y_min, y_max):
+        if not freeze_indices:
+            return
+        freeze_x_values, freeze_y_values = self._freeze_segment_arrays(
+            freeze_indices,
+            y_min,
+            y_max,
+        )
+        self.freeze_segments_item = self.plot_item.plot(
+            freeze_x_values,
+            freeze_y_values,
+            pen=self._freeze_pen(),
+            connect="pairs",
+        )
+        self.freeze_segments_item.setClipToView(False)
+        self.freeze_segments_item.setDownsampling(auto=False)
+        self.freeze_segments_item.setSkipFiniteCheck(True)
+
+    def update_freeze_rows(self, freeze_rows):
+        """Update only the red freeze-frame marker layer."""
+        self.freeze_rows = freeze_rows if isinstance(freeze_rows, list) else list(freeze_rows or [])
+        self._freeze_map_cache = None
+        if self.stack.currentWidget() is not self.plot_widget:
+            return
+        if not self.cell_ids or self._last_grayscale_y_range is None:
+            return
+
+        y_min, y_max = self._last_grayscale_y_range
+        if y_min is None or y_max is None:
+            return
+
+        self.plot_widget.setUpdatesEnabled(False)
+        try:
+            self._remove_freeze_segments_item()
+            self._add_freeze_segments_item(self._selected_freeze_indices(), y_min, y_max)
+            if self.current_frame_line is not None:
+                self.current_frame_line.raise_()
+        finally:
+            self.plot_widget.setUpdatesEnabled(True)
+
     def refresh_plot(self):
         self.plot_widget.setUpdatesEnabled(False)
         try:
@@ -819,26 +879,17 @@ class GrayscalePlotWidget(QWidget):
 
                 unique_freeze_indices.update(freeze_map.get(cell_id, []))
 
-            freeze_segments_item = None
+            self._last_grayscale_y_range = (grayscale_y_min, grayscale_y_max)
             if (
                 unique_freeze_indices
                 and grayscale_y_min is not None
                 and grayscale_y_max is not None
             ):
-                freeze_x_values, freeze_y_values = self._freeze_segment_arrays(
+                self._add_freeze_segments_item(
                     unique_freeze_indices,
                     grayscale_y_min,
                     grayscale_y_max,
                 )
-                freeze_segments_item = self.plot_item.plot(
-                    freeze_x_values,
-                    freeze_y_values,
-                    pen=self._freeze_pen(),
-                    connect="pairs",
-                )
-                freeze_segments_item.setClipToView(False)
-                freeze_segments_item.setDownsampling(auto=False)
-                freeze_segments_item.setSkipFiniteCheck(True)
             if show_legend and unique_freeze_indices:
                 self._configure_data_item(
                     self.plot_item.plot(

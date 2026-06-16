@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from icescopy_aux import PreferencesDialog  # noqa: E402
@@ -273,6 +274,37 @@ class SampleMetadataTests(unittest.TestCase):
         self.assertEqual(fake_window.sample_catalog[1]["well_volume_uL"], "50")
         self.assertEqual(fake_window.history, ["Update Sample Metadata"])
         self.assertEqual(fake_window.refresh_calls, 1)
+
+    def test_model_sample_rows_show_color_swatch_and_bold_number(self):
+        QApplication.instance() or QApplication([])
+        schema = default_sample_metadata_schema()
+        fake_window = SimpleNamespace(
+            sample_metadata_schema=schema,
+            sample_catalog={
+                2: normalize_sample_catalog_record({"sample_name": "Sample_2"}, schema),
+            },
+        )
+        fake_window.active_sample_metadata_schema = lambda: fake_window.sample_metadata_schema
+        fake_window.ordered_sample_catalog_records = lambda: [
+            (2, normalize_sample_catalog_record(fake_window.sample_catalog[2], schema))
+        ]
+        fake_window.sample_record_for_id = lambda sample_id: normalize_sample_catalog_record(
+            fake_window.sample_catalog[int(sample_id)],
+            schema,
+        )
+        fake_window.sample_visual_color = lambda sample_id, alpha=255: QColor(12, 34, 56, alpha)
+
+        model = SampleCatalogTreeModel(fake_window)
+        top_index = model.index(0, 0)
+        swatch = top_index.data(Qt.DecorationRole)
+        font = top_index.data(Qt.FontRole)
+
+        self.assertIsInstance(swatch, QPixmap)
+        self.assertFalse(swatch.isNull())
+        swatch_color = swatch.toImage().pixelColor(0, 0)
+        self.assertEqual((swatch_color.red(), swatch_color.green(), swatch_color.blue()), (12, 34, 56))
+        self.assertIsInstance(font, QFont)
+        self.assertTrue(font.bold())
 
     def test_export_uses_active_schema_and_excludes_non_export_custom_fields(self):
         schema = schema_with_custom_fields()
