@@ -72,6 +72,43 @@ class FreezeFinderPaddingTests(unittest.TestCase):
 
         self.assertEqual(rows, [["cell_0", "21", "frame_1"]])
 
+    def test_missing_cell_value_does_not_poison_later_freeze_detection(self):
+        raw = np.asarray([np.nan, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(-1, 1)
+        frame_names = [f"frame_{index}" for index in range(raw.shape[0])]
+
+        rows, peaks = compute_freeze_result_rows(
+            frame_names,
+            np.array([""] * len(frame_names), dtype=object),
+            raw,
+            width=0.1,
+            prominence=1.0,
+            head_extend_points=2,
+            tail_extend_points=0,
+            convolution_half_window_points=2,
+            frame_indexes=[30, 31, 32, 33, 34, 35, 36],
+        )
+
+        self.assertEqual(rows, [["cell_0", "32", "frame_2"]])
+        self.assertEqual(peaks[0].tolist(), [2])
+
+    def test_missing_gap_does_not_create_a_synthetic_freeze(self):
+        raw = np.asarray([100.0, 100.0, np.nan, 0.0, 0.0]).reshape(-1, 1)
+        frame_names = [f"frame_{index}" for index in range(raw.shape[0])]
+
+        rows, peaks = compute_freeze_result_rows(
+            frame_names,
+            np.array([""] * len(frame_names), dtype=object),
+            raw,
+            width=0.1,
+            prominence=1.0,
+            head_extend_points=2,
+            tail_extend_points=2,
+            convolution_half_window_points=2,
+        )
+
+        self.assertEqual(rows, [])
+        self.assertEqual(peaks[0].tolist(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

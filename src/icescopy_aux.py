@@ -30,12 +30,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QColor
 from PySide6.QtCore import QRectF, QThread, Signal, QTimer
-from xml.etree.ElementTree import Element, SubElement, ElementTree, parse
+from xml.etree.ElementTree import Element, SubElement, ElementTree, ParseError, parse
 import numpy as np
 import cv2
 import darkdetect
 import multiprocessing
 import os
+import traceback
 from time import perf_counter
 
 
@@ -66,6 +67,8 @@ from icescopy_image_edit import (
     crop_state_is_identity,
 )
 from icescopy_session_io import SORT_MODE_LABELS
+from icescopy_paths import write_preferences_tree_atomic
+from icescopy_version import __version__
 from icescopy_sample_metadata import (
     CUSTOM_SAMPLE_METADATA_FIELD_TYPES,
     FIXED_SAMPLE_METADATA_KEYS,
@@ -411,6 +414,7 @@ class CustomGraphicsView(QGraphicsView):
 class Image_analysis_thread(QThread):
     # Class Variables
     analysis_done = Signal(int, dict)  # Signal emitted when analysis is done
+    analysis_failed = Signal(str, str)
 
     def __init__(
         self,
@@ -466,8 +470,20 @@ class Image_analysis_thread(QThread):
         self._circular_grid_cache = {}
         self._roi_descriptor_cache = {}
         self.analysis_timing = {}
+        self.analysis_error = None
+        self.analysis_traceback = ""
 
     def run(self):
+        self.analysis_error = None
+        self.analysis_traceback = ""
+        try:
+            self._run_analysis()
+        except Exception as err:
+            self.analysis_error = err
+            self.analysis_traceback = traceback.format_exc()
+            self.analysis_failed.emit(str(err), self.analysis_traceback)
+
+    def _run_analysis(self):
         total_start = perf_counter()
         frame_count = int(self.frame_source.frame_count())
         analysis_frame_ranges = (
@@ -819,7 +835,9 @@ class AboutDialog(QDialog):
 
         text_label = QLabel()
         text_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        text_label.setText("Icescopy\nA tool for ice freezing array image analysis.")
+        text_label.setText(
+            f"Icescopy {__version__}\nA tool for ice freezing array image analysis."
+        )
         text_label.setFont(QFont("Arial", 12, QFont.Bold))
         text_label.setWordWrap(True)
         text_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
@@ -1109,7 +1127,7 @@ class PreferencesDialog(QDialog):
     def load_saved_preferences(self):
         try:
             saved = self.main_window.load_preferences_from_xml()
-        except FileNotFoundError:
+        except (OSError, ParseError, TypeError, ValueError):
             saved = {}
         return saved
 
@@ -1899,7 +1917,15 @@ class PreferencesDialog(QDialog):
         append_sample_metadata_schema_xml(root, new_sample_metadata_schema)
 
         tree = ElementTree(root)
-        tree.write(os.path.join(resources_dir,"preferences.xml"))
+        try:
+            write_preferences_tree_atomic(tree)
+        except OSError as err:
+            QMessageBox.critical(
+                self,
+                "Save Preferences Failed",
+                f"Unable to save preferences:\n{err}",
+            )
+            return
         self.main_window.set_preferences(preserve_session_tool_state=True)
         if getattr(self.main_window, "session_active", False) and hasattr(self.main_window, "apply_sample_metadata_schema"):
             self.main_window.apply_sample_metadata_schema(

@@ -32,6 +32,7 @@ from icescopy_session_io import (  # noqa: E402
     FREEZE_COUNT_TIMESERIES_CSV_FILENAME,
     FREEZE_CSV_FILENAME,
     GRAYSCALE_CSV_FILENAME,
+    SESSION_SCHEMA_VERSION,
     SESSION_STATE_FILENAME,
     build_freeze_count_timeseries_csv_text,
     build_restore_state,
@@ -199,6 +200,121 @@ class SessionIoTests(unittest.TestCase):
             IceScopy.load_video(fake_window, "/tmp/example.mp4")
 
         information.assert_called_once()
+
+    def test_failed_session_restore_rolls_back_previous_session(self):
+        previous_state = {"marker": "previous"}
+        incoming_state = {"marker": "incoming"}
+        restored_states = []
+        log_messages = []
+
+        def restore_session_state(state):
+            restored_states.append(state)
+            if state is incoming_state:
+                raise RuntimeError("incoming frame source failed")
+
+        fake_window = SimpleNamespace(
+            session_active=True,
+            current_session_file_path="/tmp/previous.icescopy",
+            prompt_save_before_replacing_session=lambda _label: "discard",
+            capture_session_state=lambda: previous_state,
+            restore_session_state=restore_session_state,
+            update_session_actions_state=lambda: None,
+            log=log_messages.append,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            incoming_path = Path(td) / "incoming.icescopy"
+            incoming_path.write_bytes(b"placeholder")
+            with (
+                patch.object(icescopy_module, "load_session_bundle", return_value=({}, ([], []), ([], []), ([], []))),
+                patch.object(icescopy_module, "build_restore_state", return_value=incoming_state),
+                patch.object(icescopy_module.QMessageBox, "critical") as critical,
+            ):
+                opened = IceScopy.open_session_file_path(fake_window, incoming_path)
+
+        self.assertFalse(opened)
+        self.assertEqual(restored_states, [incoming_state, previous_state])
+        self.assertTrue(fake_window.session_active)
+        self.assertEqual(fake_window.current_session_file_path, "/tmp/previous.icescopy")
+        self.assertIn("incoming frame source failed", critical.call_args.args[2])
+        self.assertTrue(any("Failed to open session" in message for message in log_messages))
+
+    def test_close_is_blocked_while_analysis_is_running(self):
+        class DummyEvent:
+            ignored = False
+
+            def ignore(self):
+                self.ignored = True
+
+        event = DummyEvent()
+        fake_window = SimpleNamespace(output_state=True, worker=None)
+
+        with patch.object(icescopy_module.QMessageBox, "information") as information:
+            IceScopy.closeEvent(fake_window, event)
+
+        self.assertTrue(event.ignored)
+        information.assert_called_once()
+
+    def test_close_cancel_preserves_open_session(self):
+        class DummyEvent:
+            ignored = False
+
+            def ignore(self):
+                self.ignored = True
+
+        event = DummyEvent()
+        fake_window = SimpleNamespace(
+            output_state=False,
+            worker=None,
+            prompt_save_before_replacing_session=lambda _label: "cancel",
+        )
+
+        IceScopy.closeEvent(fake_window, event)
+
+        self.assertTrue(event.ignored)
+
+    def test_analysis_failure_keeps_previous_results_and_reports_error(self):
+        class DummyTimer:
+            stopped = False
+
+            def stop(self):
+                self.stopped = True
+
+        deleted = []
+        dialogs = []
+        log_messages = []
+        old_grayscale_rows = [["old grayscale"]]
+        old_freeze_rows = [["old freeze"]]
+        worker = SimpleNamespace(
+            analysis_error=RuntimeError("decoder stopped"),
+            analysis_traceback="traceback details",
+            deleteLater=lambda: deleted.append(True),
+        )
+        fake_window = SimpleNamespace(
+            pending_analysis_before_state={"old": "state"},
+            analysis_progress_timer=DummyTimer(),
+            worker=worker,
+            timer=0.0,
+            pending_analysis_progress_index=17,
+            analysis_progress_start_index=None,
+            analysis_progress_navigation_suppressed=True,
+            grayscale_results_rows=old_grayscale_rows,
+            freeze_results_rows=old_freeze_rows,
+            log=log_messages.append,
+            show_analysis_failure_dialog=lambda message, details: dialogs.append((message, details)),
+            restore_analysis_controls=lambda: None,
+        )
+
+        IceScopy.onThreadFinished(fake_window)
+
+        self.assertIs(fake_window.grayscale_results_rows, old_grayscale_rows)
+        self.assertIs(fake_window.freeze_results_rows, old_freeze_rows)
+        self.assertIsNone(fake_window.worker)
+        self.assertIsNone(fake_window.pending_analysis_before_state)
+        self.assertIsNone(fake_window.pending_analysis_progress_index)
+        self.assertEqual(dialogs, [("decoder stopped", "traceback details")])
+        self.assertTrue(any("Analysis failed" in message for message in log_messages))
+        self.assertEqual(deleted, [True])
 
     def test_grid_scroll_shortcut_labels_match_platform_modifier_handlers(self):
         fake_window = SimpleNamespace()
@@ -1845,6 +1961,50 @@ class SessionIoTests(unittest.TestCase):
 
         self.assertEqual(state["tool_settings"], payload["tool_settings"])
 
+    def test_build_restore_state_migrates_v2_session_defaults_and_temperature_table(self):
+        payload = self.minimal_restore_payload()
+        for key in (
+            "last_temperature_blank_sample_names",
+            "last_standard_temperature_image_timestamp_source",
+            "last_standard_temperature_image_timestamp_style",
+            "last_standard_temperature_temperature_timestamp_style",
+            "last_standard_temperature_use_image_timestamp_style",
+            "last_standard_temperature_generated_start_text",
+            "last_standard_temperature_frame_interval_seconds",
+            "last_standard_temperature_temperature_unit",
+            "freeze_count_timeseries_summary",
+        ):
+            payload.pop(key)
+        payload.update(
+            {
+                "schema_version": 5,
+                "temperature_sync_headers": ["timestamp", "temperature_C"],
+                "temperature_sync_rows": [["2024-01-01 00:00:00", "-10"]],
+                "temperature_sync_summary": {"source_type": "legacy"},
+            }
+        )
+        fake_window = SimpleNamespace(default_tool_settings=lambda: {})
+
+        state = build_restore_state(fake_window, payload, ([], []), ([], []), ([], []))
+
+        self.assertEqual(state["last_temperature_blank_sample_names"], [])
+        self.assertEqual(state["last_standard_temperature_image_timestamp_source"], "filename")
+        self.assertEqual(state["last_standard_temperature_frame_interval_seconds"], 1.0)
+        self.assertEqual(state["freeze_count_timeseries_headers"], ["timestamp", "temperature_C"])
+        self.assertEqual(
+            state["freeze_count_timeseries_rows"],
+            [["2024-01-01 00:00:00", "-10"]],
+        )
+        self.assertEqual(state["freeze_count_timeseries_summary"], {"source_type": "legacy"})
+
+    def test_build_restore_state_rejects_newer_session_schema(self):
+        payload = self.minimal_restore_payload()
+        payload["schema_version"] = SESSION_SCHEMA_VERSION + 1
+        fake_window = SimpleNamespace(default_tool_settings=lambda: {})
+
+        with self.assertRaisesRegex(ValueError, "newer Icescopy version"):
+            build_restore_state(fake_window, payload, ([], []), ([], []), ([], []))
+
     def test_session_bundle_stores_all_three_tables_as_csv(self):
         payload = {
             "image_paths": ["/tmp/example.png"],
@@ -1962,6 +2122,26 @@ class SessionIoTests(unittest.TestCase):
             self.assertEqual(grayscale_table, (grayscale_headers, grayscale_rows))
             self.assertEqual(freeze_table, (freeze_headers, freeze_rows))
             self.assertEqual(temperature_table, (temperature_headers, temperature_rows))
+
+    def test_failed_session_serialization_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            bundle_path = Path(td) / "session.icescopy"
+            original_content = b"last known good session"
+            bundle_path.write_bytes(original_content)
+
+            with self.assertRaises(TypeError):
+                save_session_bundle(
+                    bundle_path,
+                    {"not_json_serializable": object()},
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                )
+
+            self.assertEqual(bundle_path.read_bytes(), original_content)
 
     def test_clear_loaded_images_keeps_cell_catalog_state(self):
         class DummyScene:

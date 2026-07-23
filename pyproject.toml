@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Icescopy"
+dynamic = ["version"]
+description = "Desktop software for ice-freezing array image analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+  {name = "Bo Chen", email = "bo.chen@colostate.edu"},
+]
+dependencies = [
+  "PySide6>=6.8,<7",
+  "numpy>=2,<3",
+  "opencv-python>=4.10,<5",
+  "darkdetect>=0.8,<1",
+  "Pillow>=11,<13",
+  "pandas>=2.2,<4",
+  "scipy>=1.14,<2",
+  "pyqtgraph>=0.13.7,<0.15",
+  "av>=14,<18",
+]
+
+[project.optional-dependencies]
+dev = [
+  "PyInstaller>=6.11,<7",
+]
+
+[project.scripts]
+icescopy = "Icescopy:main"
+icescopy-validate = "icescopy_validate:main"
+
+[project.urls]
+Repository = "https://github.com/bochens/Icescopy"
+Issues = "https://github.com/bochens/Icescopy/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "icescopy_version.__version__"}
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+  "Icescopy",
+  "icescopy_analysis_windows",
+  "icescopy_aux",
+  "icescopy_cell",
+  "icescopy_cell_controller",
+  "icescopy_cell_items",
+  "icescopy_dialogs",
+  "icescopy_dock",
+  "icescopy_frame_source",
+  "icescopy_frameslider",
+  "icescopy_freeze_count_timeseries",
+  "icescopy_freezfinder",
+  "icescopy_image_edit",
+  "icescopy_paths",
+  "icescopy_plot",
+  "icescopy_sample_catalog",
+  "icescopy_sample_metadata",
+  "icescopy_session",
+  "icescopy_session_io",
+  "icescopy_stylesheet",
+  "icescopy_temperature_import",
+  "icescopy_tool_options",
+  "icescopy_validate",
+  "icescopy_version",
+  "icescopy_video_preview",
+]

@@ -1,6 +1,8 @@
 import csv
 import io
 import json
+import os
+import tempfile
 import zipfile
 
 from icescopy_cell_items import CellCircle
@@ -15,6 +17,7 @@ from icescopy_sample_metadata import (
 )
 
 
+SESSION_SCHEMA_VERSION = 6
 SESSION_STATE_FILENAME = "session.json"
 GRAYSCALE_CSV_FILENAME = "grayscale.csv"
 FREEZE_CSV_FILENAME = "freeze.csv"
@@ -158,6 +161,7 @@ def build_session_payload(main_window):
     }
 
     payload = {
+        "schema_version": SESSION_SCHEMA_VERSION,
         "session_metadata": main_window.serialize_session_metadata(),
         "image_edit_state": main_window.serialize_image_edit_state(),
         "image_width": main_window.image_width,
@@ -204,7 +208,82 @@ def build_session_payload(main_window):
     return payload
 
 
+def migrate_session_payload(payload):
+    """Normalize supported historical session payloads to the current schema."""
+    if not isinstance(payload, dict):
+        raise ValueError("Session state must be a JSON object.")
+
+    migrated = dict(payload)
+    raw_schema_version = migrated.get("schema_version", 0)
+    try:
+        schema_version = int(raw_schema_version)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"Invalid session schema version: {raw_schema_version!r}") from err
+    if schema_version < 0:
+        raise ValueError(f"Invalid session schema version: {schema_version}")
+    if schema_version > SESSION_SCHEMA_VERSION:
+        raise ValueError(
+            "This session was created by a newer Icescopy version "
+            f"(schema {schema_version}; supported through {SESSION_SCHEMA_VERSION})."
+        )
+
+    image_paths = list(migrated.get("image_paths") or [])
+    image_names = list(migrated.get("image_names") or [])
+    image_list_entry_ids = list(migrated.get("image_list_entry_ids") or range(len(image_paths)))
+    defaults = {
+        "session_metadata": {},
+        "image_edit_state": {},
+        "image_width": 0,
+        "frame_source": {
+            "kind": "image_sequence",
+            "image_paths": image_paths,
+        },
+        "image_paths": image_paths,
+        "image_names": image_names,
+        "image_index": 0,
+        "image_list_entry_ids": image_list_entry_ids,
+        "next_image_list_entry_id": (
+            max((int(value) for value in image_list_entry_ids), default=-1) + 1
+        ),
+        "sort_mode": "natural_filename",
+        "cell_items": [],
+        "next_cell_id": 0,
+        "cell_records_by_id": {},
+        "sample_catalog": {},
+        "next_sample_id": 0,
+        "keyframe_list": [],
+        "flagframe_list": [],
+        "analysis_start_frame_list": [],
+        "analysis_end_frame_list": [],
+        "keyframe_cell_items_dict": {},
+        "tool_mode": "cursor",
+        "last_grayscale_output_path": None,
+        "last_freeze_output_path": None,
+        "last_temperature_import_path": None,
+        "last_temperature_calibration_path": None,
+        "last_temperature_reset_temperature": None,
+        "last_temperature_blank_sample_names": [],
+        "last_standard_temperature_image_timestamp_source": "filename",
+        "last_standard_temperature_image_timestamp_style": "auto",
+        "last_standard_temperature_temperature_timestamp_style": "auto",
+        "last_standard_temperature_use_image_timestamp_style": True,
+        "last_standard_temperature_generated_start_text": "",
+        "last_standard_temperature_frame_interval_seconds": 1.0,
+        "last_standard_temperature_temperature_unit": "celsius",
+        "freeze_count_timeseries_summary": dict(
+            migrated.get("temperature_sync_summary") or {}
+        ),
+        "console_history": "",
+    }
+    for key, default_value in defaults.items():
+        migrated.setdefault(key, default_value)
+
+    migrated["schema_version"] = SESSION_SCHEMA_VERSION
+    return migrated
+
+
 def build_restore_state(main_window, payload, grayscale_table, freeze_table, freeze_count_timeseries_table):
+    payload = migrate_session_payload(payload)
     cell_items = [cell_circle_from_dict(main_window, item) for item in payload["cell_items"]]
     keyframe_cell_items_dict = {
         int(frame): [cell_circle_from_dict(main_window, item) for item in circles]
@@ -214,6 +293,11 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
     grayscale_headers, grayscale_rows = grayscale_table
     freeze_headers, freeze_rows = freeze_table
     freeze_count_timeseries_headers, freeze_count_timeseries_rows = freeze_count_timeseries_table
+    if not freeze_count_timeseries_headers and payload.get("temperature_sync_headers"):
+        freeze_count_timeseries_headers = list(payload.get("temperature_sync_headers") or [])
+        freeze_count_timeseries_rows = [
+            list(row) for row in payload.get("temperature_sync_rows") or []
+        ]
 
     default_tool_settings = (
         main_window.default_tool_settings()
@@ -311,17 +395,47 @@ def save_session_bundle(
     freeze_count_timeseries_headers,
     freeze_count_timeseries_rows,
 ):
-    with zipfile.ZipFile(file_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(SESSION_STATE_FILENAME, json.dumps(payload, indent=2))
-        if grayscale_headers:
-            archive.writestr(GRAYSCALE_CSV_FILENAME, _rows_to_csv_text(grayscale_headers, grayscale_rows))
-        if freeze_headers:
-            archive.writestr(FREEZE_CSV_FILENAME, _rows_to_csv_text(freeze_headers, freeze_rows))
-        if freeze_count_timeseries_headers:
-            archive.writestr(
-                FREEZE_COUNT_TIMESERIES_CSV_FILENAME,
-                _rows_to_csv_text(freeze_count_timeseries_headers, freeze_count_timeseries_rows),
-            )
+    # Build all serialized content before touching the destination. A failure
+    # must never truncate the user's last good session.
+    archive_members = {
+        SESSION_STATE_FILENAME: json.dumps(payload, indent=2),
+    }
+    if grayscale_headers:
+        archive_members[GRAYSCALE_CSV_FILENAME] = _rows_to_csv_text(
+            grayscale_headers,
+            grayscale_rows,
+        )
+    if freeze_headers:
+        archive_members[FREEZE_CSV_FILENAME] = _rows_to_csv_text(
+            freeze_headers,
+            freeze_rows,
+        )
+    if freeze_count_timeseries_headers:
+        archive_members[FREEZE_COUNT_TIMESERIES_CSV_FILENAME] = _rows_to_csv_text(
+            freeze_count_timeseries_headers,
+            freeze_count_timeseries_rows,
+        )
+
+    destination_path = os.path.abspath(os.fspath(file_path))
+    destination_dir = os.path.dirname(destination_path)
+    temp_fd, temp_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination_path)}.",
+        suffix=".tmp",
+        dir=destination_dir,
+    )
+    os.close(temp_fd)
+    try:
+        with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for member_name, member_text in archive_members.items():
+                archive.writestr(member_name, member_text)
+        with zipfile.ZipFile(temp_path, "r") as archive:
+            bad_member = archive.testzip()
+            if bad_member is not None:
+                raise zipfile.BadZipFile(f"Unable to verify session member: {bad_member}")
+        os.replace(temp_path, destination_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def load_session_bundle(file_path):

@@ -31,27 +31,46 @@ The main project areas are:
 
 ## Running from source
 
-The application is developed against the `Icescopy` conda environment.
+Icescopy requires Python 3.11 or newer. The repository root contains:
 
-Typical local run command:
+- `pyproject.toml` — runtime dependencies, development extras, and command-line entry points
+- `environment.yml` — a reproducible conda development environment
 
-```zsh
-conda activate Icescopy
-python /Users/C832577250/Project/Icescopy/src/Icescopy.py
+Clone the repository, change into its root directory, and create the conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate icescopy-dev
 ```
 
-If the environment is not active, use the interpreter directly:
+Alternatively, use any Python 3.11 virtual environment:
 
-```zsh
-/Users/C832577250/miniforge3/envs/Icescopy/bin/python /Users/C832577250/Project/Icescopy/src/Icescopy.py
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-## Running tests
+The editable install is intentional for development: the application continues to use the repository's `resources/` directory while source changes take effect immediately.
 
-Run the repository test entry point:
+Run the application with:
 
-```zsh
-/Users/C832577250/miniforge3/envs/Icescopy/bin/python /Users/C832577250/Project/Icescopy/run_tests.py
+```bash
+icescopy
+```
+
+## Validating an installation
+
+First confirm that every runtime dependency and required resource can be loaded:
+
+```bash
+icescopy-validate
+icescopy --check-video-dependencies
+```
+
+Then run the full test suite from the repository root:
+
+```bash
+python run_tests.py
 ```
 
 ## Building the packaged app
@@ -60,10 +79,10 @@ The repository includes a PyInstaller spec:
 
 - `Icescopy.spec`
 
-Typical build command:
+With the development environment active, run:
 
-```zsh
-/Users/C832577250/miniforge3/envs/Icescopy/bin/python -m PyInstaller --clean --noconfirm /Users/C832577250/Project/Icescopy/Icescopy.spec
+```bash
+python -m PyInstaller --clean --noconfirm Icescopy.spec
 ```
 
 Build outputs appear in:
@@ -77,5 +96,6 @@ Build outputs appear in:
 
 ## Preferences and writable data
 
-Users should treat the installed application as read-only.
+Users should treat the installed application as read-only. The bundled `resources/preferences.xml` supplies defaults; saved preferences go to the platform's user configuration directory under `Icescopy/preferences.xml`. Developers can set `ICESCOPY_CONFIG_DIR` to use an isolated configuration directory while testing.
+
 Session files, exports, and other user data belong in user-chosen writable folders, not inside the app bundle.

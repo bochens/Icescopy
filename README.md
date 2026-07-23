@@ -6,6 +6,20 @@ Icescopy is currently used and tested by multiple university research groups, wi
 
 If you have a temperature file format or instrument workflow that is not yet supported, please open a GitHub issue or contact me. I am happy to help incorporate additional formats into Icescopy.
 
+## Developer Setup
+
+The repository includes a Python dependency manifest (`pyproject.toml`) and a conda environment definition (`environment.yml`). From the repository root:
+
+```bash
+conda env create -f environment.yml
+conda activate icescopy-dev
+icescopy-validate
+python run_tests.py
+icescopy
+```
+
+For an existing Python 3.11 environment, install the editable development package with `python -m pip install -e ".[dev]"`. See [Installation and Setup](wiki/Installation-and-Setup.md) for the full validation and packaging workflow.
+
 ## Citation
 
 If you use Icescopy in your work, please cite it as:

@@ -12,6 +12,13 @@ project_root = Path(SPECPATH).resolve()
 resources_dir = project_root / "resources"
 app_icon = resources_dir / "app_icons" / "IcescopyApp.icns"
 document_icon = resources_dir / "app_icons" / "IcescopyDocument.icns"
+version_module_spec = importlib.util.spec_from_file_location(
+    "icescopy_version",
+    project_root / "src" / "icescopy_version.py",
+)
+version_module = importlib.util.module_from_spec(version_module_spec)
+version_module_spec.loader.exec_module(version_module)
+app_version = version_module.__version__
 
 block_cipher = None
 
@@ -147,6 +154,8 @@ app = BUNDLE(
     bundle_identifier='org.icescopy.app',
     info_plist={
         'CFBundleIdentifier': 'org.icescopy.app',
+        'CFBundleShortVersionString': app_version,
+        'CFBundleVersion': app_version,
         'CFBundleDocumentTypes': [
             {
                 'CFBundleTypeName': 'Icescopy Session',

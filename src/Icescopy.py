@@ -73,6 +73,8 @@ from icescopy_image_edit import (
     qimage_to_grayscale_array,
 )
 from icescopy_plot import GrayscalePlotWidget
+from icescopy_paths import preferences_read_path
+from icescopy_version import __version__
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
@@ -324,10 +326,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         # use .get() method on a dictionary to specify a default value if a key is not found.
         try:
             preferences = self.load_preferences_from_xml()
-        except FileNotFoundError:
-            print('No preference file set')
-            # If the preferences.xml file is not found, you might want to save the default preferences
-            pass
+        except (OSError, ET.ParseError, TypeError, ValueError) as err:
+            print(f"Unable to load preferences: {err}", file=sys.stderr)
 
         current_tool_state = None
         if preserve_session_tool_state:
@@ -5428,7 +5428,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "grayscale_results_rows": copy.deepcopy(self.grayscale_results_rows),
             "freeze_results_headers": self.freeze_results_headers.copy(),
             "freeze_results_rows": copy.deepcopy(self.freeze_results_rows),
+            "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers.copy(),
+            "freeze_count_timeseries_rows": copy.deepcopy(self.freeze_count_timeseries_rows),
+            "freeze_count_timeseries_summary": dict(self.freeze_count_timeseries_summary),
             "tool_mode": getattr(self, "tool_mode", "cursor"),
+            "tool_settings": copy.deepcopy(self.serialize_tool_settings()),
+            "console_history": self.terminal.toPlainText() if hasattr(self, "terminal") else "",
         }
 
     def capture_cell_state(self, include_analysis=False):
@@ -8886,7 +8891,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if save_choice == "cancel":
             return False
 
+        previous_state = None
+        previous_session_active = bool(getattr(self, "session_active", False))
+        previous_session_file_path = getattr(self, "current_session_file_path", None)
+        restore_started = False
         try:
+            previous_state = self.capture_session_state()
             payload, grayscale_table, freeze_table, freeze_count_timeseries_table = load_session_bundle(file_path)
             state = build_restore_state(
                 self,
@@ -8895,9 +8905,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 freeze_table,
                 freeze_count_timeseries_table,
             )
+            restore_started = True
+            self.restore_session_state(state)
             self.session_active = True
             self.current_session_file_path = file_path
-            self.restore_session_state(state)
             self.undo_stack.clear()
             self.pending_analysis_before_state = None
             self.log(f"Opened session {os.path.basename(file_path)}")
@@ -8910,7 +8921,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 )
             return True
         except Exception as err:
-            QMessageBox.critical(self, "Open Session Failed", str(err))
+            rollback_error = None
+            if restore_started and previous_state is not None:
+                try:
+                    self.restore_session_state(previous_state)
+                    self.session_active = previous_session_active
+                    self.current_session_file_path = previous_session_file_path
+                    self.update_session_actions_state()
+                except Exception as rollback_err:
+                    rollback_error = rollback_err
+                    self.log(f"Failed to restore the previous session after open failure: {rollback_err}")
+            message = str(err)
+            if rollback_error is not None:
+                message += f"\n\nThe previous session could not be fully restored: {rollback_error}"
+            QMessageBox.critical(self, "Open Session Failed", message)
             self.log(f"Failed to open session: {err}")
             return False
 
@@ -10365,11 +10389,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.log("No images loaded")
             return
 
-        self.pending_analysis_before_state = self.capture_data_state()
-        self.analysis_progress_start_index = int(getattr(self, "last_committed_image_index", self.image_index))
-        self.analysis_progress_navigation_suppressed = True
-        self.log("Start analyzing")
-
         analysis_frame_ranges = self.analysis_frame_ranges()
         analysis_frame_count = self.frame_count_from_ranges(analysis_frame_ranges)
         if analysis_frame_count <= 0:
@@ -10379,29 +10398,45 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             range_text = ", ".join(f"{start}-{end}" for start, end in analysis_frame_ranges)
             self.log(f"Analysis windows: {range_text}")
 
-        list_of_cell_items = self.out_put_interpolation(analysis_frame_ranges)
+        self.pending_analysis_before_state = None
+        try:
+            self.pending_analysis_before_state = self.capture_data_state()
+            self.analysis_progress_start_index = int(getattr(self, "last_committed_image_index", self.image_index))
+            self.analysis_progress_navigation_suppressed = True
+            self.log("Start analyzing")
+            list_of_cell_items = self.out_put_interpolation(analysis_frame_ranges)
+            self.worker = Image_analysis_thread(
+                None,
+                self.imagePaths.copy(),
+                self.imageNames.copy(),
+                list_of_cell_items,
+                image_edit_exposure=self.image_edit_exposure,
+                image_edit_contrast=self.image_edit_contrast,
+                image_edit_uniform_exposure_offsets=copy.deepcopy(getattr(self, "image_edit_uniform_exposure_offsets", {})),
+                image_edit_crop_state=self.current_image_edit_crop_state(),
+                freeze_finder_width=self.freeze_finder_width,
+                freeze_finder_prominence=self.freeze_finder_prominence,
+                freeze_finder_head_extend_points=self.freeze_finder_head_extend_points,
+                freeze_finder_tail_extend_points=self.freeze_finder_tail_extend_points,
+                convolution_half_window_points=self.convolution_half_window_points,
+                convolution_ramp_points=self.convolution_ramp_points,
+                freeze_finder_detect_brightening=self.freeze_finder_detect_brightening,
+                video_grayscale_mode=self.video_grayscale_mode,
+                frame_source=self.active_frame_source(),
+                analysis_frame_ranges=analysis_frame_ranges,
+            )
+        except Exception as err:
+            details = traceback.format_exc()
+            self.pending_analysis_before_state = None
+            self.analysis_progress_navigation_suppressed = False
+            self.analysis_progress_start_index = None
+            self.worker = None
+            self.log(f"Analysis failed during setup: {err}")
+            self.show_analysis_failure_dialog(str(err), details)
+            return
 
-        self.worker = Image_analysis_thread(
-            None,
-            self.imagePaths.copy(),
-            self.imageNames.copy(),
-            list_of_cell_items,
-            image_edit_exposure=self.image_edit_exposure,
-            image_edit_contrast=self.image_edit_contrast,
-            image_edit_uniform_exposure_offsets=copy.deepcopy(getattr(self, "image_edit_uniform_exposure_offsets", {})),
-            image_edit_crop_state=self.current_image_edit_crop_state(),
-            freeze_finder_width=self.freeze_finder_width,
-            freeze_finder_prominence=self.freeze_finder_prominence,
-            freeze_finder_head_extend_points=self.freeze_finder_head_extend_points,
-            freeze_finder_tail_extend_points=self.freeze_finder_tail_extend_points,
-            convolution_half_window_points=self.convolution_half_window_points,
-            convolution_ramp_points=self.convolution_ramp_points,
-            freeze_finder_detect_brightening=self.freeze_finder_detect_brightening,
-            video_grayscale_mode=self.video_grayscale_mode,
-            frame_source=self.active_frame_source(),
-            analysis_frame_ranges=analysis_frame_ranges,
-        )
         self.worker.analysis_done.connect(self.onAnalysisDone)
+        self.worker.finished.connect(self.onThreadFinished)
         self.updateButtonStates()
         self.zoom_slider.setValue(1)
         
@@ -10418,8 +10453,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.timer = time.time()
         self.output_state = True
         self.update_session_actions_state()
-        self.worker.start()
-        self.worker.finished.connect(self.onThreadFinished)
+        try:
+            self.worker.start()
+        except Exception as err:
+            details = traceback.format_exc()
+            worker = self.worker
+            self.worker = None
+            self.pending_analysis_before_state = None
+            self.pending_analysis_progress_index = None
+            self.analysis_progress_navigation_suppressed = False
+            self.analysis_progress_start_index = None
+            self.restore_analysis_controls()
+            self.log(f"Analysis failed to start: {err}")
+            self.show_analysis_failure_dialog(str(err), details)
+            worker.deleteLater()
 
     def out_put_interpolation(self, analysis_frame_ranges=None):
         frame_count = self.frame_count()
@@ -10435,8 +10482,30 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def onAnalysisDone(self, index, results):
         # Finish anayzing each image
         # self.log(f"Analyzed image {results['file_name']}")
+        if not self.output_state or self.worker is None:
+            return
         self.enqueue_analysis_progress_frame(index)
-        
+
+    def show_analysis_failure_dialog(self, message, details=""):
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Critical)
+        dialog.setWindowTitle("Analysis Failed")
+        dialog.setText("The analysis could not be completed.")
+        dialog.setInformativeText(str(message).strip() or "An unexpected analysis error occurred.")
+        if details:
+            dialog.setDetailedText(str(details))
+        dialog.exec()
+
+    def restore_analysis_controls(self):
+        self.timer = None
+        self.output_state = False
+        self.image_slider.setEnabled(self.has_frames())
+        self.updateButtonStates()
+        self.select_tool_action.setEnabled(self.has_frames())
+        self.grid_tool_action.setEnabled(self.has_frames())
+        self.deselect_tool_action.setEnabled(self.has_frames())
+        self.edit_tool_action.setEnabled(self.has_frames())
+        self.update_session_actions_state()
 
     def onThreadFinished(self):
         # Finish anayzing all images
@@ -10444,10 +10513,38 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.pending_analysis_before_state = None
         if hasattr(self, "analysis_progress_timer"):
             self.analysis_progress_timer.stop()
-        self.flush_pending_analysis_progress()
         worker = self.worker
+        if worker is None:
+            self.restore_analysis_controls()
+            return
+
         endTime = time.time()
-        elapsed_time = endTime - self.timer
+        elapsed_time = endTime - self.timer if self.timer is not None else 0.0
+        analysis_error = getattr(worker, "analysis_error", None)
+        if analysis_error is not None:
+            self.pending_analysis_progress_index = None
+            start_frame = self.analysis_progress_start_index
+            if (
+                start_frame is not None
+                and self.has_frames()
+                and 0 <= int(start_frame) < self.frame_count()
+            ):
+                self.show_analysis_progress_frame(int(start_frame))
+            self.analysis_progress_navigation_suppressed = False
+            self.analysis_progress_start_index = None
+            self.restore_analysis_controls()
+            error_message = str(analysis_error).strip() or type(analysis_error).__name__
+            self.log(f"Analysis failed: {error_message}")
+            self.log(f"Time used before failure: {elapsed_time:.3f} seconds")
+            self.show_analysis_failure_dialog(
+                error_message,
+                getattr(worker, "analysis_traceback", ""),
+            )
+            worker.deleteLater()
+            self.worker = None
+            return
+
+        self.flush_pending_analysis_progress()
         self.log("Analysis complete")
         if getattr(worker, 'freeze_output_path', None):
             self.log(f"Saved freeze detection output at {worker.freeze_output_path}")
@@ -10486,15 +10583,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
         self.last_grayscale_output_path = getattr(worker, 'filePath', None)
         self.last_freeze_output_path = getattr(worker, 'freeze_output_path', None)
-        self.timer = None
-        self.output_state = False
-        self.image_slider.setEnabled(True)
-        self.updateButtonStates()
-        self.select_tool_action.setEnabled(True)
-        self.grid_tool_action.setEnabled(True)
-        self.deselect_tool_action.setEnabled(True)
-        self.edit_tool_action.setEnabled(True)
-        self.update_session_actions_state()
+        self.restore_analysis_controls()
         self.grayscale_results_headers = getattr(worker, 'grayscale_result_headers', [])
         self.grayscale_results_rows = getattr(worker, 'grayscale_result_rows', [])
         self.freeze_results_headers = getattr(worker, 'freeze_result_headers', [])
@@ -10810,6 +10899,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.zoom_slider_set_maximum()
 
     def closeEvent(self, event):
+        worker = getattr(self, "worker", None)
+        if getattr(self, "output_state", False) or (worker is not None and worker.isRunning()):
+            QMessageBox.information(
+                self,
+                "Analysis In Progress",
+                "Wait for the current analysis to finish before closing Icescopy.",
+            )
+            event.ignore()
+            return
+
+        save_choice = self.prompt_save_before_replacing_session("closing Icescopy")
+        if save_choice == "cancel":
+            event.ignore()
+            return
+
         self.stop_video_preview_decoder()
         frame_source = getattr(self, "frame_source", None)
         if frame_source is not None:
@@ -10819,7 +10923,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         super().closeEvent(event)
 
     def load_preferences_from_xml(self):
-        tree = ET.parse(os.path.join(resources_dir,"preferences.xml"))
+        tree = ET.parse(preferences_read_path(resources_dir))
         root = tree.getroot()
         
         preferences = {}
@@ -11015,15 +11119,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         
         return preferences
 
-if __name__ == '__main__':
-    if "--check-video-dependencies" in sys.argv:
+def main(argv=None):
+    argv = list(sys.argv if argv is None else argv)
+    if "--check-video-dependencies" in argv:
         if VideoFrameSource.available():
             print("PyAV import OK")
-            sys.exit(0)
+            return 0
         print(f"PyAV import failed: {VideoFrameSource.import_error_message()}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
-    app = IcescopyApplication(sys.argv)
+    app = IcescopyApplication(argv)
+    app.setOrganizationName("Icescopy")
+    app.setOrganizationDomain("icescopy.org")
+    app.setApplicationName("Icescopy")
+    app.setApplicationVersion(__version__)
     if platform.system() == "Windows" and "Fusion" in QStyleFactory.keys():
         app.setStyle(QStyleFactory.create("Fusion"))
     app.setWindowIcon(QIcon(os.path.join(resources_dir, "app_icons", "IcescopyApp.png")))
@@ -11031,8 +11140,12 @@ if __name__ == '__main__':
     app.set_main_window(window)
     window.show()
 
-    for argument in sys.argv[1:]:
+    for argument in argv[1:]:
         if str(argument).lower().endswith(".icescopy"):
             QTimer.singleShot(0, partial(app.open_session_path, argument))
-    
-    app.exec()
+
+    return app.exec()
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

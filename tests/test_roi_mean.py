@@ -26,6 +26,17 @@ class FakeFrameSource:
         return f"frame-{frame_index}"
 
 
+class FailingFrameSource(FakeFrameSource):
+    def frame_count(self):
+        return 1
+
+    def source_kind(self):
+        return "test"
+
+    def iter_gray_arrays(self, **_kwargs):
+        raise RuntimeError("test decoder failure")
+
+
 class RoiMeanTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -87,6 +98,24 @@ class RoiMeanTests(unittest.TestCase):
         mask = ((xx - 3.0) ** 2 + (yy - 2.0) ** 2) <= 1.5**2
         expected = float(np.sum(image[mask]) / np.count_nonzero(mask))
         self.assertAlmostEqual(actual, expected)
+
+    def test_worker_contains_analysis_exception_and_reports_details(self):
+        worker = Image_analysis_thread(
+            filePath=None,
+            imagePaths=[],
+            imageNames=[],
+            list_of_cell_items=[[]],
+            frame_source=FailingFrameSource(),
+        )
+        failures = []
+        worker.analysis_failed.connect(lambda message, details: failures.append((message, details)))
+
+        worker.run()
+
+        self.assertIsInstance(worker.analysis_error, RuntimeError)
+        self.assertIn("test decoder failure", worker.analysis_traceback)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][0], "test decoder failure")
 
 
 if __name__ == "__main__":
