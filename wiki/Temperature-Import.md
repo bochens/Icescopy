@@ -159,9 +159,9 @@ well,slope,intercept
 
 `corrected temperature = (measured temperature − intercept) / slope`
 
-Use a nonzero slope. Invalid rows are skipped; a zero slope cannot yield a corrected temperature. If a cell appears more than once, the last parsed entry for that ID is used.
+Use finite numeric slopes and intercepts, with a nonzero slope. Rows that fail parsing are skipped; a zero slope cannot yield a corrected temperature. However, values such as `nan` and infinity can parse successfully and propagate into corrected output. Check the calibration file rather than assuming these values will be rejected. If a cell appears more than once, the last parsed entry for that ID is used.
 
-With calibration present, output adds a **corrected temperature_C** column for each sample. It is the mean correction over that sample's cells with usable entries, not a separate temperature column for each freezing cell. The original **temperature_C** remains unchanged. Check coverage yourself: the summary's calibrated-cell count identifies matching calibration IDs and is not proof that every slope was usable.
+When the calibration file yields at least one parsed entry, output adds a **corrected temperature_C** column for each sample. A header-only file or a file whose rows are all skipped adds no corrected columns. The value is the mean correction over that sample's cells with usable entries, not a separate temperature column for each freezing cell. The original **temperature_C** remains unchanged. Check coverage yourself: the summary's calibrated-cell count identifies matching calibration IDs and is not proof that every slope was usable.
 
 Calibration does not move freeze frames or change the raw temperature record used to find cycle boundaries.
 
@@ -243,7 +243,7 @@ Before using the result, check:
 4. **Cycles:** number and timing of resets, including events near each boundary.
 5. **Corrections:** blank-adjusted totals and frozen counts; TAMU calibration coverage where used.
 
-Choose **File → Output Results**, then **Freeze Count Timeseries CSV**. Save to a new location when preserving an earlier export, and save the session to keep the imported table and import settings.
+Choose **File → Output Results**, then **Freeze Count Timeseries CSV**. Save to a new location when preserving an earlier export, and save the session to retain the imported table and remembered import choices. Record **Cycle Warm-Up Hysteresis** separately: the session does not save that global preference.
 
 The count table is not restricted to detected freeze frames or analysis intervals. Standard, UTK, TAMU, and PKU produce one row per loaded frame; CSU produces one row per instrument record. Missing temperatures are empty CSV fields, while `nan` has specific uses in correction and metadata fields. See [Output Reference](Output-Reference.md) before loading the table into other software.
 

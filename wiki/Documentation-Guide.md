@@ -95,7 +95,7 @@ GitHub maintains the wiki in `https://github.com/bochens/Icescopy.wiki.git`. See
 
 The staging command converts intra-wiki `.md` links to wiki page routes, repository links to GitHub file URLs, and image links to raw asset URLs. Source and image links are pinned to the supplied commit so a later code change does not silently invalidate a line reference or screenshot.
 
-The command does not publish, modify the source pages, overwrite an existing staging directory, or delete older wiki pages. Check that the supplied commit contains the intended documentation and referenced files; the tool does not contact GitHub to verify publication.
+The command does not publish, modify the source pages, overwrite an existing staging directory, or delete older wiki pages. It requires a locally available commit containing the current wiki pages and linked files, and refuses differences from that commit. It does not contact GitHub to verify publication; confirm the commit is pushed before publishing the wiki.
 
 ## Keep historical records distinct
 

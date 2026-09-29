@@ -11,6 +11,7 @@ import argparse
 import html
 from pathlib import Path
 import re
+import subprocess
 import sys
 from urllib.parse import quote, unquote, urlsplit
 
@@ -21,6 +22,14 @@ REPOSITORY = "https://github.com/bochens/Icescopy"
 RAW = "https://raw.githubusercontent.com/bochens/Icescopy"
 LINK = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\n]+)\)")
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+INLINE_CODE = re.compile(r"(`+)(?!`)(.*?)\1(?!`)")
+
+
+def link_matches(line):
+    """Do not treat literal Markdown examples inside inline code as links."""
+    code_spans = [(match.start(), match.end()) for match in INLINE_CODE.finditer(line)]
+    return [match for match in LINK.finditer(line)
+            if not any(start <= match.start() < end for start, end in code_spans)]
 
 
 def prose_lines(text):
@@ -82,7 +91,7 @@ def check():
     for page in pages:
         text = page.read_text(encoding="utf-8")
         for number, line in prose_lines(text):
-            for match in LINK.finditer(line):
+            for match in link_matches(line):
                 resolved = resolve_link(page, match[3])
                 if resolved is None:
                     continue
@@ -136,12 +145,35 @@ def publication_target(page, target, source_ref, image):
 def stage(destination, source_ref):
     if not re.fullmatch(r"[0-9a-f]{40}", source_ref):
         raise ValueError("--source-ref must be a full, published Git commit SHA")
+    commit = subprocess.run(
+        ["git", "rev-parse", "--verify", source_ref + "^{commit}"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if commit.returncode or commit.stdout.strip() != source_ref:
+        raise ValueError("--source-ref is not a locally available commit SHA")
     destination = destination.expanduser().resolve()
     if destination.exists():
         raise ValueError("Destination already exists; choose a new staging directory")
     if not check():
         raise ValueError("Fix documentation link errors before staging")
     pages = sorted(WIKI.glob("*.md"))
+    committed_files = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", source_ref], cwd=ROOT, text=True,
+    ).splitlines()
+    referenced_files = {page.relative_to(ROOT).as_posix() for page in pages}
+    for page in pages:
+        for _, line in prose_lines(page.read_text(encoding="utf-8")):
+            for match in link_matches(line):
+                resolved = resolve_link(page, match[3])
+                if resolved is not None:
+                    referenced_files.add(resolved[0].relative_to(ROOT).as_posix())
+    if referenced_files - set(committed_files):
+        raise ValueError("Some wiki pages or linked files are absent from --source-ref; commit them first")
+    difference = subprocess.run(
+        ["git", "diff", "--quiet", source_ref, "--", *sorted(referenced_files)], cwd=ROOT,
+    )
+    if difference.returncode:
+        raise ValueError("Wiki pages or linked files differ from --source-ref; commit/review before staging")
     converted = {}
     for page in pages:
         text = page.read_text(encoding="utf-8")
@@ -149,16 +181,18 @@ def stage(destination, source_ref):
         output = []
         for number, line in enumerate(text.splitlines(keepends=True), 1):
             if number in replacements:
-                line = LINK.sub(
-                    lambda m: f"{m[1]}[{m[2]}]({publication_target(page, m[3], source_ref, bool(m[1]))})",
-                    line,
-                )
+                # Replace from the end so offsets remain valid and preserve
+                # code-span examples such as `[label](Some-Page.md)` verbatim.
+                for match in reversed(link_matches(line)):
+                    target = publication_target(page, match[3], source_ref, bool(match[1]))
+                    replacement = f"{match[1]}[{match[2]}]({target})"
+                    line = line[:match.start()] + replacement + line[match.end():]
             output.append(line)
         converted[page.name] = "".join(output)
     destination.mkdir(parents=True, exist_ok=False)
     for name, text in converted.items():
         (destination / name).write_text(text, encoding="utf-8")
-    print(f"Staged {len(converted)} wiki pages in {destination}. No Git operation was performed.")
+    print(f"Staged {len(converted)} wiki pages in {destination}. No Git write or publication was performed.")
 
 
 def main():
@@ -173,7 +207,7 @@ def main():
         return 0 if check() else 1
     try:
         stage(args.destination, args.source_ref)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.error(str(error))
     return 0
 

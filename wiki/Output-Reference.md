@@ -112,7 +112,7 @@ For each non-blank output group, the table adds:
 - `<sample name> number total`
 - `<sample name> number frozen`
 
-TAMU with a calibration file adds `<sample name> corrected temperature_C` immediately before that group's two count columns. It is the mean corrected temperature of the group's cells with usable calibration entries, including cells that have not frozen. It is not the temperature of an individual freezing cell. The leading `temperature_C` remains the uncorrected temperature.
+TAMU adds `<sample name> corrected temperature_C` immediately before that group's two count columns when the calibration file yields at least one parsed entry. A header-only file or one whose rows are all skipped adds no corrected columns. The value is the mean corrected temperature of the group's cells with usable calibration entries, including cells that have not frozen. It is not the temperature of an individual freezing cell. The leading `temperature_C` remains uncorrected.
 
 A sample with 20 assigned cells may have a smaller **number total** after blank correction. The separate metadata field `cell_number` remains its assigned cell count. See [the correction formula](#blank-corrected-counts).
 
@@ -177,6 +177,8 @@ Missing metadata is written as `nan`. Field labels shown in the app can differ f
 
 ## Missing values and zeroes
 
+For TAMU calibration, check that slopes and intercepts are finite and slopes are nonzero. The parser can accept `nan` and infinity, which can propagate into corrected temperatures; a non-finite result is not necessarily just an absent calibration entry.
+
 | Location | Empty field or `nan` means |
 | --- | --- |
 | Measurement cell columns: `nan` | Not measured or unavailable; see the reasons above. |
@@ -191,17 +193,22 @@ A numeric **0** is a real output value: zero accepted frozen cells, zero correct
 
 ## Read and reuse the files
 
-For the count table, tell your CSV reader to skip lines starting with `#`. For example, with pandas:
+For the count table, separate only the metadata lines that **start** with `#`. Do not use pandas' `comment="#"` option: it can truncate a valid header such as `Sample #1 number total`. For example:
 
 ```python
+from io import StringIO
+from pathlib import Path
 import pandas as pd
 
-counts = pd.read_csv("freeze_count_timeseries.csv", comment="#")
+lines = Path("freeze_count_timeseries.csv").read_text(encoding="utf-8").splitlines(keepends=True)
+metadata_lines = [line for line in lines if line.startswith("#")]
+table_text = "".join(line for line in lines if not line.startswith("#"))
+counts = pd.read_csv(StringIO(table_text))
 measurements = pd.read_csv("grayscale_measurements.csv")
 events = pd.read_csv("freeze_events.csv")
 ```
 
-This reads the tabular data; it does not preserve the comment metadata automatically. Read those lines separately when you need sample IDs, assigned cell counts, or custom fields. Also check how your reader handles duplicate sample names and missing values.
+This keeps the comment text in `metadata_lines` and reads the table into `counts`. Interpret the retained metadata separately when you need sample IDs, assigned cell counts, or custom fields. Also check how your reader handles duplicate sample names and missing values.
 
 To calculate fraction frozen, divide **number frozen** by a valid, nonzero **number total**. Choose whether the corrected or uncorrected counts answer your scientific question; the exported count columns use the selected blank correction. A count table alone does not supply concentration, confidence intervals, detection accuracy, or calibration uncertainty.
 
