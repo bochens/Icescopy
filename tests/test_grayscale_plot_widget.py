@@ -11,6 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 import numpy as np  # noqa: E402
 from icescopy_freezfinder import compute_convolution_center_offset  # noqa: E402
@@ -94,6 +95,52 @@ class GrayscalePlotWidgetTests(unittest.TestCase):
 
         widget.set_current_image_index(7, current_image_name=None, force=True)
         self.assertAlmostEqual(float(widget.current_frame_line.value()), 7.0)
+
+    def test_current_frame_overlay_tracks_freeze_marker_when_x_range_changes(self):
+        widget = self.make_widget()
+        widget.resize(1000, 300)
+        widget.show()
+        rows = [
+            [f"image_{index}.png", str(145 - 60 * (index >= 149) + index * 0.03)]
+            for index in range(190)
+        ]
+        widget.update_plot_data(
+            ["file_name", "cell_1_grayscale"],
+            rows,
+            [["cell_1", 149]],
+            [1],
+            current_image_index=149,
+        )
+        for _ in range(3):
+            self.app.processEvents()
+        widget.set_current_image_index(149, force=True)
+        freeze_item = widget.freeze_segments_item
+        plot_items = widget.plot_item.listDataItems()
+        range_changes = [
+            ("zoom", lambda: widget.plot_item.setXRange(100, 180, padding=0)),
+            ("pan", lambda: widget.plot_item.setXRange(90, 170, padding=0)),
+            ("auto range", lambda: widget.plot_item.enableAutoRange(axis="x")),
+        ]
+
+        for label, change_range in range_changes:
+            with self.subTest(range_change=label):
+                change_range()
+                for _ in range(3):
+                    self.app.processEvents()
+                freeze_x, freeze_y = freeze_item.getData()
+                freeze_scene_point = freeze_item.mapToScene(
+                    QPointF(float(freeze_x[0]), float(freeze_y[0]))
+                )
+                freeze_pixel_x = widget.plot_widget.mapFromScene(freeze_scene_point).x()
+
+                self.assertEqual(widget.current_frame_line.value(), 149.0)
+                self.assertEqual(freeze_x[0], 149.0)
+                self.assertAlmostEqual(
+                    widget.current_frame_line._pixel_x, freeze_pixel_x, delta=1.0
+                )
+                self.assertIs(widget.freeze_segments_item, freeze_item)
+                self.assertEqual(widget.plot_item.listDataItems(), plot_items)
+            widget.set_current_image_index(149, force=True)
 
     def test_peak_downsample_preserves_bucket_extrema(self):
         widget = self.make_widget()

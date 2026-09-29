@@ -173,6 +173,7 @@ class GrayscalePlotWidget(QWidget):
         self.plot_item.getAxis("right").linkToView(self.convolution_view_box)
         self.convolution_view_box.setXLink(self.plot_item.vb)
         self.plot_item.vb.sigResized.connect(self.update_convolution_view_geometry)
+        self.plot_item.vb.sigTransformChanged.connect(self._sync_current_frame_position)
         self.update_convolution_view_geometry()
 
         self.stack = QStackedLayout(self)
@@ -470,11 +471,18 @@ class GrayscalePlotWidget(QWidget):
         self.current_frame_line.set_frame_position(frame_x, widget_x)
         self._last_current_frame_widget_x = widget_x
 
+    def _sync_current_frame_position(self):
+        if self.current_frame_line is None:
+            return
+        frame_x = self._current_frame_x()
+        if frame_x is not None:
+            # The overlay stores pixels, so remap after the plot transform changes.
+            self._move_current_frame_line(frame_x)
+
     def update_convolution_view_geometry(self):
         self.convolution_view_box.setGeometry(self.plot_item.vb.sceneBoundingRect())
         self.convolution_view_box.linkedViewChanged(self.plot_item.vb, self.convolution_view_box.XAxis)
-        if self.current_frame_line is not None:
-            self._move_current_frame_line(self.current_frame_line.value())
+        self._sync_current_frame_position()
 
     def _grayscale_column_map(self):
         if self._column_map_cache is not None:
