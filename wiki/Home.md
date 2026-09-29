@@ -1,78 +1,42 @@
-# Icescopy Wiki
+# Icescopy User Guide
 
-Icescopy is a desktop application for reviewing freezing-array image sequences, annotating droplets or wells, generating grayscale measurement timeseries, identifying freeze events, and combining image-derived results with external temperature data.
+Icescopy helps you mark droplets or wells in images and videos, find when they freeze, review the detections, and match them to temperature records.
 
-This wiki is the package documentation set for the repository.
-It is split into task-focused pages instead of one large document.
+New to the app? Follow [Quick Start](Quick-Start.md). For installation, see [Installation and Setup](Installation-and-Setup.md).
 
-## Audience
+## Find the task you need
 
-This wiki is written for:
-
-- users running the desktop application
-- researchers reviewing image-derived freeze results
-- maintainers who need architecture context
-
-## Start here
-
-- [Installation and Setup](Installation-and-Setup)
-- [Quick Start](Quick-Start)
-- [Annotation Workflow](Annotation-Workflow)
-- [Image Editing](Image-Editing)
-- [Analysis and Results](Analysis-and-Results)
-- [Temperature Import](Temperature-Import)
-- [Sessions, Export, and Preferences](Sessions-Export-and-Preferences)
-- [Troubleshooting](Troubleshooting)
-
-## Developer and architecture pages
-
-- [Architecture Overview](Architecture-Overview)
-- [Cell System](Cell-System)
+| Task | Guide |
+| --- | --- |
+| Load images or video clips, check their order, and compare nearby frames | [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) |
+| Add individual cells or grids, follow movement, and assign samples | [Annotation Workflow](Annotation-Workflow.md) |
+| Crop the view or adjust brightness across frames | [Image Editing](Image-Editing.md) |
+| Limit analysis with start/end markers, tune freeze detection, and review results | [Analysis and Results](Analysis-and-Results.md) |
+| Match freeze events to temperature records | [Temperature Import](Temperature-Import.md) |
+| Save separate sessions, customize sample fields, and export selected tables | [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md) |
+| Resolve missing events, stale results, missing files, or import problems | [Troubleshooting](Troubleshooting.md) |
 
 ## Recommended workflow
 
-Most sessions should follow this order:
+1. Start a session, load an image sequence or video clips, and check the order.
+2. Adjust the images if needed, then mark each droplet or well with a cell circle. Assign sample groups.
+3. Set **analysis start and end markers** to include only the parts of the recording you want measured. You can define several separate intervals.
+4. Run analysis. Compare detected freeze frames with the images and grayscale plot, which shows brightness over time.
+5. Tune detection settings and rerun if needed. Make manual freeze corrections after the final run.
+6. Import temperature records, review the counts, and export the tables you need. Save the session throughout your work.
 
-1. Start a session and load images.
-2. Sort the image sequence if needed.
-3. Annotate cells or droplets.
-4. Fill in session metadata and well volume if they matter for export.
-5. Assign cells to samples if the experiment uses sample groups.
-6. Edit sample catalog metadata before temperature import when possible.
-7. Run analysis.
-8. Review the grayscale plot and freeze event table.
-9. Import temperature data if needed.
-10. Review the freeze count timeseries table.
-11. Save the session.
-12. Export the results.
+See [limiting analysis with markers](Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for step-by-step instructions. Changing markers or detection settings does not recalculate existing freeze events; run analysis again. After changing events or sample assignments, reimport temperature data to rebuild the counts.
 
-## Workflow rules that prevent rework
+## Terms used in the guide
 
-- Image order should be fixed before analysis.
-- Cell geometry and keyframes should be stable before analysis.
-- Sample assignment should be stable before temperature import.
-- Sample catalog metadata can be edited later without rerunning image analysis.
-- If sample assignment changes after temperature import, reimport temperature data so the grouped freeze count timeseries is rebuilt.
-- Exported freeze count timeseries CSVs include sample metadata comments for downstream tools.
+- **Cell:** a circle marking the part of a droplet or well whose brightness is measured.
+- **Sample:** a group of cells belonging to the same experimental sample, together with information such as its name and dilution.
+- **Keyframe:** a frame with a saved cell layout. The app calculates intermediate positions between keyframes when the image moves.
+- **Analysis interval:** the frames between a start marker and an end marker, including both endpoints. It limits automatic measurement and freeze finding.
+- **Session:** a `.icescopy` file storing annotations, settings, sample information, and results. Keep the original media available: the session refers to those files.
 
-## Key concepts
+Use **Save Session As...** and a fresh export folder when preserving an earlier result. [Save and export guidance](Sessions-Export-and-Preferences.md) explains the difference between a resumable session and CSV result tables.
 
-### Session
+## For developers
 
-A `.icescopy` file is the saved working state of an analysis session.
-It stores session metadata, application state, and results tables.
-
-### Cell
-
-A cell is the annotated region of interest used for grayscale measurement and freeze detection.
-Cells have stable IDs and can also be grouped into samples.
-
-### Keyframe
-
-A keyframe stores a known cell layout at a particular frame.
-Icescopy interpolates between keyframes to reduce repetitive manual edits.
-
-### Freeze Count Timeseries
-
-Freeze count timeseries combines image-derived freeze counts with external temperature timeseries, including repeated cooling-warming cycles when supported by the imported format.
-The exported data columns are count columns only: `number total` and `number frozen`.
+[Architecture Overview](Architecture-Overview.md) · [Cell System](Cell-System.md) · [API Reference](API-Reference.md)

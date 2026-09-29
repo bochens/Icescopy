@@ -20,9 +20,11 @@ It supports flexible droplet arrangements and multiwell plates, with tools for d
 
 Use the **Show Two Images** or **Show Three Images** toolbar controls to compare nearby frames. Select a numbered cell to inspect its grayscale plot, which shows how its average brightness changes through the recording. The current-frame marker helps connect a change in the plot to the corresponding image.
 
-![Droplet assay with neighboring frames displayed side by side and the selected cell's grayscale plot below](resources/readme/2026-09-29/droplet-frame-comparison.png)
+![Droplet assay with neighboring frames displayed side by side and the selected cell's grayscale plot below](resources/readme/2026-09-29/droplet-frame-comparison-clear-labels.jpg)
 
 The timeline flag button marks or clears a freeze event for the selected cells at the current frame. Detection settings also support freezing that appears as **brightening** instead of darkening. Review the images before accepting or changing an event.
+
+Use the timeline's **analysis start and end markers** to limit measurement and freeze finding to one or more parts of the recording. Both boundary frames are included. Run analysis again after changing the markers; see the [marker guide](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for the steps.
 
 ### Tune Freeze-Frame Detection
 

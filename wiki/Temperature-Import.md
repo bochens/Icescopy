@@ -1,189 +1,113 @@
 # Temperature Import
 
-This page describes the temperature import workflows currently supported by Icescopy.
+Temperature import combines the current freeze events, sample assignments, and a temperature record to build **Freeze Count Timeseries**. It does not run freeze detection.
 
-## Supported importers
+First check frame order, review the freeze events, and assign cells to samples. Then choose **Analysis → Import Temperature Data**. Reimport after changing freeze events or sample assignments, or after running analysis again.
 
-The current application supports:
+## Choose the importer
 
-- standard two-column temperature CSV
-- CSU `.dat`
-- TAMU Linkam `.xlsx`
-- PKU Linksys32 `.iml`
+| Menu item | Input | Image files | Video | Matching method |
+|---|---|---|---|---|
+| Standard CSV import | Timestamp and temperature in the first two columns | Yes | Yes | Image timestamps or a first timestamp plus video time/fixed interval |
+| CSU IS .dat import | CSU instrument `.dat` file | Yes | No | Picture names and sample columns |
+| TAMU Linkam .xlsx import | TAMU Linkam workbook | Yes | No | PNG filename timestamps matched to the workbook temperature record |
+| PKU Linksys32 .iml import | Linksys32 file with embedded image records | Yes | No | Loaded image order matched to the embedded image-record order |
+| UTK CSV import | CSV with `Time` and `PV(C)1` columns | Yes | Yes | Image filename timestamps, or a video filename start time plus video time |
 
-These importers are not interchangeable.
-Choose the importer that matches the external data format you actually have.
+Use the importer for the file's actual format. A `.csv` extension alone does not identify the format. See [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) for image and video loading.
 
-## When to import temperature
+## Standard temperature CSV
 
-Import temperature data after:
+Prepare a CSV with timestamp in column 1 and temperature in column 2. An optional header can occupy the first row; additional columns are ignored. For example:
 
-- image order is correct
-- cells are annotated
-- freeze events have been reviewed or accepted
-- sample assignments are correct
+```csv
+timestamp,temperature_C
+2026-01-01T12:00:00.000,-5.0
+2026-01-01T12:00:01.000,-5.1
+```
 
-Temperature import builds the freeze count timeseries table from current freeze events and current sample grouping.
-If sample assignment or freeze events change later, reimport the temperature data.
+Use at least two temperature rows and avoid duplicate timestamps. If a source manifest contains other columns before timestamp and temperature, copy the two required columns into a new CSV in this order.
 
-## Standard temperature CSV import
+1. Choose **Standard CSV import** and select the file.
+2. Choose how Icescopy obtains the image or video frame timestamps, as described below.
+3. Set the temperature timestamp style. Clear **Use image style for temperature timestamps** if the two sources use different formats.
+4. Choose **Celsius** or **Kelvin**. Imported output temperatures are in degrees Celsius.
+5. Select any water blank samples and, for repeated cooling cycles, the reset threshold.
+6. Import and review the reported numbers of parsed and in-range frames.
 
-Use the standard importer when you can prepare a simple CSV with:
+### Image timestamp sources
 
-- column 1: timestamp
-- column 2: temperature
+For image sequences, **Source** can read the filename, EXIF (camera metadata stored inside the image), file creation time, or file modification time. It can also generate times from **First timestamp** and **Frame interval (s)**. File creation and modification times are useful only when they represent acquisition times; copying files can change them.
 
-Other columns are ignored.
-The temperature column can be Celsius or Kelvin, selected in the dialog.
+The dialog previews the first image's resolved timestamp. Check it against the experiment clock. With generated times, confirm the image order and interval before importing.
 
-The dialog has separate sections for image timestamps, the temperature CSV, and water blank correction.
+### Video timestamp sources
 
-Image timestamps can come from:
+For video, enter **First timestamp** and choose:
 
-- filename
-- EXIF
-- creation time
-- modification time
-- generated sequence from first timestamp plus frame interval
+- **First timestamp + video time** to add the source's elapsed video time to that timestamp.
+- **First timestamp + fixed interval** to assign equally spaced times using **Frame interval (s)**.
 
-Timestamp text can use:
+Check the start and end against the temperature record. For multiple clips, confirm the clip order before importing. The selected timing method determines the alignment; these options do not establish that the camera and temperature logger clocks agree.
 
-- `YYYY-MM-DD HH:MM:SS`
-- `YYYY-MM-DDTHH:MM:SS`
-- `YYYY/MM/DD HH:MM:SS`
-- `YYYYMMDD_HHMMSS`
-- `YYYYMMDD HHMMSS`
-- `YYMMDD_HHMMSS`
-- `YYMMDD HHMMSS`
-- `YYMMDD HHMM`
-- `YYMMDD-HHMMSS`
-- `YY/MM/DD HH:MM:SS`
-- EXIF text such as `YYYY:MM:DD HH:MM:SS`
-- explicit Unix epoch seconds or milliseconds
+### Timestamp styles
 
-Epoch timestamps are not auto-detected.
-Choose the explicit epoch seconds or epoch milliseconds style when using epoch values.
-Epoch is interpreted as seconds or milliseconds since `1970-01-01 00:00:00 UTC`, then stored internally as a timezone-free timestamp for matching.
+**Auto** recognizes common year-first formats, including `YYYY-MM-DD HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS`, and `YYYY/MM/DD HH:MM:SS`, with supported fractional-second variants. Explicit choices also cover compact four- or two-digit-year formats and EXIF date text such as `YYYY:MM:DD HH:MM:SS`.
 
-The dialog tests the first image timestamp before import.
-If no image timestamp can be resolved, the import cannot proceed.
+For Unix epoch values, select **epoch seconds** or **epoch milliseconds** explicitly; Auto does not detect them. These are elapsed seconds or milliseconds since `1970-01-01 00:00:00 UTC`. Use a consistent clock convention for the image/video start time and temperature file.
 
-## CSU import
+## CSU IS .dat
 
-Use the CSU importer when you have the CSU `.dat` output format.
+1. Load the corresponding image sequence and keep its picture names.
+2. Ensure sample names match the `.dat` sample columns, such as `Sample_0`.
+3. Choose **CSU IS .dat import**, select the file, and identify any water blank samples.
+4. Set **Reset After Warmed To (°C)** if the experiment contains repeated cooling cycles.
+5. Review matched pictures and samples, including any unmatched columns or app samples.
 
-The CSU workflow supports:
+The importer expects a tab-separated CSU file with `Avg_Temp`, `Picture`, and `Sample_...` columns. It uses the current image-derived freeze events to reconcile the instrument's cumulative counts: the number frozen so far within each cycle. Its output follows the instrument temperature rows, so the output row count can exceed the number of images.
 
-- sample matching
-- water blank sample designation
-- reset-after-warmed-to cycle splitting
+## TAMU Linkam .xlsx
 
-## CSU Water Blank Correction
+Load the PNG sequence, then select **TAMU Linkam .xlsx import** and the matching workbook. Icescopy reads image timestamps from the PNG filenames and interpolates temperatures between workbook readings. A generic spreadsheet with temperature columns is not necessarily a Linkam workbook.
 
-Water blank correction is applied within a cycle.
+An optional calibration CSV must have `well`, `slope`, and `intercept` headers. Here, `well` is the Icescopy cell ID. The correction is `(measured temperature − intercept) / slope`; the slope must be nonzero. When calibration is supplied, the output includes the group's mean corrected temperature for cells with usable calibration entries. Review the reported calibrated-cell count.
 
-In the current logic:
+Select blank samples and a cycle reset threshold as needed, then check timestamp matching and the temperature range in the import summary.
 
-- the imported `.dat` series is treated as cumulative count data
-- image-derived anchor points from Icescopy are used to reconcile the cumulative series
-- water blank samples contribute a cumulative correction within each cycle
+## PKU Linksys32 .iml
 
-The algorithm defaults to the imported cumulative series when it is consistent, but corrects it when it violates:
+Load the image sequence, then choose **PKU Linksys32 .iml import** and its matching `.iml` file. The number of loaded images must equal the number of embedded image records, and their order must agree.
 
-- monotonic accumulation
-- anchor constraints
-- count bounds
+This importer uses timestamps and tagged temperatures from the embedded image records. It uses the continuous temperature record to identify cycle boundaries. It does not obtain PKU timestamps or temperatures from image filenames or EXIF metadata.
 
-## TAMU Linkam import
+If only exported images and a timestamp/temperature manifest are available, prepare a new two-column CSV from the manifest and use the **Standard CSV** workflow instead.
 
-Use the TAMU importer when you have a TAMU Linkam workbook.
+## UTK CSV
 
-This workflow uses:
+Choose **UTK CSV import** for a file with the exact column names `Time` and `PV(C)1`. Temperature is read in degrees Celsius. The `Time` column accepts forms such as `2026-01-01/12:00:00:123` or `2026-01-01 12:00:00`, with at least two rows and no duplicate timestamps.
 
-- image timestamps parsed from PNG filenames
-- time interpolation against the workbook timeseries
-- optional calibration CSV by cell ID
+- **Images:** timestamps are read from filenames using automatic format recognition.
+- **Video:** the start timestamp is read from the first clip's filename, for example `2026_0101_120000_001.MP4`. Icescopy adds the source's elapsed video time. Confirm the first clip and clip order before import.
 
-## PKU Linksys32 import
+The UTK dialog also supports water blank selection and cycle reset. If the video filename lacks a recognized start time, use the Standard CSV workflow with a prepared two-column temperature file and an explicitly entered first timestamp.
 
-Use the PKU importer when you have a Linksys32 `.iml` data file with embedded image records.
+## Water blanks and repeated cycles
 
-This workflow uses:
+A water blank is a control sample used to account for freezing in the water or handling process. When blank groups are selected, their frozen counts and total counts are subtracted from each non-blank output group within the cycle. Review the selected groups and resulting denominators; blank selection changes both counts.
 
-- loaded image order matched to the `.iml` image record order
-- timestamps stored in the `.iml` image records
-- temperature values tagged directly on each `.iml` image record
-- the continuous `.iml` temperature trace for cycle-boundary detection
+**Reset After Warmed To (°C)** starts a new cycle when the temperature warms back to the chosen threshold. Leave it **Off** for a single cycle. Within a cycle, a cell is counted after its first freeze event. Choose the threshold from the experiment's warming stage and check the resulting cycle boundaries.
 
-The `.iml` image record count must match the number of loaded images.
-Icescopy does not guess PKU image timestamps from filenames or EXIF metadata.
+## Review and export
 
-## Reset After Warmed To
+Before exporting, check:
 
-The reset threshold is used to split repeated cooling-warming cycles.
+- The expected sample groups and cell totals, including any separate **Unassigned cells** group.
+- The number of matched or in-range frames and any unmatched samples.
+- The first and last timestamps, temperature range, and cycle boundaries.
+- Several known freeze frames against their assigned temperatures.
 
-Use it when:
+Use **File → Output Results** and select **Freeze Count Timeseries CSV**. The file has metadata comment lines beginning with `#`, followed by the data table. The metadata includes session details, sample IDs and cell counts, and sample fields selected for export in Preferences. Missing values are written as `nan`; do not treat them as measured zeroes.
 
-- the experiment contains repeated cycles
-- counts should restart after the timeseries warms back above a chosen threshold
+Each sample has **number total** and **number frozen** columns. Current exports do not include **fraction frozen**; downstream software can calculate it from these counts when the total is valid and nonzero. The count table alone is not an ice-nucleating-particle concentration calculation.
 
-If the threshold is wrong, cycle boundaries will also be wrong.
-
-## Review the output
-
-After import, check:
-
-- sample matching
-- temperature alignment
-- cycle boundaries
-- whether the cumulative count shape makes sense against the image sequence
-- whether the number of images inside the temperature timeseries range is nonzero
-
-## Freeze count timeseries CSV output
-
-The exported `freeze_count_timeseries.csv` contains commented metadata preamble rows followed by the data table.
-Comment rows start with `#`.
-
-Preamble fields include:
-
-- `format_name`
-- `file_version`
-- `project_name`
-- `user_name`
-- `institution`
-- `analysis_date`
-- `well_volume_uL`
-- `reset_temperature_C`
-
-Sample metadata rows include:
-
-- `sample_id`
-- `cell_number`
-- `sample_name`
-- `sample_long_name`
-- `sampling_site`
-- `collection_start`
-- `collection_end`
-- `sample_type`
-- `dilution`
-- `air_volume_L`
-- `filter_fraction_used`
-- `suspension_volume_mL`
-- `dry_mass_g`
-
-The table columns include temperature and count data.
-For each sample, Icescopy writes:
-
-- `number total`
-- `number frozen`
-
-Icescopy does not export `fraction frozen`.
-Downstream tools should calculate fractions themselves if needed.
-
-## Practical warnings
-
-- if image timestamps are wrong, TAMU output will be wrong
-- if loaded image order does not match PKU `.iml` image record order, PKU output will be wrong
-- if standard CSV timestamp settings are wrong, interpolation will fail or align to the wrong images
-- if sample assignment is wrong, grouped output will be wrong
-- if freeze annotations are stale, freeze count timeseries will also be stale
+Save the session to retain the imported table and its settings. See [Analysis and Results](Analysis-and-Results.md) for reviewing detections and exporting the other result tables.

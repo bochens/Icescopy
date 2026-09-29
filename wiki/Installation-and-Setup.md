@@ -13,7 +13,7 @@ The repository also contains the Python source code and PyInstaller build specif
 You need:
 
 - a machine that can run the packaged build for your platform
-- an ordered image sequence from a freezing-array experiment
+- an ordered image sequence or video recording from a freezing-array experiment
 - optional external temperature files if you plan to use temperature import
 
 ### Windows installation
