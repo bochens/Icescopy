@@ -1,17 +1,18 @@
 # Sessions, Export, and Preferences
 
-Use a session file to continue working in Icescopy and CSV exports to use the results in other software.
+Save a session to resume work in Icescopy. Export CSV tables to use results in other software.
 
 ## Save and resume a session
 
-1. Start with **File → New Session** and enter any session information you need.
-2. Load images or video, annotate cells, and choose **File → Save Session As...** to create a `.icescopy` file.
-3. Use **File → Save Session** for later updates to that file.
-4. Use **File → Open Session** to resume it. **File → Edit Session Metadata...** changes the project, user, institution, and date fields.
+1. Choose **File → Save Session As...** to save your work in a `.icescopy` file.
+2. Use **File → Save Session** to update that file as you work.
+3. Use **File → Open Session** to resume it later.
 
-Sessions save the source paths, cell annotations, keyframes, freeze events, analysis markers, sample catalog and field definitions, image-edit settings, and available result tables. The source images and videos are **not embedded** in the session. Keep them available when copying or sharing a session.
+Sessions store cell annotations, keyframes, freeze events, analysis markers, sample information, settings, and available result tables. They store paths to the source images and videos, **not the media files themselves**. Keep those files when copying or sharing a session.
 
-**Save Session As...** gives an experiment or trial a separate file. Save a copy before changing an existing analysis if you want to retain the original. After Save As, subsequent Save Session commands update the new file.
+To preserve an earlier analysis, use **Save Session As...** before making changes. Later saves update the new file.
+
+Use **File → Edit Session Metadata...** to edit session information such as the project, user, institution, and date.
 
 ## Relink an image folder
 
@@ -19,9 +20,9 @@ If the images have moved:
 
 1. Open the session. If you want to preserve its original paths, use **Save Session As...** first.
 2. Choose **File → Relink Images Folder...** and select the current image folder.
-3. Read the result message and inspect the loaded images. Matching is by filename; missing files and ambiguous duplicate names are reported.
+3. Check the report and loaded images. Icescopy matches by filename and reports missing or duplicate matches.
 
-Relinking updates the active session's paths and attempts to save them into its current session file. If saving fails, the message asks you to use Save Session. Relink is for image folders; it does not relocate video files. Keep video files at their recorded locations when reopening a video session.
+Relinking updates the paths and attempts to save the current session file. If saving fails, use **Save Session**. Relinking works only for images; keep videos at their saved locations.
 
 ## Export selected results
 
@@ -35,52 +36,52 @@ Relinking updates the active session's paths and attempts to save them into its 
 | **Freeze Events CSV** | `freeze_events.csv` | Detected or manually corrected freeze events. |
 | **Freeze Count Timeseries CSV** | `freeze_count_timeseries.csv` | Temperature-aligned counts and sample information. |
 
-Only tables currently available in the session appear in the export dialog. Multiple-table export uses the fixed filenames above and can replace files with those names. Choose a new output folder to retain earlier results.
+Only available tables appear in the dialog. Exporting multiple tables can replace files with the names above. Choose a new folder to preserve earlier results.
 
-Image changes require another analysis run. Changes to freeze events or sample assignments require temperature import to be repeated before exporting updated grouped counts. Descriptive sample-field changes update export information without rerunning grayscale measurements.
+Before exporting updated results, rerun analysis after image changes and reimport temperatures after changing freeze events or sample assignments. Editing descriptive sample fields does not require a new analysis run.
 
 ## Read the freeze-count CSV
 
-The file begins with comment rows marked `#`, followed by the data table. Comments include session information, the reset temperature, sample IDs, cell counts, and sample fields enabled for export.
+Rows beginning with `#` contain session and sample information, including the reset temperature, sample IDs, cell counts, and fields enabled for export. The data table follows these rows.
 
-For each sample, the table contains **number total** and **number frozen**. Calculate fraction frozen from those counts in downstream analysis if required; Icescopy does not export a fraction-frozen column. Grouping uses `sample_id`, so distinct samples with identical names remain separate.
+Each sample has **number total** and **number frozen** columns. To calculate fraction frozen, divide number frozen by number total, using a valid, nonzero total. Icescopy does not export this fraction. Samples are grouped by `sample_id`; samples with the same name remain separate if their IDs differ.
 
-The sample field `cell_number` records the number of cells assigned to the sample. Missing information is written as `nan`. An export notice can report missing sample information; it does not supply those values.
+The `cell_number` field records how many cells are assigned to each sample. Missing information is written as `nan`, not zero. Fill in missing sample fields if you need them for later calculations.
 
 See [Temperature import](Temperature-Import.md) for time matching, repeated cycles, and water blank correction.
 
 ## Customize sample fields
 
-Use **Edit → Sample Catalog Manager** to enter values for each sample. To change which fields are available, open **Preferences → Samples → Sample Metadata Fields**.
+Enter sample values in **Edit → Sample Catalog Manager**. To add or change fields, open **Preferences → Samples → Sample Metadata Fields**.
 
 | Column | Meaning |
 | --- | --- |
 | **Label** | The name shown in the Sample Catalog. |
-| **Key** | The field's identifier in saved data and exports. Custom keys use lowercase letters, digits, and underscores, starting with a letter; for example, `storage_note`. |
+| **Key** | The field's name in saved data and exports. Start custom keys with a lowercase letter; use only lowercase letters, digits, and underscores, such as `storage_note`. |
 | **Type** | Text, number, or date/time for custom fields. |
 | **Export** | Include this field in the sample-information rows of the freeze-count CSV. |
 | **All** | Use one shared value across every sample. |
 
-Use **Add Field**, **Delete Field**, **Move Up**, or **Move Down** to change custom fields. Fixed identity fields remain available. Save the preferences to apply the changes; while a session is active, the fields apply to that session and become defaults for new sessions. A saved session retains its own field definitions.
+Use **Add Field**, **Delete Field**, **Move Up**, or **Move Down** to change custom fields, then save Preferences. Changes apply to the active session and become defaults for new sessions. Existing saved sessions retain their own field definitions. Fixed identity fields cannot be removed.
 
-Fields with **All** checked appear as **[all]** in the Sample Catalog. Editing their value for one sample updates it for every sample. **Well volume (uL)** uses this setting by default. Clear All when different samples need different values.
+Fields with **All** checked appear as **[all]** in the Sample Catalog. Editing one sample's value changes it for every sample. **Well volume (uL)** is shared by default; clear **All** to give samples different volumes.
 
-Deleting a field can remove its stored sample values. The app asks for confirmation when saving preferences would drop populated fields. Use Save Session As before changing a field layout you may need to recover.
+Deleting a field can remove its saved values; the app asks for confirmation if the field contains data. Use **Save Session As...** first if you may need to recover those values.
 
 ## Other preferences
 
-Preferences are organized into **General**, **Samples**, **Viewer**, **Drawing**, **Analysis**, **Timeseries**, and **Timeline** pages. They include default sorting, sample naming, grid controls, plot appearance, and freeze-finding settings.
+Preferences include file sorting, sample fields, drawing controls, plot appearance, and freeze detection.
 
-**Analysis** includes detection from brightening and the video grayscale source. The converted grayscale option retains the usual color-to-grayscale conversion; the video luma option uses the video's brightness channel when available. If you change measurement or detection settings, rerun analysis and review the new results before reimporting temperature data.
+On the **Analysis** page, choose whether freezing makes the image brighter and which brightness source to use for video. Converted grayscale calculates brightness from color; video luma uses the video's brightness channel when available. After changing measurement or detection settings, rerun analysis, check the results, and reimport temperatures.
 
-Display preferences such as colors or the number of visible frames do not require new measurements. Save the session after choosing the settings and fields needed for the experiment.
+Display changes, such as colors or the number of visible frames, do not require another analysis run.
 
 ## Session bundle contents
 
-A `.icescopy` file is a ZIP-format bundle. It contains `session.json` for the working state and any available result tables:
+A `.icescopy` file is a ZIP-format bundle containing `session.json` and any available result tables:
 
 - `grayscale.csv`
 - `freeze.csv`
 - `freeze_count_timeseries.csv`
 
-These internal tables are plain CSV members. The external freeze-count export adds the commented session and sample-information rows described above. Use **Output Results** when preparing files for other software.
+Use **Output Results** to prepare tables for other software. The exported freeze-count table includes session and sample information that the internal table does not.

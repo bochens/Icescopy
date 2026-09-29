@@ -1,58 +1,58 @@
 # Image Editing
 
-Open **Edit → Image Edit** to inspect the histogram and change exposure, contrast, crop, or frame-to-frame brightness correction. These settings affect the images used for grayscale measurements as well as the display. They are stored in the session; the source image and video files are not rewritten.
+Open **Edit → Image Edit** to adjust exposure, contrast, cropping, or frame-to-frame brightness. These settings affect both the display and the brightness measurements. They are saved in the session; source images and videos stay unchanged.
 
-Use **File → Save Session As...** before trying different image preparation on an existing analysis.
+Use **File → Save Session As...** before experimenting with an existing analysis.
 
 ## Exposure and contrast
 
 1. Choose a representative frame and open **Image Edit**.
-2. Adjust **Exposure** or **Contrast** with the slider or numeric field.
-3. Check several frames, including frames before and after a freezing event.
+2. Adjust **Exposure** (overall brightness) or **Contrast** (the difference between light and dark values).
+3. Check several frames, including before and after a freeze event.
 
-Exposure changes overall brightness; contrast changes the separation between light and dark values. Both settings apply across the recording. A slider previews the change while dragged and commits it when released; numeric edits apply directly. There is no separate Apply button for these two controls.
+Both settings apply to the whole recording. Sliders preview while dragged and apply when released. Numeric edits apply directly; there is no separate Apply button. Scrolling over a slider does not change it.
 
-Set a control back to zero to remove its adjustment, or use **Edit → Undo**. Mouse-wheel changes on the exposure and contrast sliders are blocked to avoid accidental edits while scrolling the panel.
+Set a control to zero to remove its adjustment, or use **Edit → Undo**.
 
 ## Read the histogram
 
-The histogram shows how many pixels have each brightness value in the current displayed image. A concentration at the darkest or brightest end can indicate clipping: different original values have been pushed to the same black or white value, losing detail.
+The histogram counts pixels at each brightness value in the displayed image. A pile-up at the black or white end can indicate **clipping**: different brightness values have become the same black or white, losing detail.
 
-Use the histogram together with the image and cell outlines. Increasing contrast can make a feature easier to see while also losing information elsewhere. A clearer-looking image alone does not establish a better freeze result.
+Check the image as well as the histogram. Higher contrast can reveal a feature while hiding detail elsewhere. Always review freeze results after making image adjustments.
 
 ## Crop the view and measurement area
 
-1. In **Image Edit**, click **Crop**. The full image and an adjustable crop box are shown.
-2. Drag the box to move it, its resize handles to change its size, or its rotation handle to turn it.
-3. Check that all cells needed for analysis remain inside the box.
-4. Click **Apply** to commit the crop. Click **Cancel** to discard the current crop preview.
+1. Click **Crop** in Image Edit to show the full image and crop box.
+2. Drag the box to move it. Drag its resize handles to change its size, or its rotation handle to turn it.
+3. Keep all cells needed for analysis inside the box.
+4. Click **Apply** to use the crop, or **Cancel** to discard the preview.
+5. Check the cell outlines again.
 
-The committed crop affects the viewer, histogram, and grayscale sampling. Check the cell outlines again after applying it.
-
-**Reset** restores the full image when no crop preview is active. Finish or cancel the preview before using Reset.
+The crop affects the viewer, histogram, and brightness measurements. To restore the full image, finish or cancel any crop preview, then click **Reset**.
 
 ## Correct changes in illumination
 
-**Uniform Exposure** calculates a brightness correction for each frame from a selected control area. It uses the current frame as the reference and measures the mean brightness in that same area throughout the recording.
+**Uniform Exposure** adjusts each frame using the average brightness of a control area. It compares that area throughout the recording with the same area in your chosen reference frame.
 
-1. Navigate to the frame to use as the brightness reference.
-2. Under **Uniform Exposure**, click **Set Area**.
-3. Move and resize the control rectangle over an area expected to remain stable. Avoid an area whose brightness changes because it freezes or moves out of view.
-4. Click **Done**, then **Run**.
-5. Inspect several frames and the grayscale traces after analysis. Use the Uniform Exposure **Reset** button to remove this correction and its control area.
+1. Set exposure and contrast first.
+2. Go to the frame to use as the brightness reference.
+3. Under **Uniform Exposure**, click **Set Area**.
+4. Move and resize the rectangle over a stable area that does not freeze or move out of view.
+5. Click **Done**, then **Run**.
+6. Check several frames and, after analysis, their brightness plots.
 
-Run reads the whole recording, including frames outside any marked analysis interval. A very dark control area cannot provide a usable correction and produces an error. The reference area determines the correction applied to the whole frame, so its choice matters.
+Choose the area carefully: its brightness controls the correction for the whole frame. A very dark area produces an error. This calculation reads the whole recording, including frames outside analysis markers.
 
-Set exposure and contrast before running Uniform Exposure. If those settings or the control area change, run Uniform Exposure again to calculate corrections for the new choices.
+If exposure, contrast, or the control area changes, run Uniform Exposure again. Its **Reset** button removes the correction and control area.
 
 ## Recalculate after image edits
 
-Committed exposure, contrast, uniform exposure, and crop changes invalidate existing image-analysis results. To update the results:
+Exposure, contrast, Uniform Exposure, and crop changes make existing analysis results out of date. After applying them:
 
-1. Confirm the cell placement and analysis interval.
+1. Check cell placement and analysis intervals.
 2. Choose **Analysis → Run Analysis**.
-3. Review the new freeze events and repeat any needed manual corrections.
-4. Import temperature data again to rebuild freeze counts.
-5. Save the session and export the updated tables under a new name or into a new folder if earlier outputs must be kept.
+3. Review freeze events and repeat any manual corrections.
+4. Import temperature data again to rebuild counts.
+5. Save the session and export the tables. Use a new name or folder to preserve earlier results.
 
-Changing only zoom or the number of displayed frames does not change the measurements. See [Annotation workflow](Annotation-Workflow.md) and [Analysis and results](Analysis-and-Results.md) for the next steps.
+Zoom and the number of displayed frames do not affect measurements. See [Annotation Workflow](Annotation-Workflow.md) and [Analysis and Results](Analysis-and-Results.md) for next steps.
