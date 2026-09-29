@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDial
                                QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
                                QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory,
                                QCheckBox)
-from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QActionGroup, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
@@ -3321,29 +3321,23 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.run_analysis_action.triggered.connect(self.outputData)
         self.sort_images_action.triggered.connect(self.openSortImagesDialog)
         self.sample_manager_action.triggered.connect(self.show_sample_catalog_manager)
-        self.image_edit_action.triggered.connect(self.imageEditTool)
-        self.viewer_single_action.triggered.connect(lambda: self.set_viewer_image_count(1))
-        self.viewer_double_action.triggered.connect(lambda: self.set_viewer_image_count(2))
-        self.viewer_triple_action.triggered.connect(lambda: self.set_viewer_image_count(3))
         self.viewer_orientation_toggle_action.triggered.connect(self.toggle_viewer_split_orientation)
         self.undo_action.triggered.connect(self.undo)
         self.redo_action.triggered.connect(self.redo)
-        self.reset_cursor_action.triggered.connect(self.reset_cursor_tool)
-        self.reset_cursor_action.setCheckable(True)
-        self.select_tool_action.triggered.connect(self.selectTool)
-        self.select_tool_action.setCheckable(True)
-        self.grid_tool_action.triggered.connect(self.gridTool)
-        self.grid_tool_action.setCheckable(True)
-        self.edit_tool_action.triggered.connect(self.editTool)
-        self.edit_tool_action.setCheckable(True)
-        self.deselect_tool_action.triggered.connect(self.deselectTool)
-        self.deselect_tool_action.setCheckable(True)
-        self.pan_tool_action.triggered.connect(self.panTool)
-        self.pan_tool_action.setCheckable(True)
-        self.image_edit_action.setCheckable(True)
-        self.viewer_single_action.setCheckable(True)
-        self.viewer_double_action.setCheckable(True)
-        self.viewer_triple_action.setCheckable(True)
+        self.tool_action_group = self.connect_mode_actions((
+            (self.reset_cursor_action, self.reset_cursor_tool),
+            (self.select_tool_action, self.selectTool),
+            (self.grid_tool_action, self.gridTool),
+            (self.edit_tool_action, self.editTool),
+            (self.deselect_tool_action, self.deselectTool),
+            (self.pan_tool_action, self.panTool),
+            (self.image_edit_action, self.imageEditTool),
+        ))
+        self.viewer_action_group = self.connect_mode_actions((
+            (self.viewer_single_action, lambda _checked: self.set_viewer_image_count(1)),
+            (self.viewer_double_action, lambda _checked: self.set_viewer_image_count(2)),
+            (self.viewer_triple_action, lambda _checked: self.set_viewer_image_count(3)),
+        ))
         self.undo_stack.canUndoChanged.connect(lambda _: self.set_undo_status())
         self.undo_stack.canRedoChanged.connect(lambda _: self.set_redo_status())
         self.preview_confirm_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self)
@@ -3683,7 +3677,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.setFocusPolicy(Qt.StrongFocus)  # Enable keyboard focus for the main window
 
         # Default initializations
-        self.reset_cursor_action.trigger()  # force reset the cursor
+        self.reset_cursor_tool(True)
         self.resize_image_textbox() # set default size for the frame number textbox. Will get called when updating frames (changing slider value)
         self.reset_status_bar_stylesheet()
         self.update_session_metadata_status_label()
@@ -5719,17 +5713,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.temporary_event_data["previous_edit_mode"] = restored_tool_mode
             self.editTool(self.edit_tool_action.isChecked())
         elif restored_tool_mode == "pan":
-            self.pan_tool_action.trigger()
+            self.panTool(True)
         elif restored_tool_mode == "image-edit":
-            self.image_edit_action.trigger()
+            self.imageEditTool(True)
         elif restored_tool_mode == "select":
-            self.select_tool_action.trigger()
+            self.selectTool(True)
         elif restored_tool_mode == "grid":
-            self.grid_tool_action.trigger()
+            self.gridTool(True)
         elif restored_tool_mode == "deselect":
-            self.deselect_tool_action.trigger()
+            self.deselectTool(True)
         else:
-            self.reset_cursor_action.trigger()
+            self.reset_cursor_tool(True)
 
     def redraw_no_image_cell_template_view(self, *, fit_view=False):
         """Draw stored cells on a blank scene when no images are loaded."""
@@ -8218,15 +8212,44 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def file_dialog_options(self):
         return QFileDialog.Options()
 
+    def connect_mode_actions(self, action_callbacks):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for action, callback in action_callbacks:
+            action.setCheckable(True)
+            group.addAction(action)
+            # Accessibility can toggle an action without triggering it.
+            action.toggled.connect(
+                lambda checked, action=action, callback=callback: self.handle_mode_action_toggled(
+                    group, action, callback, checked
+                )
+            )
+        return group
+
+    def handle_mode_action_toggled(self, group, action, callback, checked):
+        if getattr(self, "_syncing_mode_actions", False):
+            return
+        if checked:
+            callback(True)
+        elif not any(candidate.isChecked() for candidate in group.actions()):
+            # Turning off the active mode is not a transition to another mode.
+            self.set_mode_action_checks(group.actions(), action)
+
+    def set_mode_action_checks(self, actions, selected_action):
+        was_syncing = getattr(self, "_syncing_mode_actions", False)
+        self._syncing_mode_actions = True
+        try:
+            for action in actions:
+                action.setChecked(action is selected_action)
+        finally:
+            self._syncing_mode_actions = was_syncing
+
     def set_tools_highlight(self, tool_mode):
-        for key, value in self.tool_name_dict.items():
-            if key == tool_mode:
-                value.setChecked(True)
-            else:
-                if (tool_mode in ["edit-choose", "edit-new", "edit-group"]) and (key in ["edit-choose", "edit-new"]):
-                    value.setChecked(True)
-                else:
-                    value.setChecked(False)
+        if tool_mode in ("edit-new", "edit-group"):
+            tool_mode = "edit-choose"
+        self.set_mode_action_checks(
+            self.tool_action_group.actions(), self.tool_name_dict.get(tool_mode)
+        )
 
     def restore_after_edit_mode(self):
         """Restore controls that are temporarily disabled during single-edit."""
@@ -8452,6 +8475,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     
     def deselectTool(self, checked):
         if self.delete_selected_cells():
+            self.set_tools_highlight(self.tool_mode)
             return
         if self.tool_mode != "deselect":
             self.cancel_unfinished_tool_workflow()
@@ -9526,7 +9550,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.updateButtonStates()
         self.invalidate_analysis_results("image list changed")
         self.populate_image_list()
-        self.reset_cursor_action.trigger()
+        self.reset_cursor_tool(True)
         self.redraw_no_image_cell_template_view(fit_view=True)
         self.log(log_message)
         self.push_image_session_history("Clear Images", before_state)
@@ -9584,7 +9608,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_freeze_count_timeseries_table()
         self.refresh_sample_catalog_tree(preserve_selection=False)
         self.populate_image_list()
-        self.reset_cursor_action.trigger()
+        self.reset_cursor_tool(True)
         if hasattr(self, "terminal"):
             self.terminal.clear()
         self.log(log_message)
@@ -10387,7 +10411,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     return
 
                 if original_tool_mode == "pan":
-                    self.pan_tool_action.trigger()
+                    self.panTool(True)
                     self.key_press_toolbutton_highlight(self.pan_tool_action)
                 elif original_tool_mode == "cursor":
                     self.apply_cursor_tool_ui()
@@ -10487,7 +10511,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.updateButtonStates()
         self.zoom_slider.setValue(1)
         
-        self.reset_cursor_action.trigger()
+        self.reset_cursor_tool(True)
         self.select_tool_action.setEnabled(False)
         self.grid_tool_action.setEnabled(False)
         self.deselect_tool_action.setEnabled(False)
@@ -10805,9 +10829,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.pan_tool_action.setIcon(self.toolbar_icon(mode_folder, "hand-left.svg"))
 
     def update_viewer_mode_actions(self):
-        self.viewer_single_action.setChecked(self.viewer_image_count == 1)
-        self.viewer_double_action.setChecked(self.viewer_image_count == 2)
-        self.viewer_triple_action.setChecked(self.viewer_image_count == 3)
+        actions = (self.viewer_single_action, self.viewer_double_action, self.viewer_triple_action)
+        selected_action = dict(enumerate(actions, start=1)).get(self.viewer_image_count)
+        self.set_mode_action_checks(actions, selected_action)
         self.update_viewer_orientation_toggle_action()
 
     def update_viewer_orientation_toggle_action(self, mode_folder=None):
