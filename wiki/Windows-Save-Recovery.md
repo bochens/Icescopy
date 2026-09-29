@@ -1,6 +1,6 @@
 # Icescopy Windows save recovery build
 
-This build is based on GitHub main bf1c737 plus local fixes on codex/windows-preferences-errors. The displayed application version remains 2.3.6. The executable is a separate portable build, not the previously installed release.
+This investigation originally used a portable test build based on GitHub main bf1c737 plus fixes on codex/windows-preferences-errors. That test executable displayed version 2.3.6 and was separate from the previously published release. The final fixes were committed as 1da2f75 and are included in version 2.3.7. The test-build validation below records that investigation; release-specific packaging checks are recorded separately.
 
 ## Reproduced code failures
 

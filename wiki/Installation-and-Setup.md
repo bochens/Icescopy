@@ -16,6 +16,12 @@ You need:
 - an ordered image sequence from a freezing-array experiment
 - optional external temperature files if you plan to use temperature import
 
+### Windows installation
+
+Download `Icescopy-windows-installer.exe` from the [GitHub releases page](https://github.com/bochens/Icescopy/releases). The Windows installer installs for the current user and includes Python and the application dependencies. Normal use does not require administrator privileges.
+
+The current Windows build is x64 and uses Qt 6.11, which supports Windows 10 version 1809 or later and Windows 11. See [Qt's supported Windows configurations](https://doc.qt.io/qt-6/windows.html). This build does not support Windows 7, Windows 8, or 32-bit Windows.
+
 ## Repository layout
 
 The main project areas are:
@@ -25,7 +31,7 @@ The main project areas are:
 - `resources/`
   - icons, preferences, and bundled assets
 - `tests/`
-  - non-GUI unit tests
+  - unit tests and Qt tests that run without displaying windows
 - `wiki/`
   - GitHub wiki Markdown source
 
@@ -75,19 +81,23 @@ python run_tests.py
 
 ## Building the packaged app
 
-The repository includes a PyInstaller spec:
+Build on the target operating system with the development environment active.
 
-- `Icescopy.spec`
+On Windows, use the Windows spec:
 
-With the development environment active, run:
+```powershell
+python -m PyInstaller --clean --noconfirm Icescopy.windows.spec
+```
+
+The portable output is `dist/Icescopy-windows/`. Keep its `Icescopy.exe` and `_internal/` folder together. The Windows spec expects the runtime DLLs provided by the project's conda build environment. To package this folder as the per-user Inno Setup installer, follow [the Windows installer build instructions](../packaging/windows/README.md).
+
+On macOS, use:
 
 ```bash
 python -m PyInstaller --clean --noconfirm Icescopy.spec
 ```
 
-Build outputs appear in:
-
-- `dist/`
+Build outputs appear in `dist/`.
 
 ## Notes on packaged builds
 
@@ -99,3 +109,5 @@ Build outputs appear in:
 Users should treat the installed application as read-only. The bundled `resources/preferences.xml` supplies defaults; saved preferences go to the platform's user configuration directory under `Icescopy/preferences.xml`. Developers can set `ICESCOPY_CONFIG_DIR` to use an isolated configuration directory while testing.
 
 Session files, exports, and other user data belong in user-chosen writable folders, not inside the app bundle.
+
+When a save is denied or a file is locked, Icescopy keeps the unsaved work open and offers Retry or Cancel. Session saves also offer Save As. If Windows Security has blocked Icescopy through Controlled folder access, Allow App in Windows opens the native permission screen directly; the user grants access there and then retries the save. The app does not change Windows security settings itself.
