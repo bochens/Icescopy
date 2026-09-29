@@ -2175,14 +2175,8 @@ class SessionIoTests(unittest.TestCase):
                 pass
 
         class DummyAction:
-            def __init__(self):
-                self.triggered = False
-
             def setEnabled(self, _enabled):
                 pass
-
-            def trigger(self):
-                self.triggered = True
 
         cell_items = [
             SimpleNamespace(cell_id=0, circle_pixel_positions=(10, 20)),
@@ -2216,7 +2210,7 @@ class SessionIoTests(unittest.TestCase):
             pan_tool_action=DummyAction(),
             deselect_tool_action=DummyAction(),
             edit_tool_action=DummyAction(),
-            reset_cursor_action=DummyAction(),
+            cursor_reset=False,
             history_pushed=False,
             logged_message=None,
             no_image_redraw_fit_view=None,
@@ -2234,6 +2228,7 @@ class SessionIoTests(unittest.TestCase):
         fake_window.updateButtonStates = lambda: None
         fake_window.invalidate_analysis_results = lambda reason=None: None
         fake_window.populate_image_list = lambda: None
+        fake_window.reset_cursor_tool = lambda checked: setattr(fake_window, "cursor_reset", checked)
         fake_window.redraw_no_image_cell_template_view = (
             lambda fit_view=False: setattr(fake_window, "no_image_redraw_fit_view", fit_view)
         )
@@ -2256,7 +2251,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(fake_window.imageNames, [])
         self.assertEqual(fake_window.rendered_cell_items, [])
         self.assertIs(fake_window.no_image_redraw_fit_view, True)
-        self.assertTrue(fake_window.reset_cursor_action.triggered)
+        self.assertTrue(fake_window.cursor_reset)
         self.assertEqual(fake_window.history_pushed[0], "Clear Images")
 
 
