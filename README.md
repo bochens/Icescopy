@@ -24,6 +24,27 @@ Use the **Show Two Images** or **Show Three Images** toolbar controls to compare
 
 The timeline flag button marks or clears a freeze event for the selected cells at the current frame. Detection settings also support freezing that appears as **brightening** instead of darkening. Review the images before accepting or changing an event.
 
+### Tune Freeze-Frame Detection
+
+Open **Preferences → Analysis → Freeze Finding**. Select a cell and compare its **Grayscale Plot** with the images before and after freezing. The solid line shows average brightness; the dashed **convolution** line is a calculated response that emphasizes brightness changes, read against the right-hand axis.
+
+Start with the current settings and adjust one parameter at a time:
+
+| Control | How to tune it |
+| --- | --- |
+| **Detect freezing from brightening** | Turn on if the cell becomes brighter when it freezes; leave off if it becomes darker. Check this first when clear events are missed. |
+| **Peak Prominence** | How strongly a peak or dip stands out in the dashed signal. Lower it to admit weaker events; raise it to reject small false detections. This is not a threshold on the raw brightness change. |
+| **Peak Width** | Minimum width of a peak or dip in the dashed signal, measured in frames. Raise it to reject brief noise; lower it if a real, narrow response is missed. It does not measure how long the cell stays frozen. |
+| **Convolution Half Window Points** | Controls how many frames contribute to the brightness comparison. Smaller positive values use a shorter span; larger values use a longer span. **0** uses the whole analyzed segment. Recheck prominence and width after changing this. |
+| **Convolution Ramp Points** | **0** looks for an abrupt brightness step. Increase gradually if freezing produces a sloped change across several frames, then recheck the detections. |
+| **Front / Tail Extension Points** | Repeat the first or last brightness value during calculation. Increase the relevant end if visible events near the beginning or end are missed. This cannot recover a transition that was not recorded. |
+
+Use **Save Session As...** before tuning to preserve earlier results. After each change, **Save** preferences and choose **Analysis → Run Analysis**: saving preferences alone does not update detected freeze frames. Check the same clear, weak, and noisy cells each time, including cells that should have no event. A setting that finds one missed event may also introduce false detections elsewhere.
+
+For a missed event, check brightness direction first, then lower prominence; adjust width if the real response is narrow. For false events, raise prominence or width as appropriate, and check for image motion or lighting changes. There is no single setting that suits every recording.
+
+Rerunning analysis replaces manual freeze corrections. Make final corrections after tuning, then reimport temperature data to rebuild the counts. The reported freeze frame is refined using the original brightness changes, so it need not sit exactly at the tip of the dashed peak or dip.
+
 ### Draw An Array To Match The Image
 
 1. Press **G** for **Grid Tool**, move the preview over the wells, and click once to hold it in place.
