@@ -6,12 +6,12 @@ Icescopy is a desktop app for analyzing images and videos of freezing experiment
 
 ## Install
 
-Download the file for your computer from the [latest release](https://github.com/bochens/Icescopy/releases/latest). These downloads include Python and the required libraries.
+Download the version listed for your computer below. These downloads include Python and the required libraries; release notes are on [GitHub Releases](https://github.com/bochens/Icescopy/releases).
 
 | Platform | Download | Installation |
 | --- | --- | --- |
-| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/latest/download/Icescopy-windows-installer.exe) | Run the installer. |
-| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/latest/download/Icescopy-macos-arm64.zip) | Unzip, then move **Icescopy.app** to **Applications**. |
+| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) — v2.3.7 | Run the installer. |
+| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip) — v2.3.8 | Unzip, then move **Icescopy.app** to **Applications**. |
 
 The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
 
@@ -43,7 +43,7 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 Draw individual cells with **Add Cell**, or place a row-and-column array with **Grid Tool**. Adjust the size, spacing, and angle to fit the image. Click **Apply** to create the cells.
 
-![Grid Tool placing circles over wells](resources/readme/2026-09-29/grid-annotation.png)
+![Grid Tool placing circles over wells](resources/readme/2026-09-29/grid-annotation-native.png)
 
 A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
 
@@ -51,7 +51,7 @@ A **cell** is the circle whose brightness Icescopy measures. If the image moves,
 
 Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
 
-![Numbered wells and their sample information](resources/readme/2026-09-29/well-plate-sample-review.png)
+![Numbered wells and their sample information](resources/readme/2026-09-29/well-plate-sample-review-native.png)
 
 ### 3. Choose the frames to analyze
 
@@ -63,7 +63,7 @@ Choose **Analysis → Run Analysis** to measure brightness and find freeze event
 
 Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames so you can check the detected change.
 
-![Neighboring frames and the selected cell's brightness plot](resources/readme/2026-09-29/droplet-frame-comparison-clear-labels.jpg)
+![Neighboring frames and the selected cell's brightness plot](resources/readme/2026-09-29/droplet-frame-comparison-native.png)
 
 For missed or incorrect detections, open **Preferences → Analysis → Freeze Finding**:
 

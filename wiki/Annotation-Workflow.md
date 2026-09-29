@@ -32,7 +32,7 @@ Click the image viewer before using a letter shortcut, so you do not type into a
 4. Adjust **X** and **Y**, or drag the handle. Check the edges as well as the center.
 5. Click **Apply** or press **Enter**. Press **A** to inspect the numbered cells.
 
-![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-29/grid-annotation.png)
+![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-29/grid-annotation-native.png)
 
 **Float** returns to pointer placement; **Cancel** discards the preview. Check every circle: the grid uses the spacing you set and does not find wells automatically.
 
@@ -91,7 +91,7 @@ Use **Show Two Images** for the previous/current pair, or **Show Three Images** 
 
 After analysis, press **A** and select a cell. Open **Window → Grayscale Plot** if needed. Compare its brightness line and current-frame marker with the visible freeze event.
 
-![Frame comparison with cell inspection and the grayscale plot](../resources/readme/2026-09-29/droplet-frame-comparison-clear-labels.jpg)
+![Frame comparison with cell inspection and the grayscale plot](../resources/readme/2026-09-29/droplet-frame-comparison-native.png)
 
 See [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) for navigation and viewer controls.
 

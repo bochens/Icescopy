@@ -2,16 +2,16 @@
 
 ## Download the app
 
-Download the file for your computer from [GitHub Releases](https://github.com/bochens/Icescopy/releases/latest). The packaged app includes Python and the libraries it needs; you do not need to install Python or conda to use it.
+Download the version listed for your computer below. All releases are available on [GitHub Releases](https://github.com/bochens/Icescopy/releases). The packaged app includes Python and the libraries it needs; you do not need to install Python or conda to use it.
 
-The [v2.3.7 release](https://github.com/bochens/Icescopy/releases/tag/v2.3.7) provides:
+The Mac app is [v2.3.8](https://github.com/bochens/Icescopy/releases/tag/v2.3.8); the current Windows installer remains [v2.3.7](https://github.com/bochens/Icescopy/releases/tag/v2.3.7).
 
 | Computer | Download |
 | --- | --- |
-| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) |
-| Mac with Apple Silicon | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-macos-arm64.zip) |
+| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) — v2.3.7 |
+| Mac with Apple Silicon | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip) — v2.3.8 |
 
-This release does not include an Intel Mac or Linux app download. GitHub's **Source code** downloads are the program's source files, not installers.
+These releases do not include an Intel Mac or Linux app download. GitHub's **Source code** downloads are the program's source files, not installers.
 
 ## Install on Windows
 
@@ -31,7 +31,7 @@ The default installation folder is `%LOCALAPPDATA%\Programs\Icescopy`. This buil
 
 macOS may ask for extra approval the first time you open this release. If you trust the downloaded copy, try opening it, then use **System Settings → Privacy & Security → Open Anyway** if that option appears. Follow [Apple's instructions for opening downloaded apps](https://support.apple.com/en-us/102445).
 
-The current Mac download is for Apple Silicon only. The [release notes](https://github.com/bochens/Icescopy/releases/tag/v2.3.7) describe its signing and build checks.
+The current Mac download is for Apple Silicon only. See the [Mac release notes](https://github.com/bochens/Icescopy/releases/tag/v2.3.8) for changes and build details.
 
 ## Start an analysis
 
@@ -43,10 +43,10 @@ If a file cannot be saved, keep the session open and use the offered **Retry**, 
 
 ## Optional: check a downloaded file
 
-The release provides checksum files, which contain numbers you can compare with your download to check that it arrived unchanged:
+Each platform's release provides a checksum file, which contains a number you can compare with your download to check that it arrived unchanged:
 
-- [SHA256SUMS.txt](https://github.com/bochens/Icescopy/releases/download/v2.3.7/SHA256SUMS.txt) covers the Windows installer.
-- [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-macos-arm64.zip.sha256) covers the Mac ZIP file.
+- [SHA256SUMS.txt](https://github.com/bochens/Icescopy/releases/download/v2.3.7/SHA256SUMS.txt) covers the Windows v2.3.7 installer.
+- [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip.sha256) covers the Mac v2.3.8 ZIP file.
 
 ## Run from source
 
