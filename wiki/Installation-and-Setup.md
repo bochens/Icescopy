@@ -4,11 +4,11 @@
 
 Download the version listed for your computer below. All releases are available on [GitHub Releases](https://github.com/bochens/Icescopy/releases). The packaged app includes Python and the libraries it needs; you do not need to install Python or conda to use it.
 
-The Mac app is [v2.3.8](https://github.com/bochens/Icescopy/releases/tag/v2.3.8); the current Windows installer remains [v2.3.7](https://github.com/bochens/Icescopy/releases/tag/v2.3.7).
+The Windows installer and Mac app are both [v2.3.8](https://github.com/bochens/Icescopy/releases/tag/v2.3.8).
 
 | Computer | Download |
 | --- | --- |
-| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) — v2.3.7 |
+| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe) — v2.3.8 |
 | Mac with Apple Silicon | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip) — v2.3.8 |
 
 These releases do not include an Intel Mac or Linux app download. GitHub's **Source code** downloads are the program's source files, not installers.
@@ -20,7 +20,7 @@ These releases do not include an Intel Mac or Linux app download. GitHub's **Sou
 3. Open the installer and follow its steps. It installs for your Windows account and normally does not need administrator access.
 4. Open **Icescopy** from the Start menu, or use the desktop shortcut if you selected that option.
 
-The default installation folder is `%LOCALAPPDATA%\Programs\Icescopy`. This build requires the Windows versions listed above and does not support 32-bit Windows. See the [release notes](https://github.com/bochens/Icescopy/releases/tag/v2.3.7) and [Windows installer details](../packaging/windows/README.md).
+The default installation folder is `%LOCALAPPDATA%\Programs\Icescopy`. This build requires the Windows versions listed above and does not support 32-bit Windows. See the [release notes](https://github.com/bochens/Icescopy/releases/tag/v2.3.8) and [Windows installer details](../packaging/windows/README.md).
 
 ## Install on macOS
 
@@ -45,7 +45,7 @@ If a file cannot be saved, keep the session open and use the offered **Retry**, 
 
 Each platform's release provides a checksum file, which contains a number you can compare with your download to check that it arrived unchanged:
 
-- [SHA256SUMS.txt](https://github.com/bochens/Icescopy/releases/download/v2.3.7/SHA256SUMS.txt) covers the Windows v2.3.7 installer.
+- [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe.sha256) covers the Windows v2.3.8 installer.
 - [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip.sha256) covers the Mac v2.3.8 ZIP file.
 
 ## Run from source
