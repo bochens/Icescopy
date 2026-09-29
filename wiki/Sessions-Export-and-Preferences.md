@@ -1,87 +1,129 @@
 # Sessions, Export, and Preferences
 
-Save a session to resume work in Icescopy. Export CSV tables to use results in other software.
+A **session** saves working state you can reopen in Icescopy. An **export** is a result table for other software. **Preferences** are application settings stored separately in your user account. Keep these roles distinct when preserving or reproducing an analysis.
 
 ## Save and resume a session
 
-1. Choose **File → Save Session As...** to save your work in a `.icescopy` file.
-2. Use **File → Save Session** to update that file as you work.
-3. Use **File → Open Session** to resume it later.
+1. Choose **File → Save Session As...** and give the analysis a new `.icescopy` filename.
+2. Use **File → Save Session** as you work. After a successful Save As, later saves update the new file.
+3. To resume, choose **File → Open Session** and select that file.
+4. Check a few frames, cell positions, analysis markers, and result panels before continuing.
 
-Sessions store cell annotations, keyframes, freeze events, analysis markers, sample information, settings, and available result tables. They store paths to the source images and videos, **not the media files themselves**. Keep those files when copying or sharing a session.
+The first **Save Session** also asks for a filename if the session has not been saved before. Starting or opening another session can prompt you to save the current work; cancel that action if you still need to preserve it.
 
-To preserve an earlier analysis, use **Save Session As...** before making changes. Later saves update the new file.
+Use **File → Edit Session Metadata...** to edit the project, user, institution, and date. These details can appear in exported metadata.
 
-Use **File → Edit Session Metadata...** to edit session information such as the project, user, institution, and date.
+## What is saved
+
+| Stored in a session | Kept separately |
+| --- | --- |
+| Image/video paths, source description, frame order, and current frame | Original images and videos |
+| Cell IDs, geometry, sample assignments, and keyframes | Original temperature and calibration files |
+| Analysis start/end markers and freeze events | Global analysis/detection Preferences used to produce those events |
+| Sample values and that session's field definitions | User-interface defaults in your account's Preferences |
+| Image-edit state and cell/grid tool settings | External CSV exports |
+| Available measurement, event, and count tables | External analysis scripts or calculations |
+| Session metadata, remembered import options/paths, and console history | A complete portable copy of every input and dependency |
+
+A session does **not** embed the media or original temperature files. It can retain imported tables without making the input files available for another import. It also does not replace a record of global freeze-finding settings. Retain the application version, those settings, original inputs, and temperature-import choices when documenting an analysis.
+
+## Preserve alternative analyses
+
+Before changing detection settings, sample grouping, or image adjustments:
+
+1. Save the current session.
+2. Choose **Save Session As...** and use a distinct name, such as `analysis-width-8.icescopy`.
+3. Make the change, repeat the affected analysis steps, and export into a new folder.
+4. Note the setting changed and the result of reviewing representative cells.
+
+Saving is not an automatic version-history system: repeated saves replace the same file. Undo/Redo is useful for supported edits during the current session, but does not replace separate saved versions.
 
 ## Relink an image folder
 
-If the images have moved:
+Use this when image files have moved but their filenames have not changed.
 
-1. Open the session. If you want to preserve its original paths, use **Save Session As...** first.
+1. Open the session. To preserve its original paths, use **Save Session As...** first.
 2. Choose **File → Relink Images Folder...** and select the current image folder.
-3. Check the report and loaded images. Icescopy matches by filename and reports missing or duplicate matches.
+3. Read the report: check the number relinked and any missing or ambiguous filenames.
+4. Inspect frames near the beginning, middle, and end to confirm the correct images were matched.
+5. Save if the report says the updated session could not be written automatically.
 
-Relinking updates the paths and attempts to save the current session file. If saving fails, use **Save Session**. Relinking works only for images; keep videos at their saved locations.
+Matching uses filenames. Duplicate names are ambiguous; an ambiguous match is not silently chosen. Relinking attempts to save the current session path after the update. It changes references, not the image files.
+
+This command handles image sequences only. Keep video files at their recorded locations, or restore those locations before reopening a video session. When transferring work, test that the recipient can open the media; sending the session alone is insufficient.
 
 ## Export selected results
 
+Finish freeze review first. For temperature-based counts, complete temperature import and inspect its summary before exporting.
+
 1. Choose **File → Output Results**.
-2. Check the available tables you need, or use **Select All**.
-3. Click **OK**. For one selected table, choose a CSV filename. For multiple tables, choose an output folder.
+2. Select the available tables you need. **Select All** selects the available choices.
+3. Click **OK**.
+4. For one table, choose a CSV filename. For several tables, choose an output folder.
+5. Open the exported files and check their headers, a few records, and sample metadata.
 
-| Selection | Default filename | Contents |
+| Choice | Default filename | Purpose |
 | --- | --- | --- |
-| **Grayscale Measurements CSV** | `grayscale_measurements.csv` | Frame-by-frame brightness measurements and cell geometry. |
-| **Freeze Events CSV** | `freeze_events.csv` | Detected or manually corrected freeze events. |
-| **Freeze Count Timeseries CSV** | `freeze_count_timeseries.csv` | Temperature-aligned counts and sample information. |
+| **Grayscale Measurements CSV** | `grayscale_measurements.csv` | Per-frame measurements and geometry |
+| **Freeze Events CSV** | `freeze_events.csv` | Reviewed freeze-event frame indices |
+| **Freeze Count Timeseries CSV** | `freeze_count_timeseries.csv` | Temperature-aligned sample counts and metadata |
 
-Only available tables appear in the dialog. Exporting multiple tables can replace files with the names above. Choose a new folder to preserve earlier results.
+Only available tables can be selected. Multiple-file export uses the default filenames above and can replace existing files. Choose a **new folder** to preserve earlier results. If a multi-file export stops with an error, some earlier files may already have been written; inspect the folder before retrying.
 
-Before exporting updated results, rerun analysis after image changes and reimport temperatures after changing freeze events or sample assignments. Editing descriptive sample fields does not require a new analysis run.
+CSV means comma-separated values: a text table. See [Output Reference](Output-Reference.md) for column names, units, row structure, and missing values. Renaming a CSV file does not turn it into a session.
 
 ## Read the freeze-count CSV
 
-Rows beginning with `#` contain session and sample information, including the reset temperature, sample IDs, cell counts, and fields enabled for export. The data table follows these rows.
+Rows beginning with `#` describe the file, session, and samples. The numeric table follows. Sample fields are controlled by the session's field definitions and **Export** settings.
 
-Each sample has **number total** and **number frozen** columns. To calculate fraction frozen, divide number frozen by number total, using a valid, nonzero total. Icescopy does not export this fraction. Samples are grouped by `sample_id`; samples with the same name remain separate if their IDs differ.
+The application exports counts, not a final particle concentration. Fraction frozen can be calculated from a valid, nonzero **number total** and its corresponding **number frozen**. Blank correction can change both counts; use the definitions in [Output Reference](Output-Reference.md), rather than substituting the number of drawn circles for a corrected total.
 
-The `cell_number` field records how many cells are assigned to each sample. Missing information is written as `nan`, not zero. Fill in missing sample fields if you need them for later calculations.
-
-See [Temperature import](Temperature-Import.md) for time matching, repeated cycles, and water blank correction.
+Missing values are not zero. Missing sample information, unmatched temperature, and an unused correction field are different situations.
 
 ## Customize sample fields
 
-Enter sample values in **Edit → Sample Catalog Manager**. To add or change fields, open **Preferences → Samples → Sample Metadata Fields**.
+Open **Preferences → Samples → Sample Metadata Fields** to define fields, choose which are exported, or share a value across samples. Enter values in **Edit → Sample Catalog Manager**.
 
-| Column | Meaning |
-| --- | --- |
-| **Label** | The name shown in the Sample Catalog. |
-| **Key** | The field's name in saved data and exports. Start custom keys with a lowercase letter; use only lowercase letters, digits, and underscores, such as `storage_note`. |
-| **Type** | Text, number, or date/time for custom fields. |
-| **Export** | Include this field in the sample-information rows of the freeze-count CSV. |
-| **All** | Use one shared value across every sample. |
-
-Use **Add Field**, **Delete Field**, **Move Up**, or **Move Down** to change custom fields, then save Preferences. Changes apply to the active session and become defaults for new sessions. Existing saved sessions retain their own field definitions. Fixed identity fields cannot be removed.
-
-Fields with **All** checked appear as **[all]** in the Sample Catalog. Editing one sample's value changes it for every sample. **Well volume (uL)** is shared by default; clear **All** to give samples different volumes.
-
-Deleting a field can remove its saved values; the app asks for confirmation if the field contains data. Use **Save Session As...** first if you may need to recover those values.
+[Sample Metadata](Sample-Metadata.md) explains built-in units, the **All** setting, custom keys, renaming, deletion, and current-session fields versus defaults for new sessions.
 
 ## Other preferences
 
-Preferences include file sorting, sample fields, drawing controls, plot appearance, and freeze detection.
+Open **Preferences** from the application menu or toolbar. Choose a category, change the required values, and click **Save**. Before Save, **Cancel** discards the dialog's edits.
 
-On the **Analysis** page, choose whether freezing makes the image brighter and which brightness source to use for video. Converted grayscale calculates brightness from color; video luma uses the video's brightness channel when available. After changing measurement or detection settings, rerun analysis, check the results, and reimport temperatures.
+If **Apply Preferences Failed** appears, the file was already saved but could not be fully applied to the current session; some settings may already have changed. Cancel does not undo that saved file. Review the error and retry Save, or preserve the session and reopen the app before relying on the settings. A write failure is different: resolve its cause and retry. Do not infer success merely because a dialog closed.
 
-Display changes, such as colors or the number of visible frames, do not require another analysis run.
+| Category | Purpose | Effect on analysis |
+| --- | --- | --- |
+| **General** | File sorting and history defaults | Review frame order when sorting an existing sequence |
+| **Samples** | Naming pattern and field definitions | Check assignments and exported metadata |
+| **Viewer** | Viewing and comparison defaults | Display-only changes do not require analysis |
+| **Drawing** | Cell/grid defaults and annotation appearance | Actual geometry changes require analysis; line/label appearance alone does not |
+| **Analysis** | Brightness source and freeze-finding controls | Rerun, review detections, then reimport temperatures |
+| **Timeseries** | Plot appearance | Appearance alone does not require analysis |
+| **Timeline** | Timeline appearance and sizing | Appearance alone does not require analysis |
+
+Saving Preferences does **not** run analysis. It does not turn old measurements into results produced by new settings. See [what to repeat after an edit](Concepts-and-Data-Flow.md#what-to-repeat-after-an-edit).
+
+## Preference file location
+
+The app reads `preferences.xml` from the user configuration directory when it exists; otherwise it uses bundled `resources/preferences.xml` defaults. Qt, the application's interface library, chooses the platform's configuration location. It is separate from the installed application.
+
+For controlled development checks, `ICESCOPY_CONFIG_DIR` selects a different configuration directory. See [Developer Guide](Developer-Guide.md). Do not edit bundled files inside an installed app to change ordinary preferences.
+
+If a saved preference file cannot be read, the dialog shows a warning and defaults. Opening the dialog does not automatically overwrite the unreadable file. Review the warning before choosing **Save**.
+
+## Recover from a save failure
+
+- **File in use:** close the file in other applications, then choose **Retry**.
+- **Read-only or denied location:** use a writable folder. Session saving offers **Save As** when available.
+- **Need to keep working:** **Cancel** leaves unsaved work open; it does not mean the save succeeded.
+
+Keep the app open until you have saved somewhere usable. A new session bundle is written to a temporary file and verified before replacing the destination. This protects against a failed write, but does not create a separate backup of every successful save. See [save troubleshooting](Troubleshooting.md#cannot-save-a-session-preferences-or-csv).
 
 ## Session bundle contents
 
-A `.icescopy` file is a ZIP-format bundle containing `session.json` and any available result tables:
+For maintainers, a `.icescopy` file is a ZIP-format bundle with `session.json` and available tables named `grayscale.csv`, `freeze.csv`, and `freeze_count_timeseries.csv`. The current JSON schema version is `6`: the saved-data format version, not the application release number.
 
-- `grayscale.csv`
-- `freeze.csv`
-- `freeze_count_timeseries.csv`
+Treat these members as implementation details. Use **Output Results** for external tables: the public freeze-count CSV adds metadata rows that the internal table does not contain. See [Architecture Overview](Architecture-Overview.md) before changing serialization code.
 
-Use **Output Results** to prepare tables for other software. The exported freeze-count table includes session and sample information that the internal table does not.
+Related: [Output Reference](Output-Reference.md) · [Sample Metadata](Sample-Metadata.md) · [Troubleshooting](Troubleshooting.md)

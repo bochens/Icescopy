@@ -1,0 +1,850 @@
+{
+  "modules": {
+    "Icescopy": {
+      "summary": "Application startup, main window, and coordination of session state and tools.",
+      "details": "The `IceScopy` window connects frame sources, cell records, graphics, result tables, history, and import/export actions. Many public-looking methods depend on initialized widgets and window state; they are not independent batch APIs. See [Architecture Overview](Architecture-Overview.md) before changing a workflow.",
+      "functions": [
+        "main"
+      ],
+      "classes": {
+        "IcescopyApplication": {
+          "summary": "Handles operating-system file-open events and defers session opening until the main window is available.",
+          "details": "",
+          "methods": [
+            "set_main_window",
+            "open_session_path",
+            "open_pending_session_paths"
+          ]
+        },
+        "IceScopy": {
+          "summary": "Owns the active desktop session and coordinates helper modules.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent.",
+          "methods": [
+            "active_frame_source",
+            "set_frame_source",
+            "outputData",
+            "out_put_interpolation",
+            "onThreadFinished",
+            "apply_manual_freeze_event_indices",
+            "apply_image_edit_state",
+            "capture_session_state",
+            "restore_session_state",
+            "open_session_file_path",
+            "persist_session_to_path",
+            "push_cell_history",
+            "closeEvent"
+          ]
+        }
+      }
+    },
+    "icescopy_analysis_windows": {
+      "summary": "Convert start/end markers into inclusive frame ranges.",
+      "details": "Indexes are zero-based. With no markers, analysis covers the source. A leading end uses the first frame, a trailing start uses the last, consecutive starts keep the latest, and extra ends after a closed range are ignored. These ranges control both frame measurement and separate freeze searches.",
+      "functions": [
+        "normalize_analysis_marker_ranges",
+        "frame_count_from_ranges"
+      ],
+      "classes": {}
+    },
+    "icescopy_aux": {
+      "summary": "Viewer input handling, analysis worker, and preference dialogs.",
+      "details": "`Image_analysis_thread` measures circular regions and runs freeze detection. It emits progress and retains completed results for the window to install after the thread finishes. `PreferencesDialog` also edits the default sample-field schema. These responsibilities share a file for historical reasons.",
+      "functions": [
+        "create_circular_mask"
+      ],
+      "classes": {
+        "ColorPreferenceButton": {
+          "summary": "Edits a color preference through a native color picker.",
+          "details": "",
+          "methods": [
+            "choose_color",
+            "set_color_value",
+            "color_value"
+          ]
+        },
+        "CustomGraphicsView": {
+          "summary": "Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.",
+          "details": "",
+          "methods": [
+            "mousePressEvent",
+            "mouseMoveEvent",
+            "mouseReleaseEvent",
+            "keyPressEvent"
+          ]
+        },
+        "Image_analysis_thread": {
+          "summary": "Measures per-frame circular regions and builds grayscale and freeze-event tables in a Qt worker thread.",
+          "details": "The `analysis_done` signal reports frame progress, not completion of the whole run. Qt’s `finished` signal triggers result installation. Exceptions are retained in `analysis_error` and `analysis_traceback`; normal in-app analysis passes no output filename and keeps results in memory. Frames outside selected ranges remain `nan` rows in the grayscale table.",
+          "methods": [
+            "__init__",
+            "run",
+            "gray_scale_mean_from_array"
+          ]
+        },
+        "AboutDialog": {
+          "summary": "Displays application information.",
+          "details": "",
+          "methods": [
+            "__init__"
+          ]
+        },
+        "PreferencesDialog": {
+          "summary": "Edits application preferences and the default sample metadata schema.",
+          "details": "Sample-field changes have their own validation and dropped-value confirmation. Preference persistence and applying settings to the live window are separate operations; see the preference tests before changing their order.",
+          "methods": [
+            "__init__",
+            "collect_sample_metadata_schema",
+            "save_preferences",
+            "restore_visual_defaults"
+          ]
+        },
+        "SortImagesDialog": {
+          "summary": "Presents supported frame or video-clip ordering choices and returns the selected sort mode.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "selected_mode"
+          ]
+        }
+      }
+    },
+    "icescopy_cell": {
+      "summary": "Cell identity, sample assignment, and analysis-record synchronization.",
+      "details": "`CellRecord` contains identity and results, not geometry. Geometry lives in current and keyframe cell snapshots. `CellStateManager` updates the window-owned registry and related table labels. Read [Cell System](Cell-System.md) for the invariants.",
+      "functions": [],
+      "classes": {
+        "CellRecord": {
+          "summary": "Serializable per-cell identity, sample assignment, grayscale measurements, and freeze events.",
+          "details": "A cell ID joins geometry and result columns. Explicit renaming is supported through `CellStateManager`; do not rewrite only this field. Missing grayscale measurements may be represented by floating-point NaN.",
+          "methods": [
+            "clear_analysis",
+            "to_dict",
+            "from_dict"
+          ]
+        },
+        "CellStateManager": {
+          "summary": "Keeps cell IDs, saved records, keyframes, and result-table labels consistent.",
+          "details": "Allocation uses the lowest available non-negative ID after considering current geometry, keyframes, and records. Renaming rejects collisions and updates dependent headers and freeze labels.",
+          "methods": [
+            "allocate_cell_id",
+            "rename_cell_id",
+            "serialize_cell_records",
+            "deserialize_cell_records",
+            "sync_cell_analysis_from_results",
+            "prune_analysis_results_for_deleted_cells"
+          ]
+        }
+      }
+    },
+    "icescopy_cell_controller": {
+      "summary": "Cell drawing and editing, pinned previews, and scene synchronization.",
+      "details": "The controller works with the main window’s geometry and graphics scene. Single-cell and grid previews are transient until Apply commits them. Selection identifies cells by ID; rendering can replace scene items. See [Cell System](Cell-System.md).",
+      "functions": [],
+      "classes": {
+        "PreviewAnchorHandle": {
+          "summary": "A movable scene handle that repositions a pinned cell or grid preview.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "itemChange"
+          ]
+        },
+        "CellEditController": {
+          "summary": "Coordinates selection, single/group edits, preview placement, and committed cell geometry.",
+          "details": "Preview state includes whether the layout is floating or pinned. Applying a preview uses the window’s history support; avoid treating the preview graphics as saved cells.",
+          "methods": [
+            "enter_edit_mode",
+            "start_single_edit",
+            "start_group_edit",
+            "pin_current_preview",
+            "move_pinned_preview_to_scene_pos",
+            "cancel_preview",
+            "apply_single_add",
+            "apply_grid_add",
+            "apply_single_edit",
+            "apply_group_edit"
+          ]
+        }
+      }
+    },
+    "icescopy_cell_items": {
+      "summary": "Geometry snapshots and interactive graphics items for cell circles.",
+      "details": "`CellSnapshot` is lightweight geometry/state that can be copied without owning a Qt scene object. `CellCircle` paints and handles interaction in the scene. Neither replaces `CellRecord` for sample assignment or analysis values.",
+      "functions": [],
+      "classes": {
+        "CellSnapshot": {
+          "summary": "A compact geometry snapshot used by history, interpolation, and analysis.",
+          "details": "`circle_positions` is the scene center; `circle_pixel_positions` is the center in original-image coordinates; `circle_sizes` is the radius. The ID connects this geometry to its cell record.",
+          "methods": []
+        },
+        "CellCircle": {
+          "summary": "Draws a cell outline and ID, with selection, hover, and edit feedback.",
+          "details": "Rendered items can be synchronized or rebuilt while navigating. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.",
+          "methods": [
+            "__init__",
+            "sync_from_data",
+            "paint",
+            "update_selectable_state"
+          ]
+        }
+      }
+    },
+    "icescopy_dialogs": {
+      "summary": "Input dialogs for session metadata, temperature import, and export selection.",
+      "details": "Dialogs gather and validate user choices; parsing and count calculations belong to the temperature and freeze-count modules. `get_values()` results are consumed by the matching main-window import action.",
+      "functions": [],
+      "classes": {
+        "NewSessionMetadataDialog": {
+          "summary": "Collects project, user, institution, and date metadata for a session.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "get_metadata"
+          ]
+        },
+        "CSUTemperatureImportDialog": {
+          "summary": "Collects a CSU Ice Spectrometer input file and import options.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "accept",
+            "get_values"
+          ]
+        },
+        "UTKTemperatureImportDialog": {
+          "summary": "Collects UTK temperature data and video timing options.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "accept",
+            "get_values"
+          ]
+        },
+        "TAMUTemperatureImportDialog": {
+          "summary": "Collects TAMU Linkam temperature and optional calibration inputs.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "accept",
+            "get_values"
+          ]
+        },
+        "PKUTemperatureImportDialog": {
+          "summary": "Collects a Linksys32 IML file and PKU import options.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "accept",
+            "get_values"
+          ]
+        },
+        "StandardTemperatureImportDialog": {
+          "summary": "Collects standard CSV import choices and previews image timestamp parsing.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "evaluate_image_timestamp_test",
+            "accept",
+            "get_values"
+          ]
+        },
+        "OutputResultsDialog": {
+          "summary": "Lets the user choose among the result exports currently available.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "selected_exports",
+            "sync_select_all_checkbox"
+          ]
+        }
+      }
+    },
+    "icescopy_dock": {
+      "summary": "Custom title bar for movable and floating dock panels.",
+      "details": "This is presentation code for Qt dock widgets. Keep scientific and session state in their owning modules rather than adding it to title-bar events.",
+      "functions": [],
+      "classes": {
+        "DockTitleBar": {
+          "summary": "Provides dock title-bar controls and drag behavior.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "toggle_floating",
+            "refresh_buttons"
+          ]
+        }
+      }
+    },
+    "icescopy_frame_source": {
+      "summary": "A shared frame interface for images, video, and ordered video clips.",
+      "details": "Display, analysis, and navigation ask a `FrameSource` for frame names, keys, pixels, and timing. Video uses PyAV and can retain a decoder plus a temporary PNG preview cache. Source payloads reference original media; session files do not embed it. A video sequence maps a global frame index to a clip and local index.",
+      "functions": [
+        "normalize_video_grayscale_mode",
+        "normalize_frame_ranges",
+        "frame_source_from_session_payload",
+        "frame_source_from_preview_payload"
+      ],
+      "classes": {
+        "VideoFrameMetadata": {
+          "summary": "A video frame’s index, presentation timestamp, and time in seconds.",
+          "details": "`pts` is a presentation timestamp in stream units, and `time_seconds` is relative playback time. These values may be inferred from container duration/rate or read from decoded frames. They are not wall-clock dates, and the fast metadata path does not establish exact variable-frame-rate timing.",
+          "methods": []
+        },
+        "FrameSource": {
+          "summary": "The common interface consumed by frame display, navigation, and grayscale analysis.",
+          "details": "Ranges passed to `iter_gray_arrays` are inclusive. `frame_key` identifies a frame for caches and per-frame edits; a displayed basename is not a unique substitute. Base methods can raise `NotImplementedError`; there is no formal abstract-base-class enforcement.",
+          "methods": [
+            "frame_count",
+            "frame_key",
+            "frame_time_seconds",
+            "get_qimage",
+            "get_gray_array",
+            "iter_gray_arrays",
+            "source_paths",
+            "to_session_payload"
+          ]
+        },
+        "ImageSequenceFrameSource": {
+          "summary": "Reads individual image files and exposes their order as frames.",
+          "details": "Image-file operations are supported here. Grayscale analysis reads through OpenCV; display uses QImage.",
+          "methods": [
+            "__init__",
+            "get_qimage",
+            "get_gray_array",
+            "frame_key",
+            "to_session_payload"
+          ]
+        },
+        "VideoFrameSource": {
+          "summary": "Decodes a single video, exposes frame metadata, and manages video preview caching.",
+          "details": "The grayscale modes are converted grayscale and the video luma plane (brightness data directly from a supported decoded format). They are different measurement choices. Call `close()` to release decoder resources and an owned temporary cache; do not rely on finalization for deterministic cleanup. Metadata may be inferred from regular spacing before a full decode fallback; check timing-sensitive changes against variable-frame-rate files.",
+          "methods": [
+            "__init__",
+            "available",
+            "get_qimage",
+            "get_preview_qimage",
+            "get_gray_array",
+            "iter_gray_arrays",
+            "close",
+            "to_session_payload"
+          ]
+        },
+        "VideoSequenceFrameSource": {
+          "summary": "Presents several ordered video clips as one frame sequence.",
+          "details": "Global indexes change if clips are reordered. `frame_reference` and `global_index_for_reference` provide the clip/local-index mapping; preserve this mapping when remapping markers and results.",
+          "methods": [
+            "__init__",
+            "frame_reference",
+            "global_index_for_reference",
+            "frame_time_seconds",
+            "iter_gray_arrays",
+            "close",
+            "to_session_payload"
+          ]
+        }
+      }
+    },
+    "icescopy_frameslider": {
+      "summary": "Timeline navigation, zoom, and marker drawing.",
+      "details": "The slider distinguishes keyframes, freeze annotations, and analysis start/end markers. Platform-specific hit testing and painting share the same logical frame indexes. A freeze flag reflects selected-cell events, or all cells when none are selected; it is not a general bookmark.",
+      "functions": [
+        "timeline_zoom_factor_from_slider_value"
+      ],
+      "classes": {
+        "FrameSlider": {
+          "summary": "Paints frame positions and markers and sends timeline navigation actions to the main window.",
+          "details": "",
+          "methods": [
+            "sync_marker_state",
+            "set_flag_marker",
+            "set_analysis_marker",
+            "sliderPositionToX",
+            "xToSliderPosition"
+          ]
+        },
+        "SliderZoom_Slider": {
+          "summary": "A slider used to adjust timeline zoom.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "mousePressEvent"
+          ]
+        }
+      }
+    },
+    "icescopy_freeze_count_timeseries": {
+      "summary": "Build sample-group freeze counts matched to temperature records.",
+      "details": "The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and correction helpers. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.",
+      "functions": [],
+      "classes": {
+        "FreezeCountTimeseriesMixin": {
+          "summary": "Adds temperature/count result construction methods to the main window.",
+          "details": "The class is used as a mixin: its methods run on `IceScopy` and expect its records, preferences, and frame helpers. Reimport temperature data after changing event annotations when recomputed counts are needed.",
+          "methods": [
+            "build_freeze_count_timeseries_sample_groups",
+            "build_freeze_count_timeseries_image_counts",
+            "build_standard_freeze_count_timeseries_results",
+            "build_csu_freeze_count_timeseries_results",
+            "build_tamu_freeze_count_timeseries_results",
+            "build_pku_linksys32_freeze_count_timeseries_results"
+          ]
+        }
+      }
+    },
+    "icescopy_freezfinder": {
+      "summary": "Numerical freeze-event detection and a separate CSV-oriented dialog.",
+      "details": "Detection filters a grayscale series, searches peaks with the configured width/prominence, and refines event positions against the raw signal. Finite runs are processed separately so missing values do not bridge unmeasured gaps. The main application uses these functions through the analysis worker. The legacy dialog is a separate file-based route, not the current temperature/count import workflow. `compute_freeze_result_rows()` returns event rows and per-cell event-index arrays. Its legacy temperature/correction arguments are not used by the current detection implementation; temperature matching occurs later in the import workflow.",
+      "functions": [
+        "compute_freeze_result_rows",
+        "compute_freeze_event_indexes",
+        "contiguous_finite_runs",
+        "build_convolution_kernel",
+        "compute_convolution_timeseries",
+        "refine_event_index_from_raw_timeseries"
+      ],
+      "classes": {
+        "FreezeFinderDialog": {
+          "summary": "A legacy dialog that reads grayscale CSV input and writes freeze-event CSV output.",
+          "details": "Do not use this dialog as the specification for the main app’s temperature-import workflow. The current result rows identify cell, frame, and image.",
+          "methods": [
+            "__init__",
+            "run_freeze_finder_script"
+          ]
+        }
+      }
+    },
+    "icescopy_image_edit": {
+      "summary": "Shared image adjustments, rotated-crop geometry, and editing overlays.",
+      "details": "The array adjustment path applies crop, exposure, then contrast. Display and measurement reuse these helpers so committed edits affect both. Transient crop previews and history are coordinated by the window. Original-image cell coordinates must be mapped through the crop transform for display and measurement; preserve the inverse mapping when translating pointer positions back to the source image.",
+      "functions": [
+        "exposure_gain",
+        "contrast_gain",
+        "normalize_rotated_crop_state",
+        "build_rotated_crop_affine",
+        "apply_affine_to_point",
+        "invert_affine_matrix",
+        "apply_image_adjustments_to_uint8",
+        "apply_image_adjustments_to_qimage",
+        "qimage_to_grayscale_array",
+        "compute_histogram_bins"
+      ],
+      "classes": {
+        "ImageHistogramWidget": {
+          "summary": "Displays intensity histogram bins supplied by the image-edit workflow.",
+          "details": "",
+          "methods": [
+            "clear_histogram",
+            "set_histogram"
+          ]
+        },
+        "ImageRectOverlayItem": {
+          "summary": "Interactive rectangle for the uniform-exposure reference area.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "sync_from_rect",
+            "area_state",
+            "set_interactive"
+          ]
+        },
+        "ImageCropOverlayItem": {
+          "summary": "Interactive rotated crop outline with move, size, and angle handles.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "sync_from_state",
+            "mousePressEvent",
+            "mouseMoveEvent",
+            "mouseReleaseEvent"
+          ]
+        }
+      }
+    },
+    "icescopy_paths": {
+      "summary": "Find and atomically save per-user preference files.",
+      "details": "`ICESCOPY_CONFIG_DIR` overrides the configuration directory for isolated runs. Otherwise Qt’s generic configuration location is used, with a home-directory fallback. Reads prefer a user file and fall back to bundled defaults. Writes serialize to a sibling temporary file, parse it, then replace the destination.",
+      "functions": [
+        "user_config_dir",
+        "user_preferences_path",
+        "preferences_read_path",
+        "write_preferences_tree_atomic"
+      ],
+      "classes": {}
+    },
+    "icescopy_save_access": {
+      "summary": "Recognize save-access failures and present retry/save-copy recovery choices.",
+      "details": "The helper reports relevant operating-system errors to the caller; the caller still owns serialization, retry logic, and destination selection. Platform recovery text is tested separately from window-title rendering.",
+      "functions": [
+        "is_save_access_error",
+        "prompt_save_access"
+      ],
+      "classes": {}
+    },
+    "icescopy_plot": {
+      "summary": "Render selected-cell grayscale curves, filtered curves, events, and the current frame.",
+      "details": "The plot caches prepared series and limits displayed points while retaining peaks. The current-frame indicator is a widget overlay whose position is recomputed from the plot view mapping; it must remain aligned after resize, axis changes, or data refresh. These display optimizations do not replace stored measurements.",
+      "functions": [],
+      "classes": {
+        "CurrentFrameLineOverlay": {
+          "summary": "Paints the current-frame line over the plot at a supplied widget coordinate.",
+          "details": "",
+          "methods": [
+            "set_line_style",
+            "set_frame_position",
+            "clear_frame_position"
+          ]
+        },
+        "GrayscalePlotWidget": {
+          "summary": "Displays selected cell measurements and detected/manual freeze events with frame navigation feedback.",
+          "details": "When changing axis or layout behavior, exercise resize and frame changes with the native GUI as well as the coordinate-mapping tests.",
+          "methods": [
+            "update_plot_data",
+            "set_current_image_index",
+            "update_freeze_rows",
+            "invalidate_render_cache",
+            "refresh_plot"
+          ]
+        }
+      }
+    },
+    "icescopy_sample_catalog": {
+      "summary": "Qt model, delegates, and panel actions for editing sample metadata.",
+      "details": "The tree model presents sample rows and field rows using the active schema. Edits validate field types and propagate fields marked “same for all” across the catalog. The panel mixin coordinates selection and persistent editors.",
+      "functions": [],
+      "classes": {
+        "SampleCatalogNode": {
+          "summary": "Internal tree node for a sample or one of its metadata fields.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "row"
+          ]
+        },
+        "SampleCatalogTreeModel": {
+          "summary": "Maps sample IDs and schema fields into an editable two-column Qt model.",
+          "details": "Use `setData` through the model’s editing route to preserve validation, shared-field propagation, and history. A field can remain visible while irrelevant to a sample type.",
+          "methods": [
+            "__init__",
+            "refresh",
+            "sample_record",
+            "field_is_relevant",
+            "data",
+            "flags",
+            "setData"
+          ]
+        },
+        "SampleCatalogTreeDelegate": {
+          "summary": "Creates and commits editors appropriate to each metadata field type.",
+          "details": "",
+          "methods": [
+            "createEditor",
+            "setEditorData",
+            "setModelData"
+          ]
+        },
+        "SampleCatalogTreeView": {
+          "summary": "Customizes the catalog tree’s branch drawing.",
+          "details": "",
+          "methods": [
+            "drawBranches"
+          ]
+        },
+        "SampleCatalogPanelMixin": {
+          "summary": "Builds the catalog panel and coordinates sample creation, deletion, and editor refresh.",
+          "details": "",
+          "methods": [
+            "build_sample_catalog_panel",
+            "refresh_sample_catalog_tree",
+            "add_sample_catalog_entry",
+            "delete_selected_sample_catalog_entry"
+          ]
+        }
+      }
+    },
+    "icescopy_sample_metadata": {
+      "summary": "Sample-field definitions, validation, serialization, and schema migration.",
+      "details": "A schema is an ordered list of field definitions: key, label, type, export choice, shared-value choice, and relevant sample types. Fixed identity fields cannot be removed or have their keys renamed. Custom keys are validated; values are normalized to strings in catalog records. XML stores preference defaults, while session JSON stores the active schema.",
+      "functions": [
+        "default_sample_metadata_schema",
+        "normalize_sample_metadata_schema",
+        "validate_sample_metadata_key",
+        "sample_metadata_schema_to_payload",
+        "sample_metadata_schema_from_payload",
+        "normalize_sample_catalog_record",
+        "migrate_sample_catalog_for_schema",
+        "dropped_sample_metadata_keys",
+        "export_sample_metadata_field_keys",
+        "same_for_all_sample_metadata_values"
+      ],
+      "classes": {
+        "SampleMetadataSchemaError": {
+          "summary": "Reports an invalid sample-field definition or schema.",
+          "details": "",
+          "methods": []
+        }
+      }
+    },
+    "icescopy_session": {
+      "summary": "Undo/redo commands and the frame-list model.",
+      "details": "Commands delegate restoration to the main window; they do not own a second independent session. Capture the smallest relevant before-state, apply the change, then use its matching push-history method. Keep the first-redo convention intact.",
+      "functions": [],
+      "classes": {
+        "SessionSnapshotCommand": {
+          "summary": "Undo/redo command for full session.",
+          "details": "Delegates restoration to `IceScopy.restore_session_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionCellCommand": {
+          "summary": "Undo/redo command for cell geometry and associated captured state.",
+          "details": "Delegates restoration to `IceScopy.restore_cell_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionTimelineMarkersCommand": {
+          "summary": "Undo/redo command for timeline marker lists.",
+          "details": "Delegates restoration to `IceScopy.restore_timeline_marker_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionAnalysisMarkerCommand": {
+          "summary": "Undo/redo command for one analysis start/end marker.",
+          "details": "Delegates restoration to `IceScopy.restore_analysis_marker_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionImageListCommand": {
+          "summary": "Undo/redo command for image ordering and linked session state.",
+          "details": "Delegates restoration to `IceScopy.restore_image_session_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionLoadedImagesCommand": {
+          "summary": "Undo/redo command for loaded source/frame state.",
+          "details": "Delegates restoration to `IceScopy.restore_loaded_images_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionDataCommand": {
+          "summary": "Undo/redo command for analysis result data.",
+          "details": "Delegates restoration to `IceScopy.restore_data_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionFreezeAnnotationCommand": {
+          "summary": "Undo/redo command for manual freeze annotations.",
+          "details": "Delegates restoration to `IceScopy.restore_freeze_annotation_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "SessionImageEditCommand": {
+          "summary": "Undo/redo command for image-edit settings and captured geometry/results.",
+          "details": "Delegates restoration to `IceScopy.restore_image_edit_history_state`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "FrameNavigationCommand": {
+          "summary": "Undo/redo command for the selected frame.",
+          "details": "Delegates restoration to `IceScopy.restore_navigation_index`. The first `redo()` is deliberately skipped because the original edit has already happened before the command is pushed onto Qt’s undo stack.",
+          "methods": [
+            "__init__",
+            "undo",
+            "redo"
+          ]
+        },
+        "ImageListModel": {
+          "summary": "Exposes frame names and tooltips to the image list without eagerly formatting every video frame.",
+          "details": "When attached to the main window, list rows can be mapped to a filtered set of source-frame indexes. Do not assume a row number always equals a source frame number.",
+          "methods": [
+            "rowCount",
+            "data",
+            "set_items",
+            "update_items"
+          ]
+        }
+      }
+    },
+    "icescopy_session_io": {
+      "summary": "Serialize session bundles and prepare validated restore state.",
+      "details": "A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.",
+      "functions": [
+        "build_session_payload",
+        "migrate_session_payload",
+        "build_restore_state",
+        "save_session_bundle",
+        "load_session_bundle",
+        "build_freeze_count_timeseries_csv_text",
+        "serialize_sample_catalog_payload",
+        "deserialize_sample_catalog_payload"
+      ],
+      "classes": {}
+    },
+    "icescopy_stylesheet": {
+      "summary": "Shared Qt stylesheet strings for the application interface.",
+      "details": "This module defines presentation values rather than callable services. Window code chooses the appropriate styles and refreshes affected controls; keep state-changing behavior out of stylesheet definitions.",
+      "functions": [],
+      "classes": {}
+    },
+    "icescopy_temperature_import": {
+      "summary": "Parse temperature files and resolve timestamps and cooling cycles.",
+      "details": "Independent parsers cover standard CSV, UTK CSV, CSU `.dat`, TAMU Linkam `.xlsx`, and PKU Linksys32 `.iml`, with calibration and timestamp helpers. Result dataclasses carry parsed times and values; the freeze-count mixin joins them to cell events. Format-specific validation raises `TemperatureImportError`.",
+      "functions": [
+        "parse_standard_temperature_csv",
+        "parse_utk_temperature_csv",
+        "parse_utk_video_start_timestamp",
+        "parse_csu_is_dat",
+        "parse_tamu_linkam_xlsx",
+        "parse_ice_array_calibration_csv",
+        "parse_linksys32_iml",
+        "resolve_image_timestamps",
+        "parse_timestamp_text",
+        "detect_cycle_start_indexes_from_temperatures",
+        "reconcile_counts_by_cycle",
+        "compute_blank_correction_by_index"
+      ],
+      "classes": {
+        "TemperatureImportError": {
+          "summary": "Reports a temperature-file or timestamp validation failure.",
+          "details": "",
+          "methods": []
+        },
+        "CSUISDatRow": {
+          "summary": "One parsed CSU row, including recorded timing and cumulative sample counts.",
+          "details": "",
+          "methods": []
+        },
+        "TAMULinkamTimeseries": {
+          "summary": "Parsed TAMU relative temperature times, temperatures, and an optional start timestamp.",
+          "details": "",
+          "methods": []
+        },
+        "Linksys32IMLImageRecord": {
+          "summary": "One Linksys32 image record with image number, timestamp, and temperature.",
+          "details": "",
+          "methods": []
+        },
+        "Linksys32IMLTimeseries": {
+          "summary": "Parsed Linksys32 temperature samples plus image-record associations.",
+          "details": "",
+          "methods": []
+        },
+        "StandardTemperatureTimeseries": {
+          "summary": "Parsed timestamp and temperature arrays for the standard CSV path.",
+          "details": "",
+          "methods": []
+        },
+        "ResolvedImageTimestamps": {
+          "summary": "Resolved image times, a successful-parse count, and names that could not be parsed.",
+          "details": "",
+          "methods": []
+        }
+      }
+    },
+    "icescopy_tool_options": {
+      "summary": "Reusable widgets for tool-option forms and information pages.",
+      "details": "These helpers keep control sizes and layouts consistent across tool panels. Form construction belongs here; cell manipulation, image adjustments, and history remain in their corresponding controllers/window methods.",
+      "functions": [],
+      "classes": {
+        "ToolOptionsInfoPage": {
+          "summary": "Displays a short tool-options message.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "set_message"
+          ]
+        },
+        "ToolOptionsFormPage": {
+          "summary": "Builds tool-option rows, numeric controls, lists, hints, and action buttons.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "create_combo_box",
+            "create_spin_box",
+            "create_double_spin_box",
+            "add_row",
+            "add_action_row"
+          ]
+        }
+      }
+    },
+    "icescopy_validate": {
+      "summary": "Command-line checks for the installed package, dependencies, and required resources.",
+      "details": "`icescopy-validate` calls `main()` and returns a nonzero exit status for missing dependencies, resources, package installation, or source/package version mismatch. It does not perform GUI interaction or validate scientific results.",
+      "functions": [
+        "find_resources_dir",
+        "main"
+      ],
+      "classes": {}
+    },
+    "icescopy_version": {
+      "summary": "The version value used by the application and Python package.",
+      "details": "`__version__` supplies Python package metadata and macOS bundle metadata. The Windows installer receives its version as a separate build parameter. Keep those values aligned deliberately when preparing a release.",
+      "functions": [],
+      "classes": {}
+    },
+    "icescopy_video_preview": {
+      "summary": "Decode video previews outside the GUI thread.",
+      "details": "The controller owns a Qt thread; the worker creates its own frame source from a preview payload. Decode results include frame identity and a source token so the window can reject stale results. Call the controller’s `close()` before replacing its source or disposing the window. Blocking shutdown is not a hard one-second guarantee: its queued close must wait for an in-progress decode.",
+      "functions": [],
+      "classes": {
+        "VideoPreviewDecodeWorker": {
+          "summary": "Decodes requested preview frames and emits either an image or an error with source identity.",
+          "details": "",
+          "methods": [
+            "__init__",
+            "decode",
+            "close"
+          ]
+        },
+        "VideoPreviewDecodeController": {
+          "summary": "Owns the preview worker thread and forwards decode requests/results.",
+          "details": "`close(timeout_ms=1000)` disconnects new requests, invokes worker cleanup, quits the thread, and waits. The blocking worker invocation occurs before the timed wait.",
+          "methods": [
+            "__init__",
+            "start",
+            "request_decode",
+            "close"
+          ]
+        }
+      }
+    }
+  },
+  "replaced_classes": {
+    "SampleCatalogTreeWidget": {
+      "summary": "The sample catalog now uses a model/view implementation. Editing and data access are split between the model, delegate, view, and panel mixin.",
+      "targets": [
+        "SampleCatalogTreeModel",
+        "SampleCatalogTreeDelegate",
+        "SampleCatalogTreeView",
+        "SampleCatalogPanelMixin"
+      ]
+    }
+  }
+}

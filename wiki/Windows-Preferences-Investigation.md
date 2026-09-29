@@ -1,5 +1,7 @@
 # Windows Preferences investigation — 2026-09-28
 
+> Historical investigation record. For current instructions, see [Preferences and sessions](Sessions-Export-and-Preferences.md) and [Troubleshooting](Troubleshooting.md). Preserve the dated observations below when adding a new investigation.
+
 ## Environment
 
 - Source baseline: `bf1c737009f305242842a27a04465c67794b51fd` (`origin/main`).
