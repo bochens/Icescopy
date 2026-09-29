@@ -56,7 +56,8 @@ class PreferencesDialogTests(unittest.TestCase):
         table.setCurrentCell(row, PreferencesDialog.SAMPLE_FIELD_COLUMN_LABEL)
         table.scrollToItem(table.currentItem())
         table.setFocus()
-        QTest.keyClick(table, Qt.Key_F2)
+        # Test pending editor contents, not the platform's edit shortcut.
+        table.editItem(table.currentItem())
         self.app.processEvents()
         editor = self.app.focusWidget()
         self.assertIsInstance(editor, QLineEdit)

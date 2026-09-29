@@ -85,7 +85,9 @@ class SaveAccessDialogTests(unittest.TestCase):
                 self.assertTrue(is_save_access_error(error))
 
                 def interact(dialog):
-                    self.assertEqual(dialog.windowTitle(), "File Is in Use")
+                    # macOS ignores QMessageBox window titles; verify the
+                    # recovery instruction that users see on every platform.
+                    self.assertIn("Close any other program using this file", dialog.informativeText())
                     self.assertFalse(any("Allow App" in b.text() for b in dialog.buttons()))
                     dialog.button(QMessageBox.Cancel).click()
 
@@ -96,7 +98,7 @@ class SaveAccessDialogTests(unittest.TestCase):
 
     def test_read_only_location_does_not_offer_windows_security(self):
         def interact(dialog):
-            self.assertIn("read-only", dialog.windowTitle().lower())
+            self.assertIn("read-only", dialog.informativeText().lower())
             self.assertFalse(any("Allow App" in b.text() for b in dialog.buttons()))
             dialog.button(QMessageBox.Cancel).click()
         error = OSError(errno.EROFS, "Read-only filesystem")
