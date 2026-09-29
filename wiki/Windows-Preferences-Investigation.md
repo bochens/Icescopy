@@ -30,4 +30,4 @@ Initial validation: all 131 tests passed; `git diff --check` passes. Automated w
 - Native active-session/sample-schema edits, restarting the full GUI, title-bar close, and focus/task switching remain untested. Later automated tests exercise active sessions, keyboard editing/cancellation, and a real Windows file lock using disposable files.
 - The later follow-up fixes malformed-value loading, metadata retry rollback, and native permission recovery. See [Windows save recovery](Windows-Save-Recovery.md) for current implementation and validation.
 
-Keep `README_WINDOWS_SETTINGS_CHECK.md` until Bo confirms the broader Windows investigation is complete.
+The temporary `README_WINDOWS_SETTINGS_CHECK.md` was retired when the macOS build was added to v2.3.7. This page and [Windows save recovery](Windows-Save-Recovery.md) retain the investigation evidence and its testing limitations.
