@@ -1,6 +1,7 @@
 import os
 import tempfile
 from pathlib import Path
+from xml.etree.ElementTree import parse
 
 from PySide6.QtCore import QStandardPaths
 
@@ -42,6 +43,9 @@ def write_preferences_tree_atomic(tree):
     os.close(temp_fd)
     try:
         tree.write(temp_path, encoding="utf-8", xml_declaration=True)
+        # ElementTree can serialize XML-forbidden control characters. Verify
+        # the completed file before replacing the last usable preferences.
+        parse(temp_path)
         os.replace(temp_path, destination_path)
     finally:
         if os.path.exists(temp_path):

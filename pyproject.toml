@@ -57,6 +57,7 @@ py-modules = [
   "icescopy_freezfinder",
   "icescopy_image_edit",
   "icescopy_paths",
+  "icescopy_save_access",
   "icescopy_plot",
   "icescopy_sample_catalog",
   "icescopy_sample_metadata",

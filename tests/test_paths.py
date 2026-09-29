@@ -46,6 +46,42 @@ class PreferencePathTests(unittest.TestCase):
             parsed_root = parse(written_path).getroot()
             self.assertEqual(parsed_root.findtext("DefaultCircleRadius"), "42")
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows file sharing semantics")
+    def test_windows_locked_destination_preserves_file_and_can_retry(self):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ, {"ICESCOPY_CONFIG_DIR": td}
+        ):
+            path = user_preferences_path()
+            original = b"<Preferences><MaximumZoom>10</MaximumZoom></Preferences>"
+            path.write_bytes(original)
+            # Hold a real Windows read handle that does not permit replacement.
+            handle = kernel.CreateFileW(str(path), 0x80000000, 1, None, 3, 0x80, None)
+            if handle == ctypes.c_void_p(-1).value:
+                raise ctypes.WinError(ctypes.get_last_error())
+            root = Element("Preferences")
+            SubElement(root, "MaximumZoom").text = "17"
+            tree = ElementTree(root)
+            try:
+                with self.assertRaises(PermissionError):
+                    write_preferences_tree_atomic(tree)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(list(Path(td).glob("*.tmp")), [])
+            finally:
+                kernel.CloseHandle(handle)
+            write_preferences_tree_atomic(tree)
+            self.assertEqual(parse(path).findtext("MaximumZoom"), "17")
+
 
 if __name__ == "__main__":
     unittest.main()

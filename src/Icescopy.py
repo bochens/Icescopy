@@ -74,6 +74,7 @@ from icescopy_image_edit import (
 )
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_paths import preferences_read_path
+from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
 from icescopy_cell_controller import CellEditController
 from icescopy_temperature_import import (
@@ -629,20 +630,58 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def apply_sample_metadata_schema(self, new_schema, rename_map=None, *, record_history=True):
         old_schema = self.active_sample_metadata_schema()
         normalized_new_schema = sample_metadata_schema_from_payload(new_schema)
+        if normalized_new_schema == old_schema and not rename_map:
+            return
         before_state = self.capture_data_state() if record_history else None
-        self.sample_catalog = migrate_sample_catalog_for_schema(
-            getattr(self, "sample_catalog", {}),
-            old_schema,
-            normalized_new_schema,
-            rename_map=rename_map,
-        )
-        self.sample_metadata_schema = normalized_new_schema
-        self.refresh_freeze_count_timeseries_metadata_from_sample_catalog(relabel_headers=True)
-        self.refresh_sample_catalog_tree(preserve_selection=True)
-        self.update_cursor_sample_controls()
-        self.refresh_cells_panel()
-        if record_history and before_state is not None:
-            self.push_data_history("Update Sample Metadata Fields", before_state)
+        rollback_state = {
+            "sample_metadata_schema": copy.deepcopy(old_schema),
+            "sample_catalog": copy.deepcopy(getattr(self, "sample_catalog", {})),
+        }
+        for name in (
+            "next_sample_id", "freeze_count_timeseries_headers",
+            "freeze_count_timeseries_summary",
+        ):
+            if hasattr(self, name):
+                rollback_state[name] = copy.deepcopy(getattr(self, name))
+
+        def restore_metadata():
+            for name, value in rollback_state.items():
+                setattr(self, name, copy.deepcopy(value))
+
+        try:
+            self.sample_catalog = migrate_sample_catalog_for_schema(
+                getattr(self, "sample_catalog", {}),
+                old_schema,
+                normalized_new_schema,
+                rename_map=rename_map,
+            )
+            self.sample_metadata_schema = normalized_new_schema
+            self.refresh_freeze_count_timeseries_metadata_from_sample_catalog(relabel_headers=True)
+            self.refresh_sample_catalog_tree(preserve_selection=True)
+            self.update_cursor_sample_controls()
+            self.refresh_cells_panel()
+            if record_history and before_state is not None:
+                self.push_data_history("Update Sample Metadata Fields", before_state)
+        except Exception:
+            # A failed refresh must not leave a rename partially applied: Save
+            # can be retried with the same rename map, including swapped keys.
+            restore_metadata()
+            try:
+                for refresh in (
+                    lambda: self.update_freeze_count_timeseries_table(),
+                    lambda: self.refresh_sample_catalog_tree(preserve_selection=True),
+                    lambda: self.update_cursor_sample_controls(),
+                    lambda: self.refresh_cells_panel(),
+                ):
+                    try:
+                        refresh()
+                    except Exception:
+                        traceback.print_exc()
+            finally:
+                # UI repair can normalize records or fail again; the original
+                # data remains authoritative even if a widget cannot refresh.
+                restore_metadata()
+            raise
 
     def used_sample_ids(self):
         used_ids = set()
@@ -9149,26 +9188,34 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return self.saveSession()
 
     def persist_session_to_path(self, file_path, *, show_errors=True):
-        try:
-            payload = build_session_payload(self)
-            save_session_bundle(
-                file_path,
-                payload,
-                self.grayscale_results_headers,
-                self.grayscale_results_rows,
-                self.freeze_results_headers,
-                self.freeze_results_rows,
-                self.freeze_count_timeseries_headers,
-                self.freeze_count_timeseries_rows,
-            )
-            self.current_session_file_path = file_path
-            self.log(f"Saved session at {file_path}")
-            return True
-        except Exception as err:
-            if show_errors:
-                QMessageBox.critical(self, "Save Session Failed", str(err))
-            self.log(f"Failed to save session: {err}")
-            return False
+        while True:
+            try:
+                payload = build_session_payload(self)
+                save_session_bundle(
+                    file_path,
+                    payload,
+                    self.grayscale_results_headers,
+                    self.grayscale_results_rows,
+                    self.freeze_results_headers,
+                    self.freeze_results_rows,
+                    self.freeze_count_timeseries_headers,
+                    self.freeze_count_timeseries_rows,
+                )
+                self.current_session_file_path = file_path
+                self.log(f"Saved session at {file_path}")
+                return True
+            except Exception as err:
+                self.log(f"Failed to save session: {err}")
+                if show_errors:
+                    if is_save_access_error(err):
+                        action = prompt_save_access(self, file_path, err, allow_save_as=True)
+                        if action == "retry":
+                            continue
+                        if action == "save_as":
+                            return self.saveSessionAs()
+                    else:
+                        QMessageBox.critical(self, "Save Session Failed", str(err))
+                return False
 
     def persist_session_to_current_file(self, *, show_errors=True):
         file_path = str(getattr(self, "current_session_file_path", "") or "").strip()
@@ -10925,198 +10972,89 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def load_preferences_from_xml(self):
         tree = ET.parse(preferences_read_path(resources_dir))
         root = tree.getroot()
-        
+        if root.tag != "Preferences":
+            raise ValueError("The settings file must contain a Preferences element.")
+
         preferences = {}
+        warnings = []
+        # Keep these limits aligned with the controls in PreferencesDialog.
+        numeric_fields = {
+            "DefaultCircleRadius": (float, 0.1, 100000.0),
+            "MaximumZoom": (float, 0.1, 1000.0),
+            "PenWidth": (float, 0.1, 100.0),
+            "SliderMaxZoomPixelInterval": (float, 1.0, 1000.0),
+            "SliderTickPixelInterval": (float, 1.0, 1000.0),
+            "UndoLimit": (int, 1, 1000),
+            "ViewerImageCount": (int, 1, 3),
+            "GridRows": (int, 1, 100),
+            "GridColumns": (int, 1, 100),
+            "GridHorizontalPitch": (float, 0.1, 100000.0),
+            "GridVerticalPitch": (float, 0.1, 100000.0),
+            "GridRotationDegrees": (float, -180.0, 180.0),
+            "RadiusWheelStep": (float, 0.1, 1000.0),
+            "GridPitchWheelStep": (float, 0.1, 1000.0),
+            "GridTiltWheelStep": (float, 0.1, 90.0),
+            "FreezeFinderWidth": (float, 0.1, 100000.0),
+            "FreezeFinderProminence": (float, 0.1, 1000000.0),
+            "FreezeFinderHeadExtendPoints": (int, 0, 1000),
+            "FreezeFinderTailExtendPoints": (int, 0, 1000),
+            "ConvolutionHalfWindowPoints": (int, 0, 100000),
+            "ConvolutionRampPoints": (int, 0, 1000),
+            "TemperatureCycleWarmupHysteresisC": (float, 0.0, 10.0),
+            "TimeseriesLineWidth": (float, 0.1, 20.0),
+            "TimeseriesConvolutionLineWidth": (float, 0.1, 20.0),
+            "TimeseriesFreezeLineWidth": (float, 0.1, 20.0),
+            "TimeseriesCurrentFrameLineWidth": (float, 0.1, 20.0),
+            "PreviewHandleSize": (float, 2.0, 100.0),
+            "CircleLabelFontSize": (float, 1.0, 200.0),
+            "CircleLabelOffsetX": (float, -500.0, 500.0),
+            "CircleLabelOffsetY": (float, -500.0, 500.0),
+        }
+        for key, (converter, minimum, maximum) in numeric_fields.items():
+            element = root.find(key)
+            if element is None or element.text is None:
+                continue
+            try:
+                # Older settings may store integer controls as e.g. "20.0".
+                value = float(element.text)
+                if not math.isfinite(value) or not minimum <= value <= maximum:
+                    raise ValueError("outside the supported range")
+                preferences[key] = converter(value)
+            except (TypeError, ValueError, OverflowError):
+                warnings.append(
+                    f"{key}: ignored {element.text!r}; expected a finite number "
+                    f"from {minimum:g} to {maximum:g}."
+                )
 
-        circle_radius_element = root.find('DefaultCircleRadius')
-        if circle_radius_element is not None and circle_radius_element.text is not None:
-            preferences['DefaultCircleRadius'] = float(circle_radius_element.text)
+        text_fields = (
+            "SampleNamePattern", "SortMode", "GridCellIdDirection",
+            "TimeseriesPalette", "TimeseriesFreezeLineColor",
+            "TimeseriesCurrentFrameColor", *DEFAULT_VISUAL_COLORS,
+        )
+        for key in text_fields:
+            element = root.find(key)
+            if element is not None and element.text is not None:
+                preferences[key] = element.text
 
-        maximum_zoom_element = root.find('MaximumZoom')
-        if maximum_zoom_element is not None and maximum_zoom_element.text is not None:
-            preferences['MaximumZoom'] = float(maximum_zoom_element.text)
-        
-        pen_width_element = root.find('PenWidth')
-        if pen_width_element is not None and pen_width_element.text is not None:
-            preferences['PenWidth'] = float(pen_width_element.text)
+        try:
+            preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)
+        except (TypeError, ValueError) as err:
+            preferences["SampleMetadataSchema"] = default_sample_metadata_schema()
+            warnings.append(f"SampleMetadataSchema: {err}; using the default fields.")
 
-        slide_maxzoom_element = root.find('SliderMaxZoomPixelInterval')
-        if slide_maxzoom_element is not None and slide_maxzoom_element.text is not None:
-            preferences['SliderMaxZoomPixelInterval'] = float(slide_maxzoom_element.text)
-        
-        slide_tickpix_element = root.find('SliderTickPixelInterval')
-        if slide_tickpix_element is not None and slide_tickpix_element.text is not None:
-            preferences['SliderTickPixelInterval'] = float(slide_tickpix_element.text)
-
-        undo_limit_element = root.find('UndoLimit')
-        if undo_limit_element is not None and undo_limit_element.text is not None:
-            preferences['UndoLimit'] = int(float(undo_limit_element.text))
-
-        sample_name_pattern_element = root.find('SampleNamePattern')
-        if sample_name_pattern_element is not None and sample_name_pattern_element.text is not None:
-            preferences['SampleNamePattern'] = sample_name_pattern_element.text
-
-        preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)
-
-        viewer_image_count_element = root.find('ViewerImageCount')
-        if viewer_image_count_element is not None and viewer_image_count_element.text is not None:
-            preferences['ViewerImageCount'] = int(float(viewer_image_count_element.text))
-
-        sort_mode_element = root.find('SortMode')
-        if sort_mode_element is not None and sort_mode_element.text is not None:
-            preferences['SortMode'] = sort_mode_element.text
-
-        grid_rows_element = root.find('GridRows')
-        if grid_rows_element is not None and grid_rows_element.text is not None:
-            preferences['GridRows'] = int(float(grid_rows_element.text))
-
-        grid_columns_element = root.find('GridColumns')
-        if grid_columns_element is not None and grid_columns_element.text is not None:
-            preferences['GridColumns'] = int(float(grid_columns_element.text))
-
-        grid_horizontal_pitch_element = root.find('GridHorizontalPitch')
-        if grid_horizontal_pitch_element is not None and grid_horizontal_pitch_element.text is not None:
-            preferences['GridHorizontalPitch'] = float(grid_horizontal_pitch_element.text)
-
-        grid_vertical_pitch_element = root.find('GridVerticalPitch')
-        if grid_vertical_pitch_element is not None and grid_vertical_pitch_element.text is not None:
-            preferences['GridVerticalPitch'] = float(grid_vertical_pitch_element.text)
-
-        grid_rotation_degrees_element = root.find('GridRotationDegrees')
-        if grid_rotation_degrees_element is not None and grid_rotation_degrees_element.text is not None:
-            preferences['GridRotationDegrees'] = float(grid_rotation_degrees_element.text)
-
-        grid_cell_id_direction_element = root.find('GridCellIdDirection')
-        if grid_cell_id_direction_element is not None and grid_cell_id_direction_element.text is not None:
-            preferences['GridCellIdDirection'] = str(grid_cell_id_direction_element.text)
-
-        radius_wheel_step_element = root.find('RadiusWheelStep')
-        if radius_wheel_step_element is not None and radius_wheel_step_element.text is not None:
-            preferences['RadiusWheelStep'] = float(radius_wheel_step_element.text)
-
-        grid_pitch_wheel_step_element = root.find('GridPitchWheelStep')
-        if grid_pitch_wheel_step_element is not None and grid_pitch_wheel_step_element.text is not None:
-            preferences['GridPitchWheelStep'] = float(grid_pitch_wheel_step_element.text)
-
-        grid_tilt_wheel_step_element = root.find('GridTiltWheelStep')
-        if grid_tilt_wheel_step_element is not None and grid_tilt_wheel_step_element.text is not None:
-            preferences['GridTiltWheelStep'] = float(grid_tilt_wheel_step_element.text)
-
-        freeze_finder_width_element = root.find('FreezeFinderWidth')
-        if freeze_finder_width_element is not None and freeze_finder_width_element.text is not None:
-            preferences['FreezeFinderWidth'] = float(freeze_finder_width_element.text)
-
-        freeze_finder_prominence_element = root.find('FreezeFinderProminence')
-        if freeze_finder_prominence_element is not None and freeze_finder_prominence_element.text is not None:
-            preferences['FreezeFinderProminence'] = float(freeze_finder_prominence_element.text)
-
-        freeze_finder_head_extend_points_element = root.find('FreezeFinderHeadExtendPoints')
-        if (
-            freeze_finder_head_extend_points_element is not None
-            and freeze_finder_head_extend_points_element.text is not None
-        ):
-            preferences['FreezeFinderHeadExtendPoints'] = int(float(freeze_finder_head_extend_points_element.text))
-
-        freeze_finder_tail_extend_points_element = root.find('FreezeFinderTailExtendPoints')
-        if (
-            freeze_finder_tail_extend_points_element is not None
-            and freeze_finder_tail_extend_points_element.text is not None
-        ):
-            preferences['FreezeFinderTailExtendPoints'] = int(float(freeze_finder_tail_extend_points_element.text))
-
-        convolution_half_window_points_element = root.find('ConvolutionHalfWindowPoints')
-        if (
-            convolution_half_window_points_element is not None
-            and convolution_half_window_points_element.text is not None
-        ):
-            preferences['ConvolutionHalfWindowPoints'] = int(float(convolution_half_window_points_element.text))
-
-        convolution_ramp_points_element = root.find('ConvolutionRampPoints')
-        if convolution_ramp_points_element is not None and convolution_ramp_points_element.text is not None:
-            preferences['ConvolutionRampPoints'] = int(float(convolution_ramp_points_element.text))
-
-        freeze_finder_detect_brightening_element = root.find('FreezeFinderDetectBrightening')
-        if (
-            freeze_finder_detect_brightening_element is not None
-            and freeze_finder_detect_brightening_element.text is not None
-        ):
-            preferences['FreezeFinderDetectBrightening'] = (
-                str(freeze_finder_detect_brightening_element.text).strip().lower() in {"1", "true", "yes", "on"}
+        brightening_element = root.find("FreezeFinderDetectBrightening")
+        if brightening_element is not None and brightening_element.text is not None:
+            preferences["FreezeFinderDetectBrightening"] = (
+                brightening_element.text.strip().lower() in {"1", "true", "yes", "on"}
+            )
+        grayscale_element = root.find("VideoGrayscaleMode")
+        if grayscale_element is not None and grayscale_element.text is not None:
+            preferences["VideoGrayscaleMode"] = normalize_video_grayscale_mode(
+                grayscale_element.text
             )
 
-        video_grayscale_mode_element = root.find('VideoGrayscaleMode')
-        if video_grayscale_mode_element is not None and video_grayscale_mode_element.text is not None:
-            preferences['VideoGrayscaleMode'] = normalize_video_grayscale_mode(
-                video_grayscale_mode_element.text
-            )
-
-        temperature_cycle_warmup_hysteresis_c_element = root.find('TemperatureCycleWarmupHysteresisC')
-        if (
-            temperature_cycle_warmup_hysteresis_c_element is not None
-            and temperature_cycle_warmup_hysteresis_c_element.text is not None
-        ):
-            preferences['TemperatureCycleWarmupHysteresisC'] = float(
-                temperature_cycle_warmup_hysteresis_c_element.text
-            )
-
-        timeseries_palette_element = root.find('TimeseriesPalette')
-        if timeseries_palette_element is not None and timeseries_palette_element.text is not None:
-            preferences['TimeseriesPalette'] = timeseries_palette_element.text
-
-        timeseries_line_width_element = root.find('TimeseriesLineWidth')
-        if timeseries_line_width_element is not None and timeseries_line_width_element.text is not None:
-            preferences['TimeseriesLineWidth'] = float(timeseries_line_width_element.text)
-
-        timeseries_convolution_line_width_element = root.find('TimeseriesConvolutionLineWidth')
-        if (
-            timeseries_convolution_line_width_element is not None
-            and timeseries_convolution_line_width_element.text is not None
-        ):
-            preferences['TimeseriesConvolutionLineWidth'] = float(timeseries_convolution_line_width_element.text)
-
-        timeseries_freeze_line_color_element = root.find('TimeseriesFreezeLineColor')
-        if timeseries_freeze_line_color_element is not None and timeseries_freeze_line_color_element.text is not None:
-            preferences['TimeseriesFreezeLineColor'] = timeseries_freeze_line_color_element.text
-
-        timeseries_freeze_line_width_element = root.find('TimeseriesFreezeLineWidth')
-        if timeseries_freeze_line_width_element is not None and timeseries_freeze_line_width_element.text is not None:
-            preferences['TimeseriesFreezeLineWidth'] = float(timeseries_freeze_line_width_element.text)
-
-        timeseries_current_frame_color_element = root.find('TimeseriesCurrentFrameColor')
-        if (
-            timeseries_current_frame_color_element is not None
-            and timeseries_current_frame_color_element.text is not None
-        ):
-            preferences['TimeseriesCurrentFrameColor'] = timeseries_current_frame_color_element.text
-
-        timeseries_current_frame_line_width_element = root.find('TimeseriesCurrentFrameLineWidth')
-        if (
-            timeseries_current_frame_line_width_element is not None
-            and timeseries_current_frame_line_width_element.text is not None
-        ):
-            preferences['TimeseriesCurrentFrameLineWidth'] = float(timeseries_current_frame_line_width_element.text)
-
-        preview_handle_size_element = root.find('PreviewHandleSize')
-        if preview_handle_size_element is not None and preview_handle_size_element.text is not None:
-            preferences['PreviewHandleSize'] = float(preview_handle_size_element.text)
-
-        circle_label_font_size_element = root.find('CircleLabelFontSize')
-        if circle_label_font_size_element is not None and circle_label_font_size_element.text is not None:
-            preferences['CircleLabelFontSize'] = float(circle_label_font_size_element.text)
-
-        circle_label_offset_x_element = root.find('CircleLabelOffsetX')
-        if circle_label_offset_x_element is not None and circle_label_offset_x_element.text is not None:
-            preferences['CircleLabelOffsetX'] = float(circle_label_offset_x_element.text)
-
-        circle_label_offset_y_element = root.find('CircleLabelOffsetY')
-        if circle_label_offset_y_element is not None and circle_label_offset_y_element.text is not None:
-            preferences['CircleLabelOffsetY'] = float(circle_label_offset_y_element.text)
-
-        for key in DEFAULT_VISUAL_COLORS:
-            color_element = root.find(key)
-            if color_element is not None and color_element.text is not None:
-                preferences[key] = color_element.text
-        
+        if warnings:
+            preferences["_load_warnings"] = warnings
         return preferences
 
 def main(argv=None):

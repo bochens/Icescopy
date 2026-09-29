@@ -67,7 +67,8 @@ from icescopy_image_edit import (
     crop_state_is_identity,
 )
 from icescopy_session_io import SORT_MODE_LABELS
-from icescopy_paths import write_preferences_tree_atomic
+from icescopy_paths import user_preferences_path, write_preferences_tree_atomic
+from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
 from icescopy_sample_metadata import (
     CUSTOM_SAMPLE_METADATA_FIELD_TYPES,
@@ -914,6 +915,11 @@ class PreferencesDialog(QDialog):
         outer_layout = QVBoxLayout()
         outer_layout.setContentsMargins(16, 16, 16, 16)
         outer_layout.setSpacing(12)
+        self.preferences_load_warning_label = QLabel(self.preference_load_warning)
+        self.preferences_load_warning_label.setTextFormat(Qt.PlainText)
+        self.preferences_load_warning_label.setWordWrap(True)
+        self.preferences_load_warning_label.setVisible(bool(self.preference_load_warning))
+        outer_layout.addWidget(self.preferences_load_warning_label)
         content_layout = QHBoxLayout()
         content_layout.setSpacing(16)
         self.preference_label_width = 190
@@ -958,7 +964,12 @@ class PreferencesDialog(QDialog):
         self.sample_metadata_schema_table.setFixedHeight(300)
         self.sample_metadata_schema_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.sample_metadata_schema_table.setAlternatingRowColors(True)
-        self.populate_sample_metadata_schema_table(self.pref_value("SampleMetadataSchema"))
+        # Session files can carry experiment-specific fields that differ from
+        # the defaults for new sessions. Edit the same schema Save will apply.
+        sample_schema = self.pref_value("SampleMetadataSchema")
+        if getattr(self.main_window, "session_active", False):
+            sample_schema = self.main_window.active_sample_metadata_schema()
+        self.populate_sample_metadata_schema_table(sample_schema)
         self.sample_add_field_button = QPushButton("Add Field")
         self.sample_delete_field_button = QPushButton("Delete Field")
         self.sample_move_field_up_button = QPushButton("Move Up")
@@ -1125,10 +1136,22 @@ class PreferencesDialog(QDialog):
         self.setLayout(outer_layout)
 
     def load_saved_preferences(self):
+        self.preference_load_warning = ""
         try:
             saved = self.main_window.load_preferences_from_xml()
-        except (OSError, ParseError, TypeError, ValueError):
+            warnings = list(saved.get("_load_warnings", []))
+            if warnings:
+                self.preference_load_warning = (
+                    "Some saved preferences were invalid and use defaults. Review them before saving.\n"
+                    + "\n".join(warnings)
+                )
+        except (OSError, ParseError, TypeError, ValueError, OverflowError) as err:
             saved = {}
+            self.preference_load_warning = (
+                "Saved preferences could not be read. Defaults are shown. "
+                "The saved file has not been changed. Review these values before saving.\n"
+                f"{type(err).__name__}: {err}"
+            )
         return saved
 
     def pref_value(self, key):
@@ -1346,9 +1369,14 @@ class PreferencesDialog(QDialog):
         return section
 
     def build_samples_page(self):
+        description = "Configure default sample names and metadata fields for new sessions."
+        if getattr(self.main_window, "session_active", False):
+            description = (
+                "Sample fields apply to this session and become defaults for new sessions."
+            )
         page = self.build_preferences_page(
             "Samples",
-            "Configure default sample names and metadata fields for new sessions.",
+            description,
             [
                 ("Naming", [
                     ("Sample Name Pattern", self.sample_name_pattern_field),
@@ -1917,22 +1945,50 @@ class PreferencesDialog(QDialog):
         append_sample_metadata_schema_xml(root, new_sample_metadata_schema)
 
         tree = ElementTree(root)
+        while True:
+            try:
+                write_preferences_tree_atomic(tree)
+                break
+            except ParseError as err:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Preference Text",
+                    "A text setting contains a character that cannot be stored in the preferences file. "
+                    "Remove unusual pasted control characters from text fields and try Save again.\n\n"
+                    f"{err}",
+                )
+                return
+            except OSError as err:
+                if is_save_access_error(err):
+                    if prompt_save_access(self, user_preferences_path(), err) == "retry":
+                        continue
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Save Preferences Failed",
+                        f"Unable to save preferences:\n{err}",
+                    )
+                return
         try:
-            write_preferences_tree_atomic(tree)
-        except OSError as err:
+            self.main_window.set_preferences(preserve_session_tool_state=True)
+            if getattr(self.main_window, "session_active", False) and hasattr(self.main_window, "apply_sample_metadata_schema"):
+                self.main_window.apply_sample_metadata_schema(
+                    new_sample_metadata_schema,
+                    rename_map=sample_metadata_rename_map,
+                    record_history=True,
+                )
+        except Exception as err:
+            # The file is already committed; distinguish application failures
+            # from failed writes and keep the dialog available for retry.
+            traceback.print_exc()
             QMessageBox.critical(
                 self,
-                "Save Preferences Failed",
-                f"Unable to save preferences:\n{err}",
+                "Apply Preferences Failed",
+                "Your preferences were saved, but could not be fully applied to the current session.\n"
+                "Some settings may already have changed. You can retry Save or cancel this dialog.\n\n"
+                f"{type(err).__name__}: {err}",
             )
             return
-        self.main_window.set_preferences(preserve_session_tool_state=True)
-        if getattr(self.main_window, "session_active", False) and hasattr(self.main_window, "apply_sample_metadata_schema"):
-            self.main_window.apply_sample_metadata_schema(
-                new_sample_metadata_schema,
-                rename_map=sample_metadata_rename_map,
-                record_history=True,
-            )
         self.accept()
 
     def restore_visual_defaults(self):
