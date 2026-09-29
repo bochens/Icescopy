@@ -1,116 +1,58 @@
 # Quick Start
 
-This page is the fastest practical path through a standard Icescopy session.
+Follow these steps to mark cells, find freeze events, and export results. Have your images or video clips and an output folder ready. You can add temperature records later.
 
-## Before you start
+## 1. Start a session and load the recording
 
-Have these ready:
+1. Choose **File → New Session** and enter the session information.
+2. Load images with **File → Add Image Files...** or **Add Image Folder...**. For video, use **File → Open Video Source...** and select the clips together.
+3. Check the beginning, middle, and end of the recording. Use **File → Sort Images** or **Sort Video Clips** if the order is wrong.
+4. Choose **File → Save Session As...** and use a new filename to preserve any earlier session.
 
-- an ordered image sequence
-- session metadata such as project name, user name, institution, analysis date, and well volume if you want those fields in exports
-- a sample map if cells belong to different samples
-- a writable location for the session file
-- optional temperature data files if you plan to import them later
+A session contains images or video, not both. See [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) for details.
 
-## Standard workflow
+## 2. Prepare the view and mark the cells
 
-1. Open Icescopy.
-2. Start a new session.
-3. Enter session metadata.
-4. Add images or add an image folder.
-5. Check the image order in the `Images` dock.
-6. Annotate cells.
-7. Assign samples if needed.
-8. Edit sample catalog metadata if you will export sample-level data.
-9. Run analysis.
-10. Review the `Grayscale Plot` and freeze events.
-11. Import temperature data if needed.
-12. Review the freeze count timeseries table.
-13. Save the session.
-14. Export results if needed.
+Use **Edit → Image Edit** for any crop or brightness adjustments. Then:
 
-## Load images
+1. Press **S** for **Add Cell** or **G** for **Grid Tool**.
+2. Click to hold the preview in place. Adjust its size and position in **Tool Options**. For a grid, also set rows, columns, spacing, and rotation.
+3. Click **Apply** or press **Enter** to create the cells.
+4. Press **A** for the cursor. Select cells and choose their **Sample ID**, or click **New Sample**.
 
-Use:
+Keep circles inside the droplets or wells. If the recording moves, use **keyframes** to save corrected cell positions at different frames. See [Annotation Workflow](Annotation-Workflow.md) and [Image Editing](Image-Editing.md).
 
-- `File -> Add Images...`
-- `File -> Add Folder...`
+Enter sample details in **Edit → Sample Catalog Manager**. Customize the fields in **Preferences → Samples**; fields marked **[all]** share one value across all samples.
 
-After loading, confirm:
+## 3. Limit where analysis runs
 
-- the image list is populated
-- the frame slider covers the full sequence
-- the first and last few images are in the expected order
+To skip setup, warming, or other unwanted frames:
 
-## Annotate cells
+1. Go to the first frame to include. Click the timeline button with the tooltip **Toggle analysis start marker at the current frame**.
+2. Go to the last frame to include. Click **Toggle analysis end marker at the current frame**.
+3. Add another start/end pair if you need another interval.
 
-Use either:
+Both marked frames are included. With no markers, analysis uses the whole recording. To remove a marker, return to its frame and click the same button. You can still view frames outside the marked intervals.
 
-- single-cell placement
-- grid placement
+See [the marker guide](Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for multiple intervals and unpaired markers. The freeze **flag** edits freeze events; use the separate start/end buttons for analysis limits.
 
-If cells drift during the run:
+## 4. Run analysis and review freezing
 
-- add keyframes at frames where the layout visibly changes
-- adjust the cell positions there
+1. Choose **Analysis → Run Analysis**.
+2. Select a cell to show its **Grayscale Plot** (brightness over time).
+3. Use **Show Two Images** or **Show Three Images** to inspect the frames around its detected event.
+4. If events are missed or incorrect, open **Preferences → Analysis → Freeze Finding**. Check whether freezing makes the cell brighter or darker, then tune **Peak Prominence** and **Peak Width** using the [tuning guide](Analysis-and-Results.md#review-and-tune-freeze-detection).
+5. Save any setting changes and run analysis again. Also rerun after changing analysis markers.
 
-## Run analysis
+Rerunning replaces manual freeze corrections. Finish tuning first, then select cells and use the freeze flag, or edit a single cell's **Freeze Frame** in **Tool Options**.
 
-Use the analysis command from the app UI after annotation is complete.
+## 5. Add temperature and export
 
-The app will populate:
+1. Choose **Analysis → Import Temperature Data** and the importer for your record.
+2. Check the time alignment, sample assignments, and **Freeze Count Timeseries** table. See [Temperature Import](Temperature-Import.md).
+3. Save the session.
+4. Choose **File → Output Results** and select the tables to export. Use a fresh folder to preserve earlier exports.
 
-- grayscale measurements
-- freeze events
+If you change freeze events or sample assignments, import temperature data again to rebuild the counts. Counts include **number total** and **number frozen**; use these to calculate the fraction frozen. Missing sample information is exported as `nan`.
 
-Temperature import is a separate step after analysis.
-When temperature data is imported, the app builds the freeze count timeseries table from the current freeze events and current sample assignments.
-
-## Set sample metadata
-
-Use the sample catalog when sample-level output matters.
-
-Fill in:
-
-- sample name
-- sample long name if useful
-- sampling site
-- collection start and collection end in `YYYY-MM-DD HH:MM:SS`
-- sample type: `air`, `soil`, or `other`
-- dilution factor
-- type-specific fields such as air volume, filter fraction, suspension volume, and dry mass
-
-Missing sample metadata is exported as `nan` instead of blocking export.
-This lets downstream software identify which values are missing.
-
-## Import temperature data
-
-Use one of the temperature importers after freeze events are available:
-
-- standard two-column temperature CSV
-- CSU `.dat`
-- TAMU Linkam `.xlsx`
-
-The freeze count timeseries output contains `number total` and `number frozen` columns.
-It does not calculate or export a `fraction frozen` column.
-
-## Save early
-
-Save the session near the start of work instead of waiting until the end.
-
-This helps with:
-
-- relinking images later
-- resuming work after interruption
-- sharing the session file with the image folder structure intact
-
-## If something looks wrong
-
-Check these first:
-
-- image order
-- cell placement
-- sample assignment
-- whether a crop or image edit is active
-- timestamp source and timestamp style for temperature import
-- whether the results are stale and need a rerun
+See [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md) to resume work or change export fields, and [Troubleshooting](Troubleshooting.md) for help.

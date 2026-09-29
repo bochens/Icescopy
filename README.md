@@ -1,55 +1,84 @@
 # Icescopy
 
-Icescopy is a desktop application for ice assay image data. It supports droplet arrays, multiwell plates, and other image-based freezing assays by combining image annotation, sample metadata, grayscale timeseries review, freeze-event detection, and temperature-linked freeze count export in one workspace.
+Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, check the detections against the images, and match them to temperature records.
 
-Icescopy is currently used and tested by multiple university research groups, with support continuing to expand across different ice assay workflows.
+[Quick start](wiki/Quick-Start.md) · [User guide](wiki/Home.md) · [Releases](https://github.com/bochens/Icescopy/releases)
 
-If you have a temperature file format or instrument workflow that is not yet supported, please open a GitHub issue or contact me. I am happy to help incorporate additional formats into Icescopy.
+## Install
 
-## Developer Setup
+Download the version listed for your computer below. These downloads include Python and the required libraries; release notes are on [GitHub Releases](https://github.com/bochens/Icescopy/releases).
 
-The repository includes a Python dependency manifest (`pyproject.toml`) and a conda environment definition (`environment.yml`). From the repository root:
+| Platform | Download | Installation |
+| --- | --- | --- |
+| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) — v2.3.7 | Run the installer. |
+| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip) — v2.3.8 | Unzip, then move **Icescopy.app** to **Applications**. |
+
+The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
+
+## Developer setup
+
+With conda installed, clone this repository and run these commands from its folder:
 
 ```bash
 conda env create -f environment.yml
 conda activate icescopy-dev
-icescopy-validate
-python run_tests.py
 icescopy
 ```
 
-For an existing Python 3.11 environment, install the editable development package with `python -m pip install -e ".[dev]"`. See [Installation and Setup](wiki/Installation-and-Setup.md) for the full validation and packaging workflow.
+See [running from source](wiki/Installation-and-Setup.md#run-from-source) for other environments, checks, and packaging.
 
 ## Citation
 
-If you use Icescopy in your work, please cite it as:
+If you use Icescopy in your research, please cite:
 
-Chen, B. (2026). *Icescopy* (Version 2.0.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19673845
+Chen, B. (2026). *Icescopy* (Version 2.0.0) [Computer software]. Zenodo. [doi:10.5281/zenodo.19673845](https://doi.org/10.5281/zenodo.19673845)
 
-## Workflow Highlights
+For help, bug reports, or requests for another temperature-file format, [open a GitHub issue](https://github.com/bochens/Icescopy/issues).
 
-Icescopy is designed for flexible ice assay workflows where every droplet or well needs to stay traceable from raw image review through final result export. It does not assume one fixed plate layout or one fixed experiment style: users can annotate the assay geometry that appears in their images, attach sample information, and review the resulting freeze counts and timeseries inside the same workspace.
+## From recording to results
 
-### Annotate Freezing Arrays Directly
+Load an image sequence or one or more video clips. Crop the view or adjust exposure and contrast if needed. The [quick start](wiki/Quick-Start.md) walks through the controls for the workflow below.
 
-Use single-cell and grid tools to mark droplets, wells, or other assay locations directly on the image data. For each annotated location, Icescopy lets you view the grayscale timeseries and inspect the frozen frame result from its robust grayscale-based freeze finding algorithm. Visible location numbers keep manual review, freezing calls, and exported results tied to the same physical locations.
+### 1. Mark droplets or wells
 
-![Icescopy annotation workspace showing numbered droplets in an ice assay image](resources/readme/icescopy-cell-annotation.png)
+Draw individual cells with **Add Cell**, or place a row-and-column array with **Grid Tool**. Adjust the size, spacing, and angle to fit the image. Click **Apply** to create the cells.
 
-### Prepare Image Sequences Before Analysis
+![Grid Tool placing circles over wells](resources/readme/2026-09-29/grid-annotation-native.png)
 
-Image assay data often needs cleanup before freezing events can be reviewed reliably. Icescopy can adjust exposure and contrast, crop the field of view, and apply uniform exposure normalization so brightness is matched across frames before grayscale-based analysis.
+A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
 
-![Icescopy image editing workspace showing exposure, contrast, crop, and uniform exposure controls](resources/readme/icescopy-image-editing.png)
+### 2. Assign samples
 
-### Import Temperature Timeseries Or Customize The Workflow
+Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
 
-Import a standard temperature timeseries file, use instrument-specific importers, or customize how image timestamps should be matched to temperature records. Icescopy can apply water blank correction and can also help correct or double-check an instrument's real-time frozen counts against image-derived freeze calls.
+![Numbered wells and their sample information](resources/readme/2026-09-29/well-plate-sample-review-native.png)
 
-<img src="resources/readme/icescopy-temperature-import.png" alt="Icescopy temperature import dialogs showing standard CSV customization and CSU dat workflow support" width="760">
+### 3. Choose the frames to analyze
 
-### Enter Sample Metadata And Review Results
+Use the timeline's **analysis start and end markers** to skip setup, warming, or other unwanted parts of a recording. You can include several separate intervals. Both marked frames are included; without markers, the whole recording is analyzed.
 
-After annotation, use the sample catalog to enter sample names, collection information, sample type, dilution, volumes, and related metadata. Icescopy then keeps that metadata beside the image-derived measurements so freeze count timeseries, result tables, and exports remain connected to the samples they came from.
+Choose **Analysis → Run Analysis** to measure brightness and find freeze events. Run it again after changing the markers. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers).
 
-![Icescopy workspace showing sample metadata entry and freeze count timeseries results for a well-plate ice assay](resources/readme/icescopy-freeze-count-timeseries.png)
+### 4. Review and refine freezing
+
+Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames so you can check the detected change.
+
+![Neighboring frames and the selected cell's brightness plot](resources/readme/2026-09-29/droplet-frame-comparison-native.png)
+
+For missed or incorrect detections, open **Preferences → Analysis → Freeze Finding**:
+
+- Enable **Detect freezing from brightening** if freezing makes cells brighter; leave it off if they become darker.
+- Lower **Peak Prominence** to find weaker changes; raise it to reject small false detections.
+- Increase **Peak Width** to reject brief noise; lower it if a real, narrow response is missed.
+
+Prominence and width apply to the dashed line, which highlights changes in brightness. Change one setting at a time, save preferences, and rerun analysis. Check cells with clear, weak, and no freeze events. See the [full tuning guide](wiki/Analysis-and-Results.md#review-and-tune-freeze-detection) for the remaining controls and troubleshooting.
+
+Make manual corrections with the timeline flag **after tuning**: rerunning analysis replaces them.
+
+### 5. Add temperature and export
+
+Use **Analysis → Import Temperature Data** to match freeze events with CSV or supported instrument records. Options include water blank correction and repeated cooling cycles. See [supported temperature imports](wiki/Temperature-Import.md).
+
+Save a `.icescopy` session to resume later. **File → Output Results** exports brightness measurements, freeze events, or temperature-based counts with sample information. Keep the original images or videos: the session refers to them.
+
+Use **Save Session As...** and a new export folder to preserve earlier work. See [saving and exporting](wiki/Sessions-Export-and-Preferences.md).

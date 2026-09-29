@@ -1,192 +1,124 @@
 # Annotation Workflow
 
-This page explains how to annotate cells, manage keyframes, and assign samples.
+A **cell** is a numbered circle marking the area of a droplet or well to measure. Draw the cells, check their positions through the recording, assign samples, then run analysis.
 
-## Choose the right mode
+## Choose a tool
 
-Use the cursor tool when you need to:
+Click the image viewer before using a letter shortcut, so you do not type into a field. These tools are also in the **Edit** menu and toolbar.
 
-- select cells
-- inspect cells
-- edit freeze frames
-- assign samples
-- create a simple sample assignment during annotation
-
-Use the add or grid tools when you need to:
-
-- place one cell at a time
-- lay out many cells quickly in a regular pattern
-
-Use edit modes when you need to:
-
-- correct an existing placement
-- refine a group
-- update a keyframed layout
+| Key | Tool | Use |
+| --- | --- | --- |
+| **A** | Cursor Tool | Select cells, inspect results, edit freeze frames, and assign samples. |
+| **S** | Add Cell | Draw one circle. |
+| **G** | Grid Tool | Draw rows and columns of circles. |
+| **E** | Edit Cell | Adjust an existing circle or group. |
+| **D** | Delete Cells | Remove cells. |
+| **Z** | Pan and Zoom | Move around the image and inspect placement. |
 
 ## Add one cell
 
-Use single-cell placement when:
+1. Press **S** and move the circle preview over a droplet or well.
+2. Click once to **pin** the preview: it stops following the pointer. This does not add the cell yet.
+3. Adjust **Radius**, **X**, and **Y** in Tool Options, or drag the handle to move it.
+4. Click **Apply** or press **Enter** to add the cell. Repeat for other locations.
 
-- the layout is irregular
-- the number of cells is small
-- you need exact manual control
-
-Typical workflow:
-
-1. Activate the single-cell tool.
-2. Set the radius in the tool options or status bar.
-3. Click the center of the droplet or well.
-4. Repeat for the remaining cells.
+**Float** makes the preview follow the pointer again. **Cancel** discards it. Double-clicking, or pressing Enter while the preview follows the pointer, pins and adds the cell in one action.
 
 ## Add a grid
 
-Use grid placement when:
+1. Press **G**, move the grid over the array, and click to pin it.
+2. Set **Rows**, **Cols**, and **Radius**. Keep each circle inside its well.
+3. Set **H Pitch** and **V Pitch**, the horizontal and vertical distances between circle centers. Use **Tilt** to rotate the grid.
+4. Adjust **X** and **Y**, or drag the handle. Check the edges as well as the center.
+5. Click **Apply** or press **Enter**. Press **A** to inspect the numbered cells.
 
-- droplets or wells follow a regular pattern
-- row and column counts are known
-- you want faster initial placement
+![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-29/grid-annotation-native.png)
 
-Typical workflow:
-
-1. Activate the grid tool.
-2. Set rows, columns, horizontal pitch, vertical pitch, and rotation.
-3. Position the preview over the image.
-4. Commit the grid once it matches the array.
+**Float** returns to pointer placement; **Cancel** discards the preview. Check every circle: the grid uses the spacing you set and does not find wells automatically.
 
 ## Edit existing cells
 
-Use edit mode to correct:
+1. Press **A** and click a cell, or drag a selection box across a group.
+2. Press **E**. If nothing is selected, choose the cells to edit.
+3. Adjust size and position. For a group, you can also adjust spacing and rotation.
+4. Click **Apply** or press **Enter**. **Cancel** keeps the original placement.
 
-- position
-- radius
-- grid pitch
-- grid rotation
+Edits preserve cell IDs and their connection to results. Group edits use the cells' existing arrangement. To remove cells, use **D**, or select them with the cursor and press Delete or Backspace. Use **Edit → Undo** to undo annotation changes.
 
-The main rule is to edit the minimum number of frames necessary.
-If the layout only changes at certain points in the run, use keyframes instead of manually fixing every frame.
+## Assign cells to samples
 
-## Use keyframes when cells move
+1. Press **A** and select the cells belonging to a sample.
+2. Choose a **Sample ID** in Tool Options, or click **New Sample** to create and assign one.
+3. Open **Edit → Sample Catalog Manager**, expand the sample, and edit its details.
 
-Keyframes are the main way to manage motion across a sequence.
+Sample assignments determine the grouped freeze counts. The **Cells** panel lists cell IDs, samples, and freeze frames. Samples with identical names still count separately if they have different sample IDs.
 
-Use them when:
+## Enter sample information
 
-- the field drifts
-- the camera or stage shifts
-- the array geometry changes across time
+In the Sample Catalog, double-click a value to edit it. Default fields include:
 
-The intended workflow is:
+- Name, long name, and sampling site.
+- Collection start and end, in `YYYY-MM-DD HH:MM:SS` format.
+- Sample type: `air`, `soil`, or `other`.
+- Well volume, dilution factor, air volume, filter fraction, suspension volume, and dry mass.
 
-1. mark a keyframe at a frame with a known good layout
-2. adjust cells there
-3. add another keyframe later if the layout changes again
+Fields that do not apply to the sample type are disabled. Fields marked **[all]** share one value across all samples: editing one changes every sample. Well volume is shared by default.
 
-Icescopy interpolates between keyframes.
+Use **Preferences → Samples** to add fields, choose export fields, or make a field shared. See [Customize sample fields](Sessions-Export-and-Preferences.md#customize-sample-fields).
 
-This is why the app uses a global keyframe model instead of per-cell tracks.
-The motion source is usually global drift, not an independent animation per cell.
+Editing sample details does not require new brightness measurements. If you reassign cells to samples, repeat temperature import to rebuild the counts. Missing sample information is exported as `nan`.
 
-## Use flags during review
+## Follow movement with keyframes
 
-Flags are review markers.
-They are useful when:
+A **keyframe** stores cell positions and sizes at one frame. Between keyframes, Icescopy gradually changes one saved layout into the next.
 
-- you want to revisit a frame
-- you see an ambiguous event
-- you want to compare a frame during QC
+1. Go to a frame where the layout is clear and place the circles.
+2. Click the timeline's diamond button to make it a keyframe.
+3. Go to a later frame where the cells have moved. Make it a keyframe **before** editing the circles.
+4. Press **E**, align the cells, and apply the changes. Check the frames between the two keyframes.
 
-Flags do not change analysis by themselves.
+Once keyframes exist, lasting layout edits must be made at a keyframe. Add or select one before correcting alignment. Rerun analysis after changing cell placement or keyframes.
 
-## Delete cells
+## Choose the analysis interval
 
-Delete only when the ROI is truly wrong or no longer needed.
+Go to the first frame to include and toggle the timeline's **analysis start** marker. At the last frame, toggle **analysis end**. Then choose **Analysis → Run Analysis**.
 
-If you only need to correct a position:
+Both marked frames are included. The markers limit measurement and automatic freeze finding without deleting source frames. Changing them does not rerun analysis. See [Analysis and Results](Analysis-and-Results.md) for multiple intervals and detection settings.
 
-- edit it
-- do not delete and recreate it unless the ID continuity no longer matters
+## Compare images and inspect a cell
 
-## Edit freeze frames
+Use **Show Two Images** for the previous/current pair, or **Show Three Images** for previous/current/next. **Show One Image** returns to the current frame. Select and edit cells on the current frame.
 
-Freeze frames can be corrected manually from the cursor/inspection workflow.
+After analysis, press **A** and select a cell. Open **Window → Grayscale Plot** if needed. Compare its brightness line and current-frame marker with the visible freeze event.
 
-Use that when:
+![Frame comparison with cell inspection and the grayscale plot](../resources/readme/2026-09-29/droplet-frame-comparison-native.png)
 
-- the automatic detector missed a real event
-- the automatic detector chose the wrong frame
-- a special case needs a manual override
+See [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) for navigation and viewer controls.
 
-## Assign samples
+## Correct freeze frames
 
-Assign samples when the array contains multiple experimental groups.
+Finish tuning and rerunning analysis before making manual corrections: **a rerun replaces them**.
 
-Sample assignment affects:
+To mark an event at the displayed frame:
 
-- grouped output summaries
-- temperature import grouping
-- interpretation of results tables
+1. Press **A** and select the cell or cells.
+2. Go to the frame where they freeze.
+3. Click the timeline's **flag**. This adds a freeze event; if all selected cells already have an event there, it removes it instead.
 
-Sample assignment is done on cells.
-Sample metadata is edited in the sample catalog.
-Do not use the cursor tool as the main metadata editor.
+To replace a cell's event list:
 
-## Use the sample catalog
+1. Select one cell with the cursor.
+2. Enter a frame number in **Freeze Frame** under Tool Options, then click **Set**. Use the application's frame numbers, which start at **0**.
+3. For multiple events, enter comma-separated numbers. Enter **None** to clear the list.
 
-The sample catalog is the canonical place to edit sample metadata.
-It uses stable sample IDs internally and shows each sample as an expandable tree entry.
+The flag edits freeze events; it is not a bookmark. These edits update the event results without measuring brightness again. Reimport temperature data afterward to rebuild freeze counts.
 
-Use it to keep exports readable and to avoid treating numeric sample IDs as the only user-facing identifiers.
+## Finish in this order
 
-Editable fields are:
+1. Prepare the images, place cells, add any keyframes, and set analysis markers.
+2. Assign samples and enter their details.
+3. Run analysis, review the images, and tune detection if needed.
+4. Correct freeze frames, then import temperature data.
+5. Check the counts, save the session, and export the tables.
 
-- sample name
-- sample long name
-- sampling site
-- collection start
-- collection end
-- sample type
-- dilution factor
-- air volume
-- filter fraction used
-- suspension volume
-- dry mass
-
-Collection start and collection end use `YYYY-MM-DD HH:MM:SS`.
-The sample type can be `air`, `soil`, or `other`.
-Type-specific fields that do not apply are disabled in the tree.
-
-For export:
-
-- `sample_id` is the stable grouping key
-- `sample_name` is the displayed name
-- `cell_number` is the number of cells assigned to that sample
-- missing metadata is written as `nan`
-
-Changing sample names, long names, sample type, collection times, or numeric sample metadata does not rerun grayscale analysis.
-Changing which cells belong to a sample changes grouped temperature output, so reimport temperature data after sample assignment changes.
-
-Sample IDs are reused from the lowest available deleted sample number.
-For example, if sample `0` is deleted, the next new sample can use `0` again.
-
-## Use the cells panel
-
-The cells panel is the structural summary of current annotation state.
-
-Use it to review:
-
-- which cells exist
-- which sample each cell belongs to
-- which freeze frames are assigned
-
-## Recommended order
-
-Use this order for the least rework:
-
-1. place cells
-2. correct geometry
-3. add keyframes if the layout moves
-4. assign samples
-5. edit sample catalog metadata
-6. run analysis
-7. review freeze frames
-8. import temperature data if needed
+Use **File → Save Session As...** before trying a different analysis to preserve the earlier session.
