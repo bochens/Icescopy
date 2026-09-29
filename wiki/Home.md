@@ -1,42 +1,55 @@
-# Icescopy User Guide
+# Icescopy documentation
 
-Use Icescopy to mark droplets or wells in images and videos, find when they freeze, and match the freeze events to temperatures.
+Icescopy turns images or videos of freezing experiments into reviewed freeze events and temperature-aligned count tables. Use this documentation to learn the workflow, find a control, understand the output, or contribute to the application.
 
-Start with [Installation and Setup](Installation-and-Setup.md), then follow [Quick Start](Quick-Start.md).
+This guide describes the **2.3.8 source, Windows app, and macOS app**. See [Installation and Setup](Installation-and-Setup.md) for the download that matches your computer. The [README](../README.md) provides a short introduction; this wiki supplies the detailed instructions.
 
-## Find the task you need
+## Start here
 
-| Task | Guide |
+| Your goal | Start with |
 | --- | --- |
-| Load and compare images or video frames | [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) |
-| Draw cells and grids, assign samples, and follow movement | [Annotation Workflow](Annotation-Workflow.md) |
-| Crop images or adjust brightness | [Image Editing](Image-Editing.md) |
-| Set analysis limits, find freeze frames, and tune detection | [Analysis and Results](Analysis-and-Results.md) |
-| Add temperatures to freeze events | [Temperature Import](Temperature-Import.md) |
-| Save work, export tables, and customize sample fields | [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md) |
-| Fix common problems | [Troubleshooting](Troubleshooting.md) |
+| Install the desktop app | [Installation and Setup](Installation-and-Setup.md) |
+| Complete your first analysis | [Quick Start](Quick-Start.md) |
+| Find a button, panel, or keyboard shortcut | [Interface and Shortcuts](Interface-and-Shortcuts.md) |
+| Understand frames, cells, events, and result dependencies | [Concepts and Data Flow](Concepts-and-Data-Flow.md) |
+| Fix a problem | [Troubleshooting](Troubleshooting.md) |
+| Work on the code | [Developer Guide](Developer-Guide.md) |
 
-## Recommended workflow
+## Analyze an experiment
 
-1. Load images or video clips and check their order.
-2. Mark each droplet or well with a cell circle and assign cells to samples.
-3. Set **analysis start and end markers** to choose which frames to analyze.
-4. Run analysis and check the detected freeze frames against the images.
-5. Tune detection and rerun if needed, then make any manual corrections.
-6. Import temperature records, review the counts, and export. Save the session as you work.
+Follow this order for a new analysis. Each guide explains its controls and checks.
 
-After changing markers or detection settings, run analysis again. After changing freeze events or sample assignments, reimport temperatures to update the counts.
+1. [Load and review frames](Loading-and-Reviewing-Frames.md). Check the image order or video clips before annotating.
+2. [Prepare the image](Image-Editing.md), then [draw and edit cells](Annotation-Workflow.md). A cell is the circular area measured for one droplet or well.
+3. [Assign samples and enter metadata](Sample-Metadata.md). A sample groups related cells; metadata describes that sample.
+4. [Set analysis intervals and find freeze events](Analysis-and-Results.md). Review the detections, tune the settings, rerun, and then make manual corrections.
+5. [Import temperature records](Temperature-Import.md). Check time matching, sample groups, and any blank correction or repeated cycles.
+6. [Save the session and export results](Sessions-Export-and-Preferences.md). Use the [Output Reference](Output-Reference.md) to interpret the tables.
 
-## Terms used in the guide
+Keep the original images or videos: a saved session refers to those files rather than containing them. Use **Save Session As...** and a new export folder when comparing alternative analyses.
 
-- **Cell:** a circle defining where the app measures a droplet's or well's brightness.
-- **Sample:** a group of cells from the same experimental sample.
-- **Keyframe:** a frame with a saved cell layout. The app calculates cell positions between keyframes to follow movement.
-- **Analysis interval:** the frames from a start marker to an end marker, including both endpoints.
-- **Session:** a `.icescopy` file that saves your work. It refers to the original images or videos, so keep those files too.
+## Reference and explanation
 
-To preserve earlier work, use **Save Session As...** and export to a new folder. See [saving and exporting](Sessions-Export-and-Preferences.md).
+- [Interface and Shortcuts](Interface-and-Shortcuts.md): menus, panels, timeline controls, and keyboard behavior.
+- [Sample Metadata](Sample-Metadata.md): sample identity, built-in fields, custom fields, and shared values.
+- [Output Reference](Output-Reference.md): CSV columns, units, missing values, and count interpretation.
+- [Concepts and Data Flow](Concepts-and-Data-Flow.md): what each stage produces and what to repeat after an edit.
+- [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md): saved state, external files, recovery, and application settings.
 
-## For developers
+## Develop and maintain Icescopy
 
-[Architecture Overview](Architecture-Overview.md) · [Cell System](Cell-System.md) · [API Reference](API-Reference.md)
+| Topic | Guide |
+| --- | --- |
+| Set up a checkout, run checks, and prepare a change | [Developer Guide](Developer-Guide.md) |
+| Understand modules and how data moves through the application | [Architecture Overview](Architecture-Overview.md) |
+| Change cell data, editing, or drawing behavior | [Cell System](Cell-System.md) |
+| Locate Python modules, classes, and functions | [API Reference](API-Reference.md) |
+| Update, validate, and publish these pages | [Documentation Guide](Documentation-Guide.md) |
+
+The API reference describes internal Python code. It is not a promise that every class or method is a stable extension interface.
+
+## Help and historical notes
+
+Report reproducible problems through [GitHub Issues](https://github.com/bochens/Icescopy/issues). Include the application version, operating system, steps, and relevant error text. [Report a problem](Troubleshooting.md#report-a-problem) explains what to include without sharing private experiment files.
+
+The dated [Windows save-recovery notes](Windows-Save-Recovery.md) and [Windows Preferences investigation](Windows-Preferences-Investigation.md) preserve evidence behind earlier fixes. They are historical maintenance records, not installation instructions or a list of current defects.

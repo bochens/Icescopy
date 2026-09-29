@@ -1,5 +1,7 @@
 # Icescopy Windows save recovery build
 
+> Historical investigation record. For current user instructions, see [save recovery](Troubleshooting.md#cannot-save-a-session-preferences-or-csv) and [installation](Installation-and-Setup.md). The build and test observations below describe the investigation at that time.
+
 This investigation originally used a portable test build based on GitHub main bf1c737 plus fixes on codex/windows-preferences-errors. That test executable displayed version 2.3.6 and was separate from the previously published release. The final fixes were committed as 1da2f75 and are included in version 2.3.7. The test-build validation below records that investigation; release-specific packaging checks are recorded separately.
 
 ## Reproduced code failures
