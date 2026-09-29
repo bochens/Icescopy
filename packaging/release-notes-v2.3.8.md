@@ -1,6 +1,6 @@
 # Icescopy 2.3.8
 
-This release updates the macOS app for Apple Silicon. The Windows installer remains available in [v2.3.7](https://github.com/bochens/Icescopy/releases/tag/v2.3.7).
+This release updates the Windows app and the macOS app for Apple Silicon.
 
 ## Fixes
 
@@ -8,6 +8,14 @@ This release updates the macOS app for Apple Silicon. The Windows installer rema
 - Keep toolbar tool selections and one-, two-, or three-image views synchronized with the active mode, including changes made through accessibility controls.
 
 The README and user guide also include updated workflow instructions and screenshots.
+
+## Windows download
+
+Download [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe) for 64-bit x64 Windows 10 (1809 or later) or Windows 11. Run the installer, which installs for your Windows account, then open Icescopy from the Start menu. Python and the required libraries are included.
+
+The matching [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe.sha256) file provides the download checksum.
+
+Windows verification: 173 automated tests passed. Installation, upgrade, uninstall, and packaged dependency checks passed using a disposable installation.
 
 ## Mac download
 

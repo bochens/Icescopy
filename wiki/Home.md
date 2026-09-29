@@ -2,7 +2,7 @@
 
 Icescopy turns images or videos of freezing experiments into reviewed freeze events and temperature-aligned count tables. Use this documentation to learn the workflow, find a control, understand the output, or contribute to the application.
 
-This guide describes the current **2.3.8 source and macOS app**. The available Windows installer is **2.3.7**; toolbar and plot behavior can differ from the fixes in 2.3.8. See [Installation and Setup](Installation-and-Setup.md) for the correct download. The [README](../README.md) provides a short introduction; this wiki supplies the detailed instructions.
+This guide describes the **2.3.8 source, Windows app, and macOS app**. See [Installation and Setup](Installation-and-Setup.md) for the download that matches your computer. The [README](../README.md) provides a short introduction; this wiki supplies the detailed instructions.
 
 ## Start here
 

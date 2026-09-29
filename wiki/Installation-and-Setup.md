@@ -8,12 +8,12 @@ Use the release for your platform. All releases and their notes are on [GitHub R
 
 | Computer | Download | Version |
 | --- | --- | --- |
-| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.7/Icescopy-windows-installer.exe) | 2.3.7 |
+| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe) | 2.3.8 |
 | Mac with Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip) | 2.3.8 |
 
 These releases do not include an Intel Mac or Linux app. Windows x64 means 64-bit Intel/AMD Windows. The Mac arm64 download targets Apple Silicon. GitHub's **Source code** ZIP/TAR downloads contain program source, not an installer.
 
-The Mac release includes the current plot-marker and toolbar-selection fixes. The Windows download remains the earlier 2.3.7 build; do not infer that a newer Mac version means a new Windows installer is available.
+Both platform downloads are version **2.3.8** and include the plot-marker and toolbar-selection fixes. Check platform-specific assets whenever installing another release; a release need not contain a build for every platform.
 
 ## Install on Windows
 
@@ -57,7 +57,7 @@ A checksum is a number calculated from a file's bytes. Matching the release chec
 
 Download the matching checksum:
 
-- Windows 2.3.7: [SHA256SUMS.txt](https://github.com/bochens/Icescopy/releases/download/v2.3.7/SHA256SUMS.txt).
+- Windows 2.3.8: [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe.sha256).
 - macOS 2.3.8: [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-macos-arm64.zip.sha256).
 
 On Windows, open PowerShell in the download folder:
@@ -66,7 +66,7 @@ On Windows, open PowerShell in the download folder:
 Get-FileHash .\Icescopy-windows-installer.exe -Algorithm SHA256
 ```
 
-Compare the hash with the installer's entry in `SHA256SUMS.txt`, ignoring letter case.
+Compare the hash with the installer's entry in `Icescopy-windows-installer.exe.sha256`, ignoring letter case.
 
 On macOS, with the ZIP and checksum in the same folder:
 

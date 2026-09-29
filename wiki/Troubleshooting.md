@@ -99,7 +99,7 @@ Check the beginning, end, keyframes, and frames between them. Add corrections wh
 
 Check which cell is selected and which frame is displayed. The current-frame line follows navigation; freeze-event lines remain at that cell's assigned events. They should coincide only when you visit an event frame.
 
-With multiple selected cells, inspect one cell at a time to remove ambiguity. The Mac 2.3.8 release fixes marker alignment during plot rescaling and toolbar selection through accessibility controls. See [installation versions](Installation-and-Setup.md#download-the-app) if using an older build.
+With multiple selected cells, inspect one cell at a time to remove ambiguity. Release 2.3.8 fixes marker alignment during plot rescaling and toolbar selection through accessibility controls. See [installation versions](Installation-and-Setup.md#download-the-app) if using an older build.
 
 ## Temperature import fails or temperatures look shifted
 
