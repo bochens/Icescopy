@@ -4394,20 +4394,23 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
+        navigation_controls = QHBoxLayout()
         self.cells_auto_center_checkbox = QCheckBox("Auto-center", panel)
         self.cells_auto_center_checkbox.setChecked(False)
         self.cells_auto_center_checkbox.setToolTip(
             "Center the selected cell or group when checked or when a cell row is selected or clicked again. Keep the current zoom. Image selections never center automatically."
         )
         self.cells_auto_center_checkbox.clicked.connect(self.handle_cell_list_navigation_option_clicked)
-        layout.addWidget(self.cells_auto_center_checkbox)
+        navigation_controls.addWidget(self.cells_auto_center_checkbox)
         self.cells_show_first_freeze_checkbox = QCheckBox("Show freeze frame", panel)
         self.cells_show_first_freeze_checkbox.setChecked(False)
         self.cells_show_first_freeze_checkbox.setToolTip(
             "Show the selected cell's first recorded freeze frame when checked or when its row is selected or clicked again. Groups and cells without events leave the frame unchanged."
         )
         self.cells_show_first_freeze_checkbox.clicked.connect(self.handle_cell_list_navigation_option_clicked)
-        layout.addWidget(self.cells_show_first_freeze_checkbox)
+        navigation_controls.addWidget(self.cells_show_first_freeze_checkbox)
+        navigation_controls.addStretch(1)
+        layout.addLayout(navigation_controls)
 
         self.cells_tree_widget = CellSelectionTreeWidget(self, panel)
         self.cells_tree_widget.setColumnCount(2)

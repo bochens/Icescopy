@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10621)
+[Source](../src/Icescopy.py#L10624)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10705)
+[Source](../src/Icescopy.py#L10708)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10744)
+[Source](../src/Icescopy.py#L10747)
 
 ```python
 def onThreadFinished(self):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5619)
+[Source](../src/Icescopy.py#L5622)
 
 ```python
 def capture_session_state(self):
@@ -79,7 +79,7 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6222)
+[Source](../src/Icescopy.py#L6225)
 
 ```python
 def restore_session_state(self, state, preserve_active_tool=False):
@@ -143,7 +143,7 @@ def navigate_after_cell_list_selection(self, before, *, reapply=False):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9143)
+[Source](../src/Icescopy.py#L9146)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -151,7 +151,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9421)
+[Source](../src/Icescopy.py#L9424)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -159,7 +159,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6820)
+[Source](../src/Icescopy.py#L6823)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -167,7 +167,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11138)
+[Source](../src/Icescopy.py#L11141)
 
 ```python
 def closeEvent(self, event):
