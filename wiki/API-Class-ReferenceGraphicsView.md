@@ -3,7 +3,7 @@
 
 Handles pan, zoom, and image-edit controls in a neighboring-frame pane.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L150) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L152) · [API index](API-Reference.md)
 
 **Bases:** `LinkedGraphicsView`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L153)
+[Source](../src/icescopy_viewer.py#L155)
 
 ```python
 def __init__(self, scene, main_window):
@@ -23,7 +23,7 @@ def __init__(self, scene, main_window):
 
 ### `wheelEvent`
 
-[Source](../src/icescopy_viewer.py#L166)
+[Source](../src/icescopy_viewer.py#L168)
 
 ```python
 def wheelEvent(self, event):
@@ -31,7 +31,7 @@ def wheelEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_viewer.py#L181)
+[Source](../src/icescopy_viewer.py#L183)
 
 ```python
 def keyPressEvent(self, event):
@@ -39,7 +39,7 @@ def keyPressEvent(self, event):
 
 ### `keyReleaseEvent`
 
-[Source](../src/icescopy_viewer.py#L207)
+[Source](../src/icescopy_viewer.py#L209)
 
 ```python
 def keyReleaseEvent(self, event):

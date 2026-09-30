@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 import tempfile
@@ -10,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QWheelEvent
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
 
 from Icescopy import IceScopy
-from icescopy_cell_items import CellCircle
+from icescopy_cell_items import CellCircle, CellSnapshot
 from icescopy_frame_source import ImageSequenceFrameSource
 
 
@@ -109,6 +110,167 @@ class ComparisonViewerTests(unittest.TestCase):
         self.window.imageEditTool(True)
         self.process_events()
 
+    def install_moving_cell(self, first=0, last=4):
+        cell_id = self.window.cell_controller.add_single_cell((100, 120), (100, 120), 10)
+        self.window.keyframe_list = [first, last]
+        self.window.keyframe_cell_items_dict = {
+            first: [CellSnapshot((100, 120), 10, (100, 120), cell_id)],
+            last: [CellSnapshot((300, 200), 30, (300, 200), cell_id)],
+        }
+        self.window.image_slider.keyframes = {first, last}
+        self.window.updateImage(2)
+        return cell_id
+
+    def assert_cell_geometry(self, items, expected):
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual((*item.circle_pixel_positions, item.circle_sizes), expected)
+        return item
+
+    def test_each_panel_uses_its_own_cell_keyframe_and_interpolation(self):
+        self.install_moving_cell()
+        for panel, expected in zip(self.panels(), [(150, 140, 15), (200, 160, 20), (250, 180, 25)]):
+            items = self.window.cell_items if panel.is_current else panel.cell_items
+            item = self.assert_cell_geometry(items, expected)
+            self.assertEqual(item.circle_positions, expected[:2])
+
+        # Exact keyframes and frames outside the marked span use the saved
+        # geometry, independently of which frame occupies the current panel.
+        self.window.keyframe_list = [1, 3]
+        first, last = self.window.keyframe_cell_items_dict.values()
+        self.window.keyframe_cell_items_dict = {1: first, 3: last}
+        for index, expected in ((2, [(100, 120, 10), (300, 200, 30)]),
+                                (1, [(100, 120, 10), (200, 160, 20)]),
+                                (3, [(200, 160, 20), (300, 200, 30)])):
+            with self.subTest(current=index):
+                self.window.updateImage(index)
+                for panel, geometry in zip(self.viewer.reference_panels, expected):
+                    self.assert_cell_geometry(panel.cell_items, geometry)
+
+    def test_reference_rendering_keeps_cell_models_registry_and_selection_unchanged(self):
+        self.install_moving_cell()
+        primary = list(self.window.cell_items)
+        primary[0].setSelected(True)
+        models = copy.deepcopy(self.window.keyframe_cell_items_dict)
+        registry = copy.deepcopy(self.window.serialize_cell_records())
+        next_id = self.window.next_cell_id
+        history_count = self.window.undo_stack.count()
+        for _ in range(3):
+            self.viewer.refresh_reference_cells()
+        self.assertEqual(self.window.cell_items, primary)
+        self.assertTrue(primary[0].isSelected())
+        self.assertIs(primary[0].scene(), self.window.scene)
+        self.assertEqual(self.window.keyframe_cell_items_dict, models)
+        self.assertEqual(self.window.serialize_cell_records(), registry)
+        self.assertEqual(self.window.next_cell_id, next_id)
+        self.assertEqual(self.window.undo_stack.count(), history_count)
+        for panel in self.viewer.reference_panels:
+            item = panel.cell_items[0]
+            self.assertIs(item.scene(), panel.scene)
+            self.assertIsNot(item, primary[0])
+            self.assertFalse(item.flags() & CellCircle.ItemIsSelectable)
+            self.assertEqual(item.acceptedMouseButtons(), Qt.NoButton)
+            self.assertFalse(item.acceptHoverEvents())
+
+    def test_reference_cells_follow_each_frames_crop_transform(self):
+        # A crop is normalized against each source image. Using the current
+        # frame's dimensions would misplace the previous frame's circle.
+        small_path = self.root / "small.png"
+        small = QImage(320, 240, QImage.Format_RGB32)
+        small.fill(Qt.gray)
+        self.assertTrue(small.save(str(small_path)))
+        paths = list(self.paths)
+        paths[1] = small_path
+        self.window.set_frame_source(ImageSequenceFrameSource(paths))
+        self.window.updateImage(2)
+        self.install_moving_cell()
+        crop = {"center_x": 400.0, "center_y": 300.0, "width": 400.0, "height": 300.0, "angle": 15.0}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(crop=crop))
+        for panel in self.viewer.reference_panels:
+            item = panel.cell_items[0]
+            expected = self.window.image_pixel_to_scene_coordinates(
+                *item.circle_pixel_positions, panel.pixmap_item.sceneBoundingRect(), index=panel.frame_index
+            )
+            self.assertEqual(item.circle_positions, expected)
+        previous = self.viewer.previous.cell_items[0]
+        current_transform = self.window.image_pixel_to_scene_coordinates(*previous.circle_pixel_positions, index=2)
+        self.assertNotEqual(previous.circle_positions, current_transform)
+        self.enter_image_edit()
+        self.window.begin_image_edit_crop()
+        for panel in self.viewer.reference_panels:
+            self.assertEqual(panel.cell_items[0].circle_positions, panel.cell_items[0].circle_pixel_positions)
+        self.window.cancel_image_edit_crop()
+        self.assertEqual(self.viewer.previous.cell_items[0].circle_positions, previous.circle_positions)
+
+    def test_reference_cells_refresh_after_keyframe_edit_rename_delete_and_undo(self):
+        cell_id = self.install_moving_cell()
+        # The fixture loads the source directly rather than through Open Images.
+        self.window.image_slider.setEnabled(True)
+        self.window.image_slider.toggle_keyframe()
+        self.assertIn(2, self.window.keyframe_list)
+        self.window.cell_items[0].setSelected(True)
+        self.window.cell_controller.replace_active_edit_cell((300, 240), (300, 240), 40)
+        self.assert_cell_geometry(self.viewer.previous.cell_items, (200, 180, 25))
+        self.assert_cell_geometry(self.viewer.next.cell_items, (300, 220, 35))
+        self.window.image_slider.toggle_keyframe()
+        self.assert_cell_geometry(self.viewer.previous.cell_items, (150, 140, 15))
+        self.assert_cell_geometry(self.viewer.next.cell_items, (250, 180, 25))
+        self.window.undo_stack.undo()
+        self.assert_cell_geometry(self.viewer.previous.cell_items, (200, 180, 25))
+
+        # Rename through the same control as Edit Cell, then delete in Cursor.
+        self.window.activate_edit_cell_item(self.window.cell_items[0])
+        self.window.edit_circle_cell_id_spinbox.setValue(cell_id + 10)
+        self.window.apply_edit_circle_cell_id_edit()
+        self.assertEqual([panel.cell_items[0].cell_id for panel in self.viewer.reference_panels], [cell_id + 10] * 2)
+        self.window.undo_stack.undo()
+        self.assertEqual([panel.cell_items[0].cell_id for panel in self.viewer.reference_panels], [cell_id] * 2)
+        self.window.apply_cursor_tool_ui()
+        self.window.cell_items[0].setSelected(True)
+        self.assertTrue(self.window.delete_selected_cells())
+        self.assertEqual([panel.cell_items for panel in self.viewer.reference_panels], [[], []])
+        self.window.undo_stack.undo()
+        self.assertEqual([panel.cell_items[0].cell_id for panel in self.viewer.reference_panels], [cell_id] * 2)
+
+    def test_reference_cells_without_keyframes_clear_with_hidden_missing_or_preview_frames(self):
+        self.window.cell_controller.add_single_cell((350, 270), (350, 270), 25)
+        for panel in self.viewer.reference_panels:
+            self.assert_cell_geometry(panel.cell_items, (350, 270, 25))
+        self.window.set_viewer_image_count(2)
+        self.assertEqual(self.viewer.next.cell_items, [])
+        self.window.updateImage(0)
+        self.assertEqual(self.viewer.previous.cell_items, [])
+        self.window.set_viewer_image_count(3)
+        self.window.updateImage(2)
+        with patch.object(self.window, "is_video_source", return_value=True):
+            self.window.updateImage(3, preview=True)
+        self.assertEqual([panel.cell_items for panel in self.viewer.reference_panels], [[], []])
+        self.window.updateImage(2)
+        self.window.clear_loaded_images(confirm=False)
+        self.assertEqual([panel.cell_items for panel in self.viewer.reference_panels], [[], []])
+
+    def test_sample_assignment_undo_and_redo_repaint_cells_in_every_panel(self):
+        cell_id = self.window.cell_controller.add_single_cell((350, 270), (350, 270), 25)
+        self.set_camera(scale=1.0)
+        self.window.cell_items[0].setSelected(True)
+        self.window.create_sample_from_cursor_controls()
+        assigned_color = self.window.sample_visual_color_for_cell(cell_id).name()
+        self.process_events()
+
+        # Observe scene invalidation rather than forcing a render: restored
+        # metadata must schedule repainting of the neighboring cell labels.
+        for action, expected_color in ((self.window.undo_stack.undo, None),
+                                       (self.window.undo_stack.redo, assigned_color)):
+            with self.subTest(action=action):
+                changes = [QSignalSpy(panel.view.scene().changed) for panel in self.panels()]
+                action()
+                self.process_events()
+                for panel, signal in zip(self.panels(), changes):
+                    self.assertGreater(signal.count(), 0)
+                    items = self.window.cell_items if panel.is_current else panel.cell_items
+                    color = items[0].main_window.sample_visual_color_for_cell(items[0].cell_id)
+                    self.assertEqual(color.name() if color is not None else None, expected_color)
+
     def test_panels_have_separate_scenes_and_keep_neighbor_slots_at_recording_edges(self):
         self.assertEqual(len({id(panel.view.scene()) for panel in self.panels()}), 3)
         self.assertIs(self.viewer.current.view, self.window.view)
@@ -128,6 +290,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.assert_panel_images([3, 4, None])
 
     def test_wheel_zoom_and_drag_pan_in_every_panel_update_all_views(self):
+        self.window.cell_controller.add_single_cell((350, 270), (350, 270), 50)
         self.window.panTool(True)
         self.set_camera()
         for panel in self.panels():
@@ -273,6 +436,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.assertEqual([self.panel_pixmap_item(panel).pixmap().width() for panel in self.panels()], [400, 400, 400])
 
     def test_crop_overlay_from_reference_changes_one_shared_draft(self):
+        self.window.cell_controller.add_single_cell((350, 260), (350, 260), 50)
         self.enter_image_edit()
         self.window.begin_image_edit_crop()
         reference = self.viewer.previous

@@ -63,7 +63,7 @@ Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the 
 
 ### 4. Review and refine freezing
 
-Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames in separate panes. Pan or zoom in any pane to inspect the same cell across all displayed frames.
+Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames in separate panes, with each frame’s cell positions and sizes. Pan or zoom in any pane to compare the same area across frames. Select or edit cells in the **Current** pane.
 
 ![Neighboring frames and the selected cell's brightness plot](resources/readme/2026-09-29/droplet-frame-comparison-native.png)
 

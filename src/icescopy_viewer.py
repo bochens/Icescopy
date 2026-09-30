@@ -6,6 +6,7 @@ overlays, but never send cell-editing mouse events to the current panel.
 
 from contextlib import contextmanager
 
+import shiboken6
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import (
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from icescopy_cell_items import CellCircle
 
 
 class LinkedGraphicsView(QGraphicsView):
@@ -225,6 +227,7 @@ class FramePanel(QWidget):
         self.frame_index = None
         self.crop_overlay = None
         self.uniform_overlay = None
+        self.cell_items = []
         self.header = QLabel(role)
         self.header.setAlignment(Qt.AlignCenter)
         self.header.setMargin(5)
@@ -261,15 +264,58 @@ class FramePanel(QWidget):
             edge = "earlier" if self.role == "Previous" else "later"
             self.header.setText(f"{self.role} — no {edge} frame")
         if pixmap is None:
+            self.clear_cells()
             for overlay in (self.crop_overlay, self.uniform_overlay):
                 if overlay is not None:
                     overlay.hide()
+
+    def clear_cells(self):
+        for item in self.cell_items:
+            if shiboken6.isValid(item) and item.scene() is self.scene:
+                self.scene.removeItem(item)
+        self.cell_items = []
+
+    def refresh_cells(self, main_window):
+        """Render this frame's layout without moving or editing stored cells."""
+        if self.frame_index is None or self.pixmap_item is None:
+            self.clear_cells()
+            return
+        previous = {item.cell_id: item for item in self.cell_items}
+        updated = []
+        seen_ids = set()
+        image_rect = self.pixmap_item.sceneBoundingRect()
+        for source in main_window.keyframe_interpolation(self.frame_index):
+            cell_id = int(source.cell_id)
+            if cell_id in seen_ids:
+                continue
+            seen_ids.add(cell_id)
+            pixel_position = tuple(float(value) for value in source.circle_pixel_positions)
+            position = main_window.image_pixel_to_scene_coordinates(
+                *pixel_position, image_rect=image_rect, index=self.frame_index,
+            )
+            item = previous.pop(cell_id, None)
+            if item is None:
+                item = CellCircle(
+                    main_window, position, float(source.circle_sizes),
+                    pixel_position, cell_id, read_only=True,
+                )
+                self.scene.addItem(item)
+            else:
+                item.sync_from_data(
+                    position, float(source.circle_sizes), pixel_position, cell_id,
+                    edit_chosen=False, hover=False, pressed=False,
+                )
+            updated.append(item)
+        for item in previous.values():
+            self.scene.removeItem(item)
+        self.cell_items = updated
 
     def clear(self):
         if not self.is_current:
             self.scene.clear()
             self.crop_overlay = None
             self.uniform_overlay = None
+        self.cell_items = []
         self.pixmap_item = None
         self.frame_index = None
         self.header.setText(f"{self.role} — no frames loaded")
@@ -361,6 +407,11 @@ class ComparisonViewer(QWidget):
             next_index = slots[2] if len(slots) >= 3 else None
             for panel, index in ((self.previous, previous_index), (self.next, next_index)):
                 panel.show_reference(index, pixmaps.get(index), bounds, preview=preview)
+        self.refresh_reference_cells()
+
+    def refresh_reference_cells(self):
+        for panel in self.reference_panels:
+            panel.refresh_cells(self.main_window)
 
     def sync_interaction(self):
         pan = self.main_window.is_pan_interaction_active() or self.current.view.dragMode() == QGraphicsView.ScrollHandDrag

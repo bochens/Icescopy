@@ -7,7 +7,7 @@ Draws a cell outline and ID, with selection, hover, and edit feedback.
 
 **Bases:** `QGraphicsEllipseItem`.
 
-Rendered items can be synchronized or rebuilt while navigating. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.
+Rendered items can be synchronized or rebuilt while navigating. `read_only=True` draws neighboring-frame circles without mouse, hover, or selection interactions; painting these copies only reads existing cell records. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.
 
 ## Selected methods
 
@@ -18,12 +18,12 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 [Source](../src/icescopy_cell_items.py#L28)
 
 ```python
-def __init__(self, main_window, circle_positions, circle_sizes, circle_pixel_positions, cell_id):
+def __init__(self, main_window, circle_positions, circle_sizes, circle_pixel_positions, cell_id, *, read_only=False):
 ```
 
 ### `sync_from_data`
 
-[Source](../src/icescopy_cell_items.py#L48)
+[Source](../src/icescopy_cell_items.py#L51)
 
 ```python
 def sync_from_data(self, circle_positions, circle_sizes, circle_pixel_positions, cell_id, *, edit_chosen=None, hover=False, pressed=False):
@@ -31,7 +31,7 @@ def sync_from_data(self, circle_positions, circle_sizes, circle_pixel_positions,
 
 ### `paint`
 
-[Source](../src/icescopy_cell_items.py#L84)
+[Source](../src/icescopy_cell_items.py#L87)
 
 ```python
 def paint(self, painter, option, widget):
@@ -39,7 +39,7 @@ def paint(self, painter, option, widget):
 
 ### `update_selectable_state`
 
-[Source](../src/icescopy_cell_items.py#L168)
+[Source](../src/icescopy_cell_items.py#L177)
 
 ```python
 def update_selectable_state(self):

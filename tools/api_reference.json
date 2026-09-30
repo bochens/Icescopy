@@ -179,7 +179,7 @@
         },
         "CellCircle": {
           "summary": "Draws a cell outline and ID, with selection, hover, and edit feedback.",
-          "details": "Rendered items can be synchronized or rebuilt while navigating. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.",
+          "details": "Rendered items can be synchronized or rebuilt while navigating. `read_only=True` draws neighboring-frame circles without mouse, hover, or selection interactions; painting these copies only reads existing cell records. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.",
           "methods": [
             "__init__",
             "sync_from_data",
@@ -811,7 +811,7 @@
     },
     "icescopy_viewer": {
       "summary": "Separate previous, current, and next frame panes with synchronized pan and zoom.",
-      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
+      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
       "functions": [],
       "classes": {
         "LinkedGraphicsView": {
@@ -837,23 +837,26 @@
           ]
         },
         "FramePanel": {
-          "summary": "Combines one frame's label, view, image, and image-edit overlays.",
-          "details": "A missing pixmap clears the neighboring image and hides its overlays. The label distinguishes unavailable edge frames from neighbors awaiting a completed video seek. `clear()` owns reference-scene cleanup; current-scene contents remain the main window's responsibility.",
+          "summary": "Combines one frame's label, view, image, cell outlines, and image-edit overlays.",
+          "details": "`refresh_cells()` reads the pane's own frame layout, copies geometry into read-only circle items, and applies that frame's crop transform without moving or changing stored cells. A missing pixmap clears the neighboring image and cells and hides its image-edit overlays. The label distinguishes unavailable edge frames from neighbors awaiting a completed video seek. `clear()` owns reference-scene cleanup; current-scene contents remain the main window's responsibility.",
           "methods": [
             "__init__",
             "show_reference",
+            "refresh_cells",
+            "clear_cells",
             "clear"
           ]
         },
         "ComparisonViewer": {
           "summary": "Arranges one, two, or three panes and keeps their image position and zoom synchronized.",
-          "details": "Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.",
+          "details": "Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `refresh_reference_cells()` updates neighboring-frame circles after layout, keyframe, or sample changes. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.",
           "methods": [
             "__init__",
             "suspend_sync",
             "sync_from",
             "set_layout",
             "show_frames",
+            "refresh_reference_cells",
             "sync_interaction",
             "clear"
           ]

@@ -3,11 +3,11 @@
 
 Arranges one, two, or three panes and keeps their image position and zoom synchronized.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L278) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L324) · [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
-Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.
+Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `refresh_reference_cells()` updates neighboring-frame circles after layout, keyframe, or sample changes. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.
 
 ## Selected methods
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L281)
+[Source](../src/icescopy_viewer.py#L327)
 
 ```python
 def __init__(self, current_view, main_window):
@@ -23,7 +23,7 @@ def __init__(self, current_view, main_window):
 
 ### `suspend_sync`
 
-[Source](../src/icescopy_viewer.py#L309)
+[Source](../src/icescopy_viewer.py#L355)
 
 ```python
 def suspend_sync(self):
@@ -31,7 +31,7 @@ def suspend_sync(self):
 
 ### `sync_from`
 
-[Source](../src/icescopy_viewer.py#L323)
+[Source](../src/icescopy_viewer.py#L369)
 
 ```python
 def sync_from(self, view):
@@ -39,7 +39,7 @@ def sync_from(self, view):
 
 ### `set_layout`
 
-[Source](../src/icescopy_viewer.py#L336)
+[Source](../src/icescopy_viewer.py#L382)
 
 ```python
 def set_layout(self, count, orientation):
@@ -47,15 +47,23 @@ def set_layout(self, count, orientation):
 
 ### `show_frames`
 
-[Source](../src/icescopy_viewer.py#L347)
+[Source](../src/icescopy_viewer.py#L393)
 
 ```python
 def show_frames(self, slots, current_index, pixmaps, preview=False):
 ```
 
+### `refresh_reference_cells`
+
+[Source](../src/icescopy_viewer.py#L412)
+
+```python
+def refresh_reference_cells(self):
+```
+
 ### `sync_interaction`
 
-[Source](../src/icescopy_viewer.py#L365)
+[Source](../src/icescopy_viewer.py#L416)
 
 ```python
 def sync_interaction(self):
@@ -63,7 +71,7 @@ def sync_interaction(self):
 
 ### `clear`
 
-[Source](../src/icescopy_viewer.py#L376)
+[Source](../src/icescopy_viewer.py#L427)
 
 ```python
 def clear(self):

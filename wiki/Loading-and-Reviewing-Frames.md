@@ -74,7 +74,9 @@ Use the toolbar controls or their entries in the **Window** menu:
 
 Each frame has its own labeled pane. Choose **Stack Top to Bottom** or **Stack Left to Right** to fit the comparison to your window. In Pan mode (**Z**), pan or zoom in any pane; all panes follow the same image position and zoom, so you can inspect the same cell across neighboring frames. Holding **Space** also lets you pan or zoom temporarily.
 
-Use the **Current** pane to select, add, or edit cells. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
+Each pane shows the cell positions and sizes for its own frame. If you use [keyframes](Annotation-Workflow.md#follow-movement-with-keyframes), neighboring panes show the corresponding stored or interpolated layout. Without keyframes, all frames use the same cell layout.
+
+Use the **Current** pane to select, add, or edit cells; neighboring panes show their cell outlines and labels for comparison. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
 
 At the beginning or end of the recording, the unavailable pane stays blank and its label says **no earlier frame** or **no later frame**. While dragging the video timeline, neighboring panes may be blank with **updates after seeking** labels; they reload when you finish seeking. Each pane always represents the previous, current, or next frame, rather than a separately chosen frame.
 

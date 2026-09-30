@@ -565,6 +565,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             item.update()
         if hasattr(self, "scene"):
             self.scene.update()
+        self.refresh_comparison_cells()
 
     def extract_cell_id_from_analysis_header(self, header_text):
         return self.cell_state.extract_cell_id_from_analysis_header(header_text)
@@ -594,7 +595,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return self.cell_state.cell_id_exists(cell_id, exclude_cell_id=exclude_cell_id)
 
     def rename_cell_id(self, old_cell_id, new_cell_id):
-        return self.cell_state.rename_cell_id(old_cell_id, new_cell_id)
+        result = self.cell_state.rename_cell_id(old_cell_id, new_cell_id)
+        if result[0]:
+            self.refresh_comparison_cells()
+        return result
 
     def clear_cell_analysis(self):
         self.cell_state.clear_cell_analysis()
@@ -6598,6 +6602,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.refresh_sample_catalog_tree(preserve_selection=False)
             self.update_session_actions_state()
             self.restore_tool_mode_ui(restore_tool_mode)
+            self.refresh_cell_sample_visuals()
         finally:
             self.history_restoring = False
             self.set_undo_status()
@@ -8004,6 +8009,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.update_image_list_annotations([self.image_index])
         self.update_toggle_keyframe_button_icon()
+        self.refresh_comparison_cells()
 
     
     def update_analysis_start_frame_list(self, is_adding):
@@ -8094,7 +8100,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.log('Edit registered for this keyframe')
             else:
                 self.log('Edit unregistered for non-keyframe')
-
+        self.refresh_comparison_cells()
 
     def add_cell_item_to_keyframes(self, added_items=None):
         # Called when adding one or more cells. Cell IDs are persistent, so each
@@ -8123,6 +8129,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     continue
                 keyframe_items.append(copy.deepcopy(item))
                 existing_ids.add(cell_id)
+        self.refresh_comparison_cells()
 
     def delete_cell_item_to_keyframes(self, cell_id):
         self.delete_cell_items_to_keyframes([cell_id])
@@ -8144,6 +8151,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 ]
             else:
                 self.keyframe_cell_items_dict[a_keyframe] = copy.deepcopy(self.cell_items)
+        self.refresh_comparison_cells()
 
     def keyframe_interpolation(self, frame_number):
         # return the cell_items list of a frame interplated
@@ -10218,6 +10226,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )[1]
         self.image_width = self.get_raw_image_dimensions(current_index)[0]
         return active_image
+
+    def refresh_comparison_cells(self):
+        viewer = getattr(self, "comparison_viewer", None)
+        if viewer is not None:
+            viewer.refresh_reference_cells()
 
     def displayMarkedRegions(self):
         # Delegate circle redraw to the controller so add/edit/delete and frame

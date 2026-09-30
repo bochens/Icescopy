@@ -6,7 +6,7 @@ Use **Edit → Image Edit** to adjust exposure, contrast, cropping, or frame-to-
 
 **These adjustments affect the images used for analysis as well as the display.** They are stored in the session; the original image and video files are not rewritten. Image zoom, panning, and showing neighboring frames only change the view.
 
-In the two- or three-image view, all panes share the same image-edit settings. Exposure and contrast update every pane; crop and Uniform Exposure control areas can be adjusted in any available pane. Pan and zoom stay synchronized. Use the **Current** pane for cell selection and editing; the histogram also describes the current frame.
+In the two- or three-image view, all panes share the same image-edit settings. Exposure and contrast update every pane; crop and Uniform Exposure control areas can be adjusted in any available pane. Pan and zoom stay synchronized. Each pane shows its own frame’s cell positions and sizes, including any movement defined by keyframes, and keeps the circles aligned after cropping. Use the **Current** pane for cell selection and editing; the histogram also describes the current frame.
 
 ## Before you adjust an image
 

@@ -3,7 +3,7 @@
 
 Reports changes to image position and zoom so the other panes can follow them.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L24) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L26) · [API index](API-Reference.md)
 
 **Bases:** `QGraphicsView`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L36)
+[Source](../src/icescopy_viewer.py#L38)
 
 ```python
 def __init__(self, scene, parent=None):
@@ -23,7 +23,7 @@ def __init__(self, scene, parent=None):
 
 ### `scene_center`
 
-[Source](../src/icescopy_viewer.py#L52)
+[Source](../src/icescopy_viewer.py#L54)
 
 ```python
 def scene_center(self):
@@ -31,7 +31,7 @@ def scene_center(self):
 
 ### `setSceneRect`
 
-[Source](../src/icescopy_viewer.py#L93)
+[Source](../src/icescopy_viewer.py#L95)
 
 ```python
 def setSceneRect(self, *args):
@@ -39,7 +39,7 @@ def setSceneRect(self, *args):
 
 ### `setTransform`
 
-[Source](../src/icescopy_viewer.py#L101)
+[Source](../src/icescopy_viewer.py#L103)
 
 ```python
 def setTransform(self, matrix, combine=False):
@@ -47,7 +47,7 @@ def setTransform(self, matrix, combine=False):
 
 ### `centerOn`
 
-[Source](../src/icescopy_viewer.py#L116)
+[Source](../src/icescopy_viewer.py#L118)
 
 ```python
 def centerOn(self, *args):
@@ -55,7 +55,7 @@ def centerOn(self, *args):
 
 ### `fitInView`
 
-[Source](../src/icescopy_viewer.py#L124)
+[Source](../src/icescopy_viewer.py#L126)
 
 ```python
 def fitInView(self, *args):
