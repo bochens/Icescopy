@@ -77,7 +77,7 @@ For missed or incorrect detections, open **Preferences → Analysis → Freeze F
 
 Prominence and width apply to the dashed line, which highlights changes in brightness. Change one setting at a time, save preferences, and rerun analysis. Check cells with clear, weak, and no freeze events. See the [full tuning guide](wiki/Analysis-and-Results.md#review-and-tune-freeze-detection) for the remaining controls and troubleshooting.
 
-Make manual corrections with the timeline flag **after tuning**: rerunning analysis replaces them.
+You can also **modify individual freeze events**. Select a cell and edit **Freeze Frame** in **Tool Options**, or use the timeline flag to add or remove an event at the current frame. Make manual corrections **after tuning**: rerunning analysis replaces them.
 
 ### 5. Add temperature and export
 
