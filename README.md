@@ -55,13 +55,11 @@ Assign selected cells to a **Sample ID** in **Tool Options**, then enter details
 
 ### 3. Automatically detect freeze frames
 
-Use the timeline's **analysis start and end markers** to skip setup, warming, or other unwanted parts of a recording. You can include several separate intervals. Both marked frames are included; without markers, the whole recording is analyzed.
+Icescopy finds likely freeze frames by tracking each cell’s average brightness over time. It uses **convolution**, a sliding comparison of nearby brightness values, to highlight changes that may indicate freezing. It then checks the original measurements to locate the freeze frame.
 
-Choose **Analysis → Run Analysis** to measure the average brightness inside each cell and find freeze events.
+Analyze the whole recording, or use the timeline’s **analysis start and end markers** to select one or more intervals and exclude setup, warming, or other unwanted frames.
 
-Automatic freeze-frame detection uses **convolution**, a sliding comparison of nearby brightness values, to highlight sudden changes. It finds peaks or dips in this signal, then checks the original brightness measurements to locate likely freeze frames.
-
-Run analysis again after changing the markers. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers).
+Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the intervals. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for details.
 
 ### 4. Review and refine freezing
 
