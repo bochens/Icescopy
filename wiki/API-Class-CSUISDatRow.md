@@ -3,7 +3,7 @@
 
 One parsed CSU row, including recorded timing and cumulative sample counts.
 
-[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L194) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L197) · [API index](API-Reference.md)
 
 **Bases:** `object`.
 
@@ -15,7 +15,7 @@ timestamp: datetime | None
 timestamp_text: str
 avg_temp: float | None
 picture_name: str
-sample_counts: dict[str, int]
+sample_counts: dict[str, int | None]
 ```
 
 These are field declarations; follow the source for validation and conversion.

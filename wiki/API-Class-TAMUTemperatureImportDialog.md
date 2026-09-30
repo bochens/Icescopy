@@ -3,7 +3,7 @@
 
 Collects TAMU Linkam temperature and optional calibration inputs.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L508) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L549) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L509)
+[Source](../src/icescopy_dialogs.py#L550)
 
 ```python
 def __init__(self, main_window, initial_path, sample_names, initial_calibration_path='', initial_reset_temperature=None, initial_blank_sample_names=None, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, sample_names, initial_calibration_
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L660)
+[Source](../src/icescopy_dialogs.py#L701)
 
 ```python
 def accept(self):
@@ -29,7 +29,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L686)
+[Source](../src/icescopy_dialogs.py#L727)
 
 ```python
 def get_values(self):

@@ -3450,7 +3450,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.run_analysis_action = QAction("Run Analysis", self)
         self.output_results_action = QAction("Output Results", self)
         self.import_temperature_csv_action = QAction("Standard CSV import...", self)
-        self.import_csu_is_dat_action = QAction("CSU IS .dat import...", self)
+        self.import_csu_is_dat_action = QAction("CSU .dat import...", self)
         self.import_tamu_linkam_xlsx_action = QAction("TAMU Linkam .xlsx import...", self)
         self.import_pku_linksys32_iml_action = QAction("PKU Linksys32 .iml import...", self)
         self.import_utk_csv_action = QAction("UTK CSV import...", self)
@@ -7702,10 +7702,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def import_csu_is_dat(self, checked=False):
         if not self.has_frames():
-            QMessageBox.information(self, "CSU IS .dat import", "Load images before importing a CSU .dat file.")
+            QMessageBox.information(self, "CSU .dat import", "Load images before importing a CSU .dat file.")
             return
         if self.is_video_source():
-            QMessageBox.information(self, "CSU IS .dat import", "The CSU importer requires image files and is not available for video sources.")
+            QMessageBox.information(self, "CSU .dat import", "The CSU importer requires image files and is not available for video sources.")
             return
 
         available_sample_names = self.available_sample_choices()
@@ -7722,6 +7722,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         file_path = dialog_values["file_path"]
         blank_sample_names = dialog_values["blank_sample_names"]
         reset_temperature = dialog_values["reset_temperature"]
+        count_source = dialog_values["count_source"]
 
         try:
             parsed_data = parse_csu_is_dat(file_path)
@@ -7729,26 +7730,27 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 parsed_data,
                 blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
+                count_source=count_source,
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()
             self.show_detailed_error_dialog(
-                "CSU IS .dat import failed",
-                "The CSU IS .dat import failed.",
+                "CSU .dat import failed",
+                "The CSU .dat import failed.",
                 err,
                 detail_text,
             )
-            self.log(f"CSU IS .dat import failed: {err}")
+            self.log(f"CSU .dat import failed: {err}")
             return
         except Exception as err:
             detail_text = traceback.format_exc()
             self.show_detailed_error_dialog(
-                "CSU IS .dat import failed",
-                "The CSU IS .dat import failed due to an unexpected internal error.",
+                "CSU .dat import failed",
+                "The CSU .dat import failed due to an unexpected internal error.",
                 err,
                 detail_text,
             )
-            self.log("CSU IS .dat import failed with an unexpected internal error.")
+            self.log("CSU .dat import failed with an unexpected internal error.")
             self.log(detail_text.rstrip())
             return
 
@@ -7766,8 +7768,13 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         total_picture_rows = int(summary.get("total_picture_rows", 0))
         cycle_count = int(summary.get("cycle_count", 1))
         reset_temperature = summary.get("reset_temperature")
+        count_source_label = summary.get("count_source_label", count_source)
+        temperature_column = summary.get("temperature_column", parsed_data.get("temperature_column", ""))
+        warnings = summary.get("warnings", [])
 
         message_lines = [
+            f"Count source: {count_source_label}",
+            f"Temperature column: {temperature_column}",
             f"Matched samples: {len(matched_samples)}",
             f"Matched picture rows: {matched_picture_rows}/{total_picture_rows}",
             f"Detected cycles: {cycle_count}",
@@ -7783,15 +7790,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if unmatched_dat:
             message_lines.append("No app sample match for CSU column(s): " + ", ".join(unmatched_dat))
         if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not matched to CSU columns: " + ", ".join(unmatched_blank))
+            message_lines.append("Selected water blank sample(s) not included: " + ", ".join(unmatched_blank))
+        message_lines.extend("Warning: " + str(warning) for warning in warnings)
 
         self.show_detailed_information_dialog(
-            "CSU IS .dat import",
-            "CSU IS .dat import completed successfully.\n\n"
-            f"Matched {len(matched_samples)} sample(s) across {matched_picture_rows}/{total_picture_rows} picture rows.",
+            "CSU .dat import",
+            f"Imported using {count_source_label}.\n\n"
+            f"Matched {len(matched_samples)} sample(s) across {matched_picture_rows}/{total_picture_rows} picture rows."
+            + (f"\n\nReview {len(warnings)} warning(s) in the details before exporting." if warnings else ""),
             "\n".join(message_lines),
         )
-        self.log(f"Imported CSU IS .dat file: {file_path}")
+        self.log(f"Imported CSU .dat file: {file_path}")
+        self.log(f"CSU count source: {count_source_label}; temperature column: {temperature_column}")
+        for warning in warnings:
+            self.log(f"CSU import warning: {warning}")
         if matched_samples:
             self.log("CSU matched samples: " + ", ".join(matched_samples))
         if matched_blank_samples:

@@ -8,6 +8,9 @@ import numpy as np
 from icescopy_sample_metadata import export_sample_metadata_field_keys
 from icescopy_freeze_cycles import capture_cycle_metadata, cycle_ids_for_window
 from icescopy_temperature_import import (
+    CSU_COUNT_SOURCE_COMBINED,
+    CSU_COUNT_SOURCE_IMAGES,
+    CSU_COUNT_SOURCE_INSTRUMENT,
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_GENERATED,
     IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
@@ -737,7 +740,18 @@ class FreezeCountTimeseriesMixin:
         }
         return headers, rows, summary
 
-    def build_csu_freeze_count_timeseries_results(self, parsed_data, blank_sample_names=None, reset_temperature=None):
+    def build_csu_freeze_count_timeseries_results(
+        self, parsed_data, blank_sample_names=None, reset_temperature=None,
+        count_source=CSU_COUNT_SOURCE_COMBINED,
+    ):
+        count_source_labels = {
+            CSU_COUNT_SOURCE_IMAGES: "Icescopy detections",
+            CSU_COUNT_SOURCE_INSTRUMENT: "CSU recorded counts",
+            CSU_COUNT_SOURCE_COMBINED: "Icescopy + CSU",
+        }
+        if count_source not in count_source_labels:
+            raise TemperatureImportError("Choose a valid CSU count source.")
+        warnings = []
         metadata_field_names = export_sample_metadata_field_keys(
             getattr(self, "sample_metadata_schema", None)
         )
@@ -758,7 +772,7 @@ class FreezeCountTimeseriesMixin:
         }
 
         matched_samples = []
-        for dat_column in dat_sample_columns:
+        for dat_column in (dat_sample_columns if count_source != CSU_COUNT_SOURCE_IMAGES else []):
             normalized_name = normalize_sample_name(dat_column)
             matching_groups = groups_by_normalized_name.get(normalized_name, [])
             if not matching_groups:
@@ -799,7 +813,10 @@ class FreezeCountTimeseriesMixin:
 
         matched_group_keys = {str(sample.get("group_key", "")) for sample in matched_samples}
         for group in sample_groups.values():
-            if str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"}:
+            if count_source == CSU_COUNT_SOURCE_INSTRUMENT:
+                continue
+            if (count_source != CSU_COUNT_SOURCE_IMAGES
+                    and str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"}):
                 continue
             group_key = str(group.get("group_key", ""))
             if group_key in matched_group_keys:
@@ -809,7 +826,7 @@ class FreezeCountTimeseriesMixin:
                 {
                     "group_key": group_key,
                     "group_role": str(group.get("group_role", "unassigned_cells") or "unassigned_cells"),
-                    "sample_id": "",
+                    "sample_id": str(group.get("sample_id", "") or ""),
                     "normalized_name": normalized_name,
                     "sample_name": str(group.get("sample_name", "")),
                     "dat_column": None,
@@ -820,7 +837,8 @@ class FreezeCountTimeseriesMixin:
                     },
                     "cell_ids": list(group.get("cell_ids", [])),
                     "total_cells": int(group.get("total_cells", 0)),
-                    "is_blank": group_key in blank_identifier_set,
+                    "is_blank": (group_key in blank_identifier_set
+                                 or str(group.get("sample_id", "") or "") in blank_identifier_set),
                 }
             )
 
@@ -828,13 +846,15 @@ class FreezeCountTimeseriesMixin:
             group["sample_name"]
             for normalized_name, groups in groups_by_normalized_name.items()
             for group in groups
-            if normalized_name not in dat_columns_by_name
-            and str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"}
+            if count_source != CSU_COUNT_SOURCE_IMAGES
+            and (normalized_name not in dat_columns_by_name)
+            and (count_source == CSU_COUNT_SOURCE_INSTRUMENT
+                 or str(group.get("group_role", "")) not in {"unassigned_cell", "unassigned_cells"})
         )
         unmatched_dat_samples = sorted(
             column_name
             for normalized_name, column_name in dat_columns_by_name.items()
-            if normalized_name not in groups_by_normalized_name
+            if count_source != CSU_COUNT_SOURCE_IMAGES and normalized_name not in groups_by_normalized_name
         )
         unmatched_blank_samples = sorted(
             sample_identifier
@@ -847,14 +867,77 @@ class FreezeCountTimeseriesMixin:
             }
         )
 
-        image_index_by_name = {
-            os.path.basename(str(image_name)).casefold(): index
-            for index, image_name in (
-                (frame_index, self.frame_name(frame_index))
-                for frame_index in range(self.frame_count())
-            )
-        }
         parsed_rows = list(parsed_data.get("rows", []))
+        if not parsed_rows:
+            raise TemperatureImportError("The CSU .dat file has no data rows.")
+        if count_source == CSU_COUNT_SOURCE_INSTRUMENT and not matched_samples:
+            raise TemperatureImportError(
+                "To use CSU recorded counts, draw the cells and assign them to samples named "
+                "to match the .dat columns (for example, Sample_0). "
+                "Or choose Icescopy detections to use image freeze events."
+            )
+
+        # CSU images have sequence names, not capture times. Only an exact Picture
+        # match identifies the corresponding instrument time and temperature.
+        def picture_key(value):
+            return str(value or "").strip().replace("\\", "/").rsplit("/", 1)[-1].casefold()
+
+        image_index_by_name = {}
+        for image_index in range(self.frame_count()):
+            name = picture_key(self.frame_name(image_index))
+            if name in image_index_by_name:
+                raise TemperatureImportError(
+                    "CSU picture matching requires unique loaded image filenames, ignoring letter case."
+                )
+            image_index_by_name[name] = image_index
+        picture_row_by_name = {}
+        for row_index, row in enumerate(parsed_rows):
+            if int(row.row_index) != row_index:
+                raise TemperatureImportError("CSU data rows are not in their original order.")
+            name = picture_key(row.picture_name)
+            if not name:
+                continue
+            if name in picture_row_by_name:
+                raise TemperatureImportError("The CSU .dat file has duplicate Picture filenames.")
+            picture_row_by_name[name] = row_index
+        matched_frame_rows = [
+            picture_row_by_name[name] for name in image_index_by_name if name in picture_row_by_name
+        ]
+        if not matched_frame_rows:
+            raise TemperatureImportError("No loaded image filenames match the CSU Picture column.")
+        if matched_frame_rows != sorted(matched_frame_rows):
+            raise TemperatureImportError(
+                "The loaded images are out of order relative to the CSU Picture records. "
+                "Reload them in acquisition order (use natural filename order for numbered images)."
+            )
+        unmatched_image_indexes = {
+            index for name, index in image_index_by_name.items() if name not in picture_row_by_name
+        }
+        if unmatched_image_indexes:
+            warnings.append(
+                f"{len(unmatched_image_indexes)} loaded image(s) have no Picture record; "
+                "their capture times, temperatures, and cycles are unknown."
+            )
+            if count_source != CSU_COUNT_SOURCE_INSTRUMENT:
+                for group in sample_groups.values():
+                    for cell_id in group.get("cell_ids", []):
+                        record = self.ensure_cell_record(cell_id)
+                        if any(frame in unmatched_image_indexes for frame in getattr(record, "freeze_event_indices", [])):
+                            raise TemperatureImportError(
+                                "A cell freeze event is on an image with no matching CSU Picture record. "
+                                "Load the corresponding .dat file before importing image counts."
+                            )
+        previous_timestamp = None
+        for row_index in matched_frame_rows:
+            row = parsed_rows[row_index]
+            if row.avg_temp is None or not np.isfinite(float(row.avg_temp)):
+                raise TemperatureImportError("A matched CSU Picture record has no valid sample temperature.")
+            if hasattr(row, "timestamp"):
+                if row.timestamp is None:
+                    raise TemperatureImportError("A matched CSU Picture record has an unreadable date or time.")
+                if previous_timestamp is not None and row.timestamp <= previous_timestamp:
+                    raise TemperatureImportError("Matched CSU Picture timestamps must be strictly increasing.")
+                previous_timestamp = row.timestamp
         row_temperatures = [
             np.nan if getattr(row, "avg_temp", None) is None else float(row.avg_temp)
             for row in parsed_rows
@@ -867,7 +950,7 @@ class FreezeCountTimeseriesMixin:
         image_cycle_ids = [None] * self.frame_count()
         picture_rows_matched = 0
         for row in parsed_rows:
-            picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
+            picture_name = picture_key(row.picture_name)
             if picture_name and picture_name in image_index_by_name:
                 picture_rows_matched += 1
                 image_index = image_index_by_name[picture_name]
@@ -880,29 +963,69 @@ class FreezeCountTimeseriesMixin:
             group_key = sample["group_key"]
             dat_column = sample["dat_column"]
             total_cells = int(sample["total_cells"])
-            if dat_column is None:
+            if dat_column is None or count_source == CSU_COUNT_SOURCE_IMAGES:
                 raw_counts = [0 for _row in parsed_rows]
             else:
                 raw_counts = [
-                    int(getattr(row, "sample_counts", {}).get(dat_column, 0))
+                    getattr(row, "sample_counts", {}).get(dat_column)
                     for row in parsed_rows
                 ]
+                if any(value is None for value in raw_counts):
+                    raise TemperatureImportError(
+                        f"The CSU column {dat_column} contains missing or invalid counts. "
+                        "Choose Icescopy detections to use image events, or check the source records."
+                    )
+                if any(value > total_cells for value in raw_counts):
+                    if count_source == CSU_COUNT_SOURCE_INSTRUMENT:
+                        raise TemperatureImportError(
+                            f"CSU {dat_column} records more frozen droplets than the {total_cells} "
+                            "cells assigned to this sample. Assign the full sample's cells before "
+                            "using recorded counts; Icescopy will not clip them."
+                        )
+                    warnings.append(f"{dat_column}: combined counts are limited to the {total_cells} assigned cells.")
+                if any(b < a for a, b in zip(raw_counts, raw_counts[1:])):
+                    detail = ("Recorded decreases are preserved." if count_source == CSU_COUNT_SOURCE_INSTRUMENT
+                              else "Combined counts remain nondecreasing within each cycle.")
+                    warnings.append(f"{dat_column}: the recorded count decreases. {detail} Count decreases do not define cycles.")
             anchor_counts = {}
             image_counts = image_counts_by_sample.get(group_key, {})
             for row in parsed_rows:
-                picture_name = os.path.basename(str(getattr(row, "picture_name", ""))).casefold()
+                picture_name = picture_key(row.picture_name)
                 if not picture_name:
                     continue
                 image_index = image_index_by_name.get(picture_name)
                 if image_index is None:
                     continue
                 anchor_counts[int(row.row_index)] = int(image_counts.get(image_index, 0))
-            corrected_counts_by_sample[group_key] = self.reconcile_counts_by_cycle(
-                raw_counts,
-                anchor_counts,
-                total_cells,
-                row_cycle_ids,
-            )
+            if count_source == CSU_COUNT_SOURCE_INSTRUMENT:
+                corrected_counts_by_sample[group_key] = raw_counts
+            elif count_source == CSU_COUNT_SOURCE_IMAGES:
+                # Hold each observed image count until the next picture, without
+                # borrowing an instrument event time or moving events backward.
+                image_row_counts = []
+                current_count = 0
+                previous_cycle = None
+                for row_index, cycle_id in enumerate(row_cycle_ids):
+                    if cycle_id != previous_cycle:
+                        current_count = 0
+                    current_count = anchor_counts.get(row_index, current_count)
+                    image_row_counts.append(current_count)
+                    previous_cycle = cycle_id
+                corrected_counts_by_sample[group_key] = image_row_counts
+            else:
+                corrected_counts_by_sample[group_key] = self.reconcile_counts_by_cycle(
+                    raw_counts, anchor_counts, total_cells, row_cycle_ids,
+                )
+
+        if count_source != CSU_COUNT_SOURCE_INSTRUMENT and matched_samples:
+            if not any(any(image_counts_by_sample.get(sample["group_key"], {}).values())
+                       for sample in matched_samples):
+                warnings.append(
+                    "No cell freeze events are stored for the matched images. "
+                    "Image-derived counts are zero; run analysis or set events manually if needed."
+                )
+        if not matched_samples:
+            warnings.append("No cell groups were included. Draw and assign cells, then import again; choose Icescopy detections when the file has no sample counts.")
 
         blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
         output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
@@ -949,6 +1072,11 @@ class FreezeCountTimeseriesMixin:
 
         summary = {
             "source_path": str(parsed_data.get("file_path", "")),
+            "count_source": count_source,
+            "count_source_label": count_source_labels[count_source],
+            "temperature_column": str(parsed_data.get("temperature_column", "Avg_Temp")),
+            "warnings": warnings,
+            "unmatched_image_count": len(unmatched_image_indexes),
             "matched_samples": [sample["sample_name"] for sample in output_samples],
             "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
             "sample_total_cells": [

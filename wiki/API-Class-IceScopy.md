@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10740)
+[Source](../src/Icescopy.py#L10752)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10824)
+[Source](../src/Icescopy.py#L10836)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10863)
+[Source](../src/Icescopy.py#L10875)
 
 ```python
 def onThreadFinished(self):
@@ -192,7 +192,7 @@ def navigate_to_freeze_event(self, direction):
 
 ### `update_freeze_event_button_appearance`
 
-[Source](../src/Icescopy.py#L11084)
+[Source](../src/Icescopy.py#L11096)
 
 ```python
 def update_freeze_event_button_appearance(self):
@@ -200,7 +200,7 @@ def update_freeze_event_button_appearance(self):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9258)
+[Source](../src/Icescopy.py#L9270)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -208,7 +208,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9536)
+[Source](../src/Icescopy.py#L9548)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -224,7 +224,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11274)
+[Source](../src/Icescopy.py#L11286)
 
 ```python
 def closeEvent(self, event):
