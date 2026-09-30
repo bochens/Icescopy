@@ -16,6 +16,7 @@ Windows appearance has **not** been verified by the Mac work.
 ## Check on Windows
 
 - Keep **Auto-center** and **Show freeze frame** on one line, with a visible gap between them. The Mac change uses `navigation_controls.setSpacing(12)`; Qt scales these layout units with the display setting.
+- Keep the Images panel's **Freeze frame only** checkbox left-aligned, matching the left edge of the Cells checkboxes.
 - Keep the previous-event button, event dropdown, and next-event button together on one line below the checkboxes.
 - Align the visible button centers with the dropdown's visible center, not just their outer widget rectangles.
 - Keep timeline event buttons in the existing timeline row, aligned with the ordinary frame arrows. Do not add another row.

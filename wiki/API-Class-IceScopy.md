@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10738)
+[Source](../src/Icescopy.py#L10740)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10822)
+[Source](../src/Icescopy.py#L10824)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10861)
+[Source](../src/Icescopy.py#L10863)
 
 ```python
 def onThreadFinished(self):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5710)
+[Source](../src/Icescopy.py#L5712)
 
 ```python
 def capture_session_state(self):
@@ -79,7 +79,7 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6322)
+[Source](../src/Icescopy.py#L6324)
 
 ```python
 def restore_session_state(self, state, preserve_active_tool=False):
@@ -192,7 +192,7 @@ def navigate_to_freeze_event(self, direction):
 
 ### `update_freeze_event_button_appearance`
 
-[Source](../src/Icescopy.py#L11082)
+[Source](../src/Icescopy.py#L11084)
 
 ```python
 def update_freeze_event_button_appearance(self):
@@ -200,7 +200,7 @@ def update_freeze_event_button_appearance(self):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9256)
+[Source](../src/Icescopy.py#L9258)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -208,7 +208,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9534)
+[Source](../src/Icescopy.py#L9536)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -216,7 +216,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6933)
+[Source](../src/Icescopy.py#L6935)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -224,7 +224,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11272)
+[Source](../src/Icescopy.py#L11274)
 
 ```python
 def closeEvent(self, event):
