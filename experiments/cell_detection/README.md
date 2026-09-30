@@ -32,7 +32,7 @@ The output directory must not exist. Results include `suggestions.json` and a co
 
 `benchmark.py` reads a local label manifest, extracts proposals and fixed model features, trains the small comparison classifier only on scenes marked `development`, and chooses thresholds on those development scenes. Other recordings are evaluated afterward with the model and thresholds fixed. It tries ten choices of one example and five pairs, where enough reference cells exist. The first reference example fixes the measurement radius for each picture in this pilot.
 
-Each manifest scene contains `id`, `recording`, `source`, `sha256`, `width`, `height`, `split`, `targets`, `complete_labels`, and `label_status`. Each target has `x`, `y`, `radius`, and optionally `id`. Allowed split descriptions are `development`, `held_out_recording`, and `external_stage_evaluation`.
+Each manifest scene contains `id`, `recording`, `source`, `sha256`, `width`, `height`, `split`, `targets`, `complete_labels`, and `label_status`. Each target has `x`, `y`, `radius`, and optionally `id`. Use `development` only for training scenes; other split descriptions are for evaluation. Optional `negatives` circles identify explicitly reviewed empty holes or other non-target objects. They allow known errors to be counted even when the positive annotations are incomplete. Never infer empty holes from missing saved circles.
 
 ```sh
 python experiments/cell_detection/benchmark.py \
@@ -43,14 +43,29 @@ python -m unittest discover -s experiments/cell_detection -p 'test_*.py' -v
 
 Open the resulting `review.html` locally to compare methods and example choices. Images, labels, features, model outputs, and reports belong in ignored `output/` directories. Do not commit private recordings or saved sessions.
 
+To evaluate another recording without fitting or choosing new thresholds, add
+`--reference-report output/previous-benchmark/report.json` to the benchmark
+command. Use the same detector revision that produced that reference report.
+The report records a hash of the reference report used.
+
+`stress_images.py --output output/new-artificial-pictures` creates controlled
+diagnostic scenes containing filled spots, empty rings, and smaller dark holes.
+Variants add blur, uneven lighting, color, and dark interiors. Evaluate the
+generated `labels.json` with `--reference-report`; these variants are not used
+for training by default. They share one layout and must stay together in any
+training/evaluation split. They cannot validate real filled-versus-empty accuracy.
+
 ## Interpretation and limits
 
 - Supplied examples are excluded from detection scores. Matching is one-to-one within one measurement radius; position errors are also reported.
 - Complete reference annotations are required to label unmatched proposals as errors. With partial annotations, unmatched proposals remain unknown and precision is not reported.
 - A saved session supplies marked locations, not proof that every unmarked object is empty. The prototype does not offer session-based training or customization.
 - A candidate-location stage can miss cells before classification. Candidate coverage is reported separately from final detection accuracy.
+- The location search combines brightness changes, circular edges, and agreement of edge directions around a rim. The comparison model examines a small area around each location. A circle-shaped object is not necessarily a filled well.
 - Separate recordings and physical arrays must stay in separate training/evaluation groups. Adjacent frames and augmented versions are not independent recordings.
 - The first pilot has limited training variety. Development performance is not evidence of generalization to unfamiliar stages, empty wells, or severe blur.
+- Once a recording has been inspected to refine the method, call subsequent results exploratory. Keep a separate untouched recording for a later confirmation test.
 - Duplicate exclusion protects circles by center and scale. Closely spaced cells and poorly centered suggestions need additional real-image validation.
+- The review page displays recorded example choices, not an annotation editor. Full-size display means the saved preview size. Use `run_detection.py` for arbitrary manually supplied example circles. Its timing excludes model loading; benchmark preparation also computes features for all reference circles.
 - Image preprocessing preserves 16-bit contrast; source files are read only. Synthetic or altered pictures must never replace the original data.
 - Cross-image tracking, automatic keyframes, application integration, and personalized training are out of scope.

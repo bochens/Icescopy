@@ -102,9 +102,15 @@ def evaluate(item, values, seed_ids, threshold):
         matched=[(kept[r],remaining[c],float(distance[r,c])) for r,c in zip(rows,cols) if valid[r,c]]
     tp=len(matched);unknown=len(kept)-tp
     complete=item['scene'].get('complete_labels',True)
+    negatives=[Circle(float(c['x']),float(c['y']),float(c['radius']))
+               for c in item['scene'].get('negatives',[])]
+    matched_candidates={m[0] for m in matched}
+    known_negative_count=sum(any(np.hypot(circles[i].x-n.x,circles[i].y-n.y)<n.radius
+                                 for n in negatives) for i in kept if i not in matched_candidates)
     return dict(seeds=seed_ids,threshold=float(threshold),found=tp,remaining=len(remaining),
                 missed=len(remaining)-tp,false_detections=unknown if complete else None,
                 unmatched_suggestions=unknown,precision=tp/len(kept) if kept and complete else None,
+                known_negative_detections=known_negative_count if negatives else None,
                 recall=tp/len(remaining) if remaining else 1.,
                 duplicate_existing=sum(any(same_object(circles[i],s) for s in seeds) for i in kept),
                 mean_center_error_pixels=float(np.mean([m[2] for m in matched])) if matched else None,
@@ -116,11 +122,11 @@ def example_trials(n):
     return [[i] for i in ids]+[[ids[i],ids[(i+len(ids)//2)%len(ids)]] for i in range(len(ids)//2)]
 
 
-def benchmark(prepared,head):
+def benchmark(prepared,head,fixed_thresholds=None):
     methods=['template','embedding','learned']
     # Choose one threshold per method on development recordings only, then freeze it.
-    thresholds={}
-    for method in methods:
+    thresholds=dict(fixed_thresholds or {})
+    for method in ([] if fixed_thresholds is not None else methods):
         choices=[]
         for threshold in np.linspace(.3,.99,70):
             tp=fp=remaining=0
@@ -139,6 +145,8 @@ def benchmark(prepared,head):
         scene=item['scene']
         entry={k:scene[k] for k in ['id','recording','split','width','height','label_status','complete_labels']}
         entry.update(seconds=item['seconds'],radius=item['truth'][0].radius,
+                     negatives=scene.get('negatives',[]),
+                     proposal_reference_coverage=int((item['distance'].min(axis=0)<item['truth'][0].radius).sum()),
                      preview_scale=item['preview_scale'],truth=[asdict(c) for c in item['truth']],
                      proposals=[asdict(c) for c in item['circles']],results=[])
         for method in methods:
@@ -155,20 +163,27 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--labels',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--reference-report',type=Path,
+                        help='Evaluate with the model and thresholds of this report, without fitting anything')
     args=parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=False)
     scenes=json.loads(args.labels.read_text())['scenes']
     cv2.setNumThreads(4)
     encoder=Encoder()
     prepared=[prepare(scene,encoder,args.output) for scene in scenes]
-    head=fit_head(prepared)
+    reference=json.loads(args.reference_report.read_text()) if args.reference_report else None
+    head=reference['model'] if reference is not None else fit_head(prepared)
     (args.output/'pair-model.json').write_text(json.dumps(head,indent=2)+'\n')
-    print('Trained pair classifier from',head['training_pairs'],'pairs on recording',head['training_recordings'],flush=True)
-    report=benchmark(prepared,head)
+    print('Fixed classifier trained from' if reference else 'Trained pair classifier from',
+          head['training_pairs'],'pairs on recording',head['training_recordings'],flush=True)
+    report=benchmark(prepared,head,reference['thresholds'] if reference else None)
     report.update(model=head,label_file_sha256=hashlib.sha256(args.labels.read_bytes()).hexdigest(),
-                  limitations=['Assistant-reviewed or saved-session reference circles are not independently confirmed occupancy labels.',
-                               'PKU annotations are incomplete; unmatched proposals are unknown, not confirmed false positives.',
-                               'One development recording; thresholds and classifier never fit other recordings.',
+                  reference_report_sha256=hashlib.sha256(args.reference_report.read_bytes()).hexdigest() if reference else None,
+                  limitations=['Read label_status for the origin and confirmation of each picture\'s labels.',
+                               'With incomplete annotations, unmatched proposals are unknown unless explicitly labeled as negatives.',
+                               'Training uses development recordings only; reference-report evaluation does not refit the model or thresholds.',
+                               'Recordings inspected during algorithm development are exploratory evaluations, not blind tests.',
+                               'Preparation time includes cached features for every reference circle, not only one or two examples.',
                                'No video tracking, session training feature or application integration.'])
     (args.output/'report.json').write_text(json.dumps(report)+'\n')
     for scene in report['scenes']:

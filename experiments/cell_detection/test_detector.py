@@ -63,6 +63,11 @@ class DetectorContractTests(unittest.TestCase):
         self.assertIsNone(result['false_detections'])
         self.assertIsNone(result['precision'])
         self.assertEqual(result['unmatched_suggestions'],1)
+        self.assertIsNone(result['known_negative_detections'])
+        item['scene']['negatives']=[{'x':90,'y':20,'radius':5}]
+        result=evaluate(item,np.array([1,.95,.9,.85]),[0],.8)
+        self.assertEqual(result['known_negative_detections'],1)
+        self.assertIsNone(result['precision'])
 
 
 if __name__=='__main__':unittest.main()
