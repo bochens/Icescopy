@@ -45,6 +45,16 @@ The Cells panel and image selection stay in sync. Expand a Cell row to read its 
 
 If clicking draws a preview instead of selecting, you are in Add Cell or Grid Tool; press **A**. Use **E** to move existing circles. Dragging a selection box does not move or resize cells.
 
+### Center the selection
+
+Select one or more cells, then click **Center on selection** at the top of **Cells**, or under **Cell Info** in the Cursor Tool Options. Both buttons center the same selection. They are disabled when there is no selected cell with a position on the current image, or no current image is loaded.
+
+Centering moves the view without changing zoom. For a group, it centers the smallest rectangle enclosing the complete selected circles at the **current frame**. A widely spread group may still extend beyond the view; zoom out if needed. In two- or three-image view, the neighboring panes follow the Current pane's center.
+
+To center after each selection change, enable **Auto-center** at the top of **Cells**. It starts unchecked each time you open the app. In Cursor mode, it responds to selection changes in the Cells list or current image after you release the mouse, or after a keyboard selection in the list. Turning it on does not move the view until you change the selection.
+
+Auto-center does not follow frame changes, editing, drawing, deletion, cropping, panning, or Undo/Redo. Use **Center on selection** whenever you want to center the current selection again.
+
 ## Add one cell
 
 1. Press **S** and move the circle preview over the desired droplet or well.

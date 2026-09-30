@@ -17,10 +17,49 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QLabel,
     QSizePolicy,
+    QTreeWidget,
     QVBoxLayout,
     QWidget,
 )
 from icescopy_cell_items import CellCircle
+
+
+class CellSelectionTreeWidget(QTreeWidget):
+    """Report finished user selections, separate from model refresh signals."""
+
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self._selection_navigation_start = None
+
+    def cancel_pending_selection_center(self):
+        self._selection_navigation_start = None
+
+    def mousePressEvent(self, event):
+        self._selection_navigation_start = (
+            self.main_window.cell_selection_navigation_state()
+            if event.button() == Qt.LeftButton else None
+        )
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        before = self._selection_navigation_start
+        self._selection_navigation_start = None
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton:
+            self.main_window.auto_center_after_cell_selection(before)
+
+    def keyPressEvent(self, event):
+        before = (
+            self.main_window.cell_selection_navigation_state()
+            if self._selection_navigation_start is None else None
+        )
+        super().keyPressEvent(event)
+        self.main_window.auto_center_after_cell_selection(before)
+
+    def focusOutEvent(self, event):
+        self._selection_navigation_start = None
+        super().focusOutEvent(event)
 
 
 class LinkedGraphicsView(QGraphicsView):

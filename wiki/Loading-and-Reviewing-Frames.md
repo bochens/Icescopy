@@ -78,6 +78,8 @@ Each pane shows the cell positions and sizes for its own frame. If you use [keyf
 
 Use the **Current** pane to select, add, or edit cells; neighboring panes show their cell outlines and labels for comparison. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
 
+To bring selected cells to the middle of the view, use **Center on selection** in **Cells** or the Cursor Tool Options. All panes follow the Current pane's center without changing zoom. The optional **Auto-center** checkbox in Cells centers after a selection change in Cursor mode; it does not follow frame changes. See [Center the selection](Annotation-Workflow.md#center-the-selection) for group behavior and controls.
+
 At the beginning or end of the recording, the unavailable pane stays blank and its label says **no earlier frame** or **no later frame**. While dragging the video timeline, neighboring panes may be blank with **updates after seeking** labels; they reload when you finish seeking. Each pane always represents the previous, current, or next frame, rather than a separately chosen frame.
 
 After analysis, select a cell and open **Window → Grayscale Plot** to compare its brightness changes with these images. If the plot has been panned or zoomed into an unhelpful range, selecting a different cell and then returning to the original cell fits its data again.

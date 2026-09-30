@@ -56,7 +56,7 @@ from icescopy_frame_source import (
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
-from icescopy_viewer import ComparisonViewer
+from icescopy_viewer import CellSelectionTreeWidget, ComparisonViewer
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -1443,6 +1443,69 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 continue
             selected_cell_ids.append(int(cell_id))
         self.reselect_cell_ids(selected_cell_ids, sync_tool_panel=True)
+
+    def cell_selection_bounds(self):
+        """Bounds of real circles in the current frame, excluding their labels."""
+        if not self.has_frames() or getattr(self, "pixmap_item", None) is None:
+            return None
+        bounds = None
+        for item in self.get_selected_cell_items():
+            rect = item.mapRectToScene(item.rect())
+            if not rect.isValid() or not all(math.isfinite(value) for value in (
+                rect.x(), rect.y(), rect.width(), rect.height(),
+            )):
+                continue
+            bounds = rect if bounds is None else bounds.united(rect)
+        return bounds
+
+    def update_cell_center_controls(self):
+        enabled = self.cell_selection_bounds() is not None
+        for name in ("cells_center_button", "cursor_center_button"):
+            button = getattr(self, name, None)
+            if button is not None:
+                button.setEnabled(enabled)
+
+    def center_on_cell_selection(self):
+        """Pan all linked views once; leave zoom, frames, and annotations intact."""
+        bounds = self.cell_selection_bounds()
+        if bounds is None:
+            return False
+        self.view.centerOn(bounds.center())
+        return True
+
+    def cell_selection_navigation_state(self):
+        """Capture a normal selection gesture, never an edit or pan gesture."""
+        if (
+            self.tool_mode != "cursor"
+            or self.is_pan_interaction_active()
+            or self.is_image_edit_crop_active()
+            or self.is_image_edit_uniform_exposure_area_active()
+            or getattr(self, "history_restoring", False)
+            or getattr(self, "preview_frame_update_in_progress", False)
+        ):
+            return None
+        return (
+            self.frame_source, self.image_index, self.tool_mode,
+            getattr(self, "cell_selection_navigation_revision", 0),
+            frozenset(item.cell_id for item in self.get_selected_cell_items()),
+        )
+
+    def cancel_cell_selection_navigation(self):
+        # A gesture interrupted by redraw, history restoration, or a tool change
+        # must not later center just because its original frame/mode returned.
+        self.cell_selection_navigation_revision = getattr(self, "cell_selection_navigation_revision", 0) + 1
+        for name in ("view", "cells_tree_widget"):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.cancel_pending_selection_center()
+
+    def auto_center_after_cell_selection(self, before):
+        checkbox = getattr(self, "cells_auto_center_checkbox", None)
+        if before is None or checkbox is None or not checkbox.isChecked():
+            return
+        after = self.cell_selection_navigation_state()
+        if after is not None and before[:-1] == after[:-1] and after[-1] and before[-1] != after[-1]:
+            self.center_on_cell_selection()
 
     def should_refresh_cells_panel_from_redraw(self):
         if bool(getattr(self, "preview_frame_update_in_progress", False)):
@@ -3892,6 +3955,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.cursor_info_label_widgets[field_name] = label_widget
             self.cursor_info_value_labels[field_name] = value_widget
 
+        self.cursor_center_row, self.cursor_center_button = self.cursor_tool_page.add_centered_button_row(
+            "Center on selection", self.center_on_cell_selection,
+        )
+        self.cursor_center_button.setEnabled(False)
+        self.cursor_center_button.setToolTip(
+            "Center the current frame on the selected cell or group without changing zoom."
+        )
+
         self.cursor_info_edit_separator = self.cursor_tool_page.add_separator()
         self.cursor_edit_section_label = self.cursor_tool_page.add_section_label("Cell Edit")
         self.cursor_freeze_lineedit = QLineEdit(self.cursor_tool_page.column_widget)
@@ -4300,7 +4371,24 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        self.cells_tree_widget = QTreeWidget(panel)
+        center_controls = QHBoxLayout()
+        self.cells_center_button = QPushButton("Center on selection", panel)
+        self.cells_center_button.setEnabled(False)
+        self.cells_center_button.setToolTip(
+            "Center the current frame on the selected cell or group without changing zoom."
+        )
+        self.cells_center_button.clicked.connect(self.center_on_cell_selection)
+        self.cells_auto_center_checkbox = QCheckBox("Auto-center", panel)
+        self.cells_auto_center_checkbox.setChecked(False)
+        self.cells_auto_center_checkbox.setToolTip(
+            "In Cursor mode, center after selecting cells in the list or image. Groups use their combined bounds; zoom stays unchanged."
+        )
+        center_controls.addWidget(self.cells_center_button)
+        center_controls.addWidget(self.cells_auto_center_checkbox)
+        center_controls.addStretch(1)
+        layout.addLayout(center_controls)
+
+        self.cells_tree_widget = CellSelectionTreeWidget(self, panel)
         self.cells_tree_widget.setColumnCount(2)
         self.cells_tree_widget.setHeaderLabels(["Field", "Value"])
         self.cells_tree_widget.setRootIsDecorated(True)
@@ -10290,6 +10378,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             pass  # Ignore non-numeric input
     
     def updateButtonStates(self):
+        self.update_cell_center_controls()
         frame_count = self.frame_count()
         has_frames = frame_count > 0
         has_selected_cells = (

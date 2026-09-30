@@ -3,7 +3,7 @@
 
 Arranges one, two, or three panes and keeps their image position and zoom synchronized.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L324) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L363) · [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L327)
+[Source](../src/icescopy_viewer.py#L366)
 
 ```python
 def __init__(self, current_view, main_window):
@@ -23,7 +23,7 @@ def __init__(self, current_view, main_window):
 
 ### `suspend_sync`
 
-[Source](../src/icescopy_viewer.py#L355)
+[Source](../src/icescopy_viewer.py#L394)
 
 ```python
 def suspend_sync(self):
@@ -31,7 +31,7 @@ def suspend_sync(self):
 
 ### `sync_from`
 
-[Source](../src/icescopy_viewer.py#L369)
+[Source](../src/icescopy_viewer.py#L408)
 
 ```python
 def sync_from(self, view):
@@ -39,7 +39,7 @@ def sync_from(self, view):
 
 ### `set_layout`
 
-[Source](../src/icescopy_viewer.py#L382)
+[Source](../src/icescopy_viewer.py#L421)
 
 ```python
 def set_layout(self, count, orientation):
@@ -47,7 +47,7 @@ def set_layout(self, count, orientation):
 
 ### `show_frames`
 
-[Source](../src/icescopy_viewer.py#L393)
+[Source](../src/icescopy_viewer.py#L432)
 
 ```python
 def show_frames(self, slots, current_index, pixmaps, preview=False):
@@ -55,7 +55,7 @@ def show_frames(self, slots, current_index, pixmaps, preview=False):
 
 ### `refresh_reference_cells`
 
-[Source](../src/icescopy_viewer.py#L412)
+[Source](../src/icescopy_viewer.py#L451)
 
 ```python
 def refresh_reference_cells(self):
@@ -63,7 +63,7 @@ def refresh_reference_cells(self):
 
 ### `sync_interaction`
 
-[Source](../src/icescopy_viewer.py#L416)
+[Source](../src/icescopy_viewer.py#L455)
 
 ```python
 def sync_interaction(self):
@@ -71,7 +71,7 @@ def sync_interaction(self):
 
 ### `clear`
 
-[Source](../src/icescopy_viewer.py#L427)
+[Source](../src/icescopy_viewer.py#L466)
 
 ```python
 def clear(self):

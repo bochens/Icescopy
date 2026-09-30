@@ -18,7 +18,7 @@
         },
         "IceScopy": {
           "summary": "Owns the active desktop session and coordinates helper modules.",
-          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Selection centering uses current-frame circle bounds and keeps zoom unchanged. Automatic centering compares selection IDs before and after a completed user gesture; selection refresh signals alone must not move the view. Redraws, history restoration, and interaction changes cancel pending centering so an interrupted gesture cannot move the view later.",
           "methods": [
             "active_frame_source",
             "set_frame_source",
@@ -29,6 +29,11 @@
             "apply_image_edit_state",
             "capture_session_state",
             "restore_session_state",
+            "cell_selection_bounds",
+            "center_on_cell_selection",
+            "cell_selection_navigation_state",
+            "cancel_cell_selection_navigation",
+            "auto_center_after_cell_selection",
             "open_session_file_path",
             "persist_session_to_path",
             "push_cell_history",
@@ -811,9 +816,21 @@
     },
     "icescopy_viewer": {
       "summary": "Separate previous, current, and next frame panes with synchronized pan and zoom.",
-      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
+      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The Cells list also reports completed user selections so optional centering waits until the interaction ends. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
       "functions": [],
       "classes": {
+        "CellSelectionTreeWidget": {
+          "summary": "Reports completed Cells-list mouse and keyboard selections to the main window for optional centering.",
+          "details": "Captures selection state before a left-mouse gesture or keyboard action and reports the completed interaction afterward. The main window decides whether Cursor mode, a changed selection, and the Auto-center setting permit navigation. Programmatic selection refreshes do not pass through these event handlers.",
+          "methods": [
+            "__init__",
+            "cancel_pending_selection_center",
+            "mousePressEvent",
+            "mouseReleaseEvent",
+            "keyPressEvent",
+            "focusOutEvent"
+          ]
+        },
         "LinkedGraphicsView": {
           "summary": "Reports changes to image position and zoom so the other panes can follow them.",
           "details": "`content_rect` stores the actual image bounds. The scrollable scene has extra space so each pane can center the same image point near an edge. Pass `content_rect`, rather than the expanded scene rectangle, when fitting the image. `cameraChanged` and `viewportResized` identify the view whose transform or size changed.",

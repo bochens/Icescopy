@@ -127,6 +127,404 @@ class ComparisonViewerTests(unittest.TestCase):
         self.assertEqual((*item.circle_pixel_positions, item.circle_sizes), expected)
         return item
 
+    def install_selection_cells(self):
+        self.window.apply_cursor_tool_ui()
+        return [
+            self.window.cell_controller.add_single_cell(position, position, radius)
+            for position, radius in (((250, 220), 10), ((400, 300), 50), ((350, 190), 8))
+        ]
+
+    def show_cells_list(self):
+        self.window.cells_dock.show()
+        self.window.cells_dock.raise_()
+        self.window.cells_panel_force_refresh = True
+        self.window.refresh_cells_panel()
+        self.process_events()
+        return self.window.cells_tree_widget
+
+    def selected_cell_ids(self):
+        return {item.cell_id for item in self.window.get_selected_cell_items()}
+
+    def test_center_selection_uses_circle_bounds_without_changing_zoom_or_cells(self):
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids(cell_ids[:2])
+        self.set_camera(scale=1.6, center=QPointF(550, 410))
+        before_cells = [
+            (item.cell_id, item.circle_positions, item.circle_pixel_positions, item.circle_sizes)
+            for item in self.window.cell_items
+        ]
+        before_records = copy.deepcopy(self.window.serialize_cell_records())
+        before_history = self.window.undo_stack.count()
+
+        self.assertTrue(self.window.center_on_cell_selection())
+        self.process_events()
+
+        # The unequal radii give bounds x=240..450 and y=210..350.
+        # Averaging cell centers would instead produce (325, 260).
+        self.assert_linked(expected_scale=1.6, expected_center=QPointF(345, 280))
+        self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+        self.assertEqual([
+            (item.cell_id, item.circle_positions, item.circle_pixel_positions, item.circle_sizes)
+            for item in self.window.cell_items
+        ], before_cells)
+        self.assertEqual(self.window.serialize_cell_records(), before_records)
+        self.assertEqual(self.window.undo_stack.count(), before_history)
+
+    def test_center_controls_share_behavior_and_empty_selection_is_a_noop(self):
+        self.assertFalse(self.window.cells_auto_center_checkbox.isChecked())
+        self.window.apply_cursor_tool_ui()
+        self.set_camera(scale=1.3, center=QPointF(510, 410))
+        original_center = self.center(self.window.view)
+        self.assertFalse(self.window.center_on_cell_selection())
+        for button in (self.window.cells_center_button, self.window.cursor_center_button):
+            self.assertFalse(button.isEnabled())
+        self.assert_linked(expected_scale=1.3, expected_center=original_center)
+
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.process_events()
+        self.assert_linked(expected_scale=1.3, expected_center=original_center)
+        for button in (self.window.cells_center_button, self.window.cursor_center_button):
+            with self.subTest(button=button):
+                self.set_camera(scale=1.3, center=QPointF(510, 410))
+                self.assertTrue(button.isEnabled())
+                button.click()
+                self.process_events()
+                self.assert_linked(expected_scale=1.3, expected_center=QPointF(250, 220))
+
+        self.window.reselect_cell_ids([])
+        before_empty = self.center(self.window.view)
+        self.assertFalse(self.window.center_on_cell_selection())
+        self.assertFalse(self.window.cells_center_button.isEnabled())
+        self.assertFalse(self.window.cursor_center_button.isEnabled())
+        self.assert_linked(expected_scale=1.3, expected_center=before_empty)
+
+    def test_center_selection_keeps_one_two_and_three_panes_linked_at_recording_edges(self):
+        self.window.apply_cursor_tool_ui()
+        cell_id = self.window.cell_controller.add_single_cell((8, 10), (8, 10), 6)
+        for count in (1, 2, 3):
+            for frame in (0, 2, 4):
+                with self.subTest(panes=count, frame=frame):
+                    self.window.set_viewer_image_count(count)
+                    self.window.updateImage(frame)
+                    self.process_events()
+                    self.set_camera(scale=0.6, center=QPointF(500, 420))
+                    self.window.reselect_cell_ids([cell_id])
+                    self.assertTrue(self.window.center_on_cell_selection())
+                    self.process_events()
+                    self.assert_linked(expected_scale=0.6, expected_center=QPointF(8, 10))
+                    self.assertEqual(self.window.image_index, frame)
+
+    def test_center_selection_uses_current_interpolated_and_cropped_geometry(self):
+        cell_id = self.install_moving_cell()
+        self.window.apply_cursor_tool_ui()
+        crop = {"center_x": 280.0, "center_y": 240.0, "width": 400.0, "height": 300.0, "angle": 15.0}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(crop=crop))
+        self.window.reselect_cell_ids([cell_id])
+        selected = self.window.get_selected_cell_items()[0]
+        self.assertEqual(selected.circle_pixel_positions, (200, 160))
+        expected = QPointF(*self.window.image_pixel_to_scene_coordinates(200, 160, index=2))
+        self.assertNotEqual(expected, QPointF(200, 160))
+        self.set_camera(scale=1.5, center=QPointF(320, 260))
+
+        self.assertTrue(self.window.center_on_cell_selection())
+        self.process_events()
+
+        self.assert_linked(expected_scale=1.5, expected_center=expected)
+        self.assertEqual(selected.circle_sizes, 20)
+        self.assertEqual(self.window.image_index, 2)
+
+    def test_cells_list_auto_center_waits_for_release_and_centers_multiselection(self):
+        cell_ids = self.install_selection_cells()
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        first = tree.visualItemRect(tree.topLevelItem(0)).center()
+        second = tree.visualItemRect(tree.topLevelItem(1)).center()
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.mousePress(tree.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+            self.assertEqual(center.call_count, 0)
+            QTest.mouseRelease(tree.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(center.call_count, 1)
+            self.assert_linked(expected_scale=1.0, expected_center=QPointF(250, 220))
+            QTest.mousePress(tree.viewport(), Qt.LeftButton, Qt.ControlModifier, second)
+            self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+            self.assertEqual(center.call_count, 1)
+            QTest.mouseRelease(tree.viewport(), Qt.LeftButton, Qt.ControlModifier, second)
+            self.assertEqual(center.call_count, 2)
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(345, 280))
+
+    def test_cells_list_keyboard_selection_centers_only_when_selection_changes(self):
+        cell_ids = self.install_selection_cells()
+        tree = self.show_cells_list()
+        first_item = tree.topLevelItem(0)
+        tree.setCurrentItem(first_item)
+        self.window.reselect_cell_ids([cell_ids[0]])
+        tree.setFocus()
+        self.set_camera(scale=1.0, center=QPointF(500, 420))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.keyClick(tree, Qt.Key_Down, Qt.ShiftModifier)
+            self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+            self.assertEqual(center.call_count, 1)
+            self.assert_linked(expected_scale=1.0, expected_center=QPointF(345, 280))
+            QTest.keyClick(tree, Qt.Key_Down, Qt.ControlModifier)
+            self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+            self.assertEqual(center.call_count, 1)
+
+    def test_viewer_auto_center_is_opt_in_and_waits_for_mouse_release(self):
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        view = self.window.view
+        first = view.mapFromScene(QPointF(250, 220))
+        original_center = self.center(view)
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=first)
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+        self.window.reselect_cell_ids([])
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.mousePress(view.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(center.call_count, 0)
+            self.assert_linked(expected_scale=1.0, expected_center=original_center)
+            QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(center.call_count, 1)
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(250, 220))
+
+    def test_viewer_rubber_band_centers_complete_selection_once_on_release(self):
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=0.7, center=QPointF(350, 270))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        view = self.window.view
+        start = view.mapFromScene(QPointF(225, 205))
+        end = view.mapFromScene(QPointF(460, 360))
+        original_center = self.center(view)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.mousePress(view.viewport(), Qt.LeftButton, pos=start)
+            QTest.mouseMove(view.viewport(), end, delay=10)
+            self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+            self.assertEqual(center.call_count, 0)
+            self.assert_linked(expected_scale=0.7, expected_center=original_center)
+            QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=end)
+            self.assertEqual(center.call_count, 1)
+        self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+        self.assert_linked(expected_scale=0.7, expected_center=QPointF(345, 280))
+
+    def test_auto_center_ignores_programmatic_selection_redraw_frames_and_history(self):
+        cell_ids = self.install_selection_cells()
+        self.set_camera(scale=1.2, center=QPointF(500, 420))
+        original_center = self.center(self.window.view)
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            self.window.cell_items[0].setSelected(True)
+            self.window.reselect_cell_ids(cell_ids[:2])
+            self.window.displayMarkedRegions()
+            self.window.refresh_cells_panel()
+            self.window.updateImage(3)
+            self.window.reselect_cell_ids([cell_ids[1]])
+            self.assertTrue(self.window.delete_selected_cells())
+            self.window.undo_stack.undo()
+            self.window.undo_stack.redo()
+            self.window.undo_stack.undo()
+            self.process_events()
+            self.assertEqual(center.call_count, 0)
+        self.assert_linked(expected_scale=1.2, expected_center=original_center)
+
+    def test_auto_center_ignores_pan_and_space_pan_selection_restoration(self):
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids(cell_ids[:2])
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        for temporary_pan in (False, True):
+            with self.subTest(space=temporary_pan):
+                self.window.apply_cursor_tool_ui()
+                self.window.reselect_cell_ids(cell_ids[:2])
+                self.set_camera(scale=1.0, center=QPointF(350, 270))
+                if temporary_pan:
+                    QTest.keyPress(self.window, Qt.Key_Space)
+                else:
+                    self.window.panTool(True)
+                self.assertTrue(self.window.is_pan_interaction_active())
+                selected_before_pan = self.selected_cell_ids()
+                view = self.window.view
+                start = view.viewport().rect().center()
+                original_center = self.center(view)
+                with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+                    QTest.mousePress(view.viewport(), Qt.LeftButton, pos=start)
+                    QTest.mouseMove(view.viewport(), start + QPoint(25, 20), delay=10)
+                    QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=start + QPoint(25, 20))
+                    if temporary_pan:
+                        QTest.keyRelease(self.window, Qt.Key_Space)
+                    self.assertEqual(center.call_count, 0)
+                self.assertEqual(self.selected_cell_ids(), selected_before_pan)
+                if temporary_pan:
+                    self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+                self.assertGreater((self.center(view) - original_center).manhattanLength(), 5)
+                self.assert_linked(expected_scale=1.0, expected_center=self.center(view))
+
+    def test_auto_center_ignores_image_preview_crop_and_cell_edit_gestures(self):
+        cell_ids = self.install_selection_cells()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            self.enter_image_edit()
+            self.window.handle_image_edit_exposure_spinbox_changed(0.5)
+            self.window.undo_stack.undo()
+            self.window.begin_image_edit_crop()
+            view = self.window.view
+            start = view.mapFromScene(QPointF(350, 270))
+            QTest.mousePress(view.viewport(), Qt.LeftButton, pos=start)
+            QTest.mouseMove(view.viewport(), start + QPoint(12, 8), delay=10)
+            QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=start + QPoint(12, 8))
+            self.window.cancel_image_edit_crop()
+            self.window.apply_cursor_tool_ui()
+            self.window.reselect_cell_ids([cell_ids[0]])
+            self.window.activate_edit_cell_item(self.window.get_selected_cell_items()[0])
+            start = view.mapFromScene(QPointF(250, 220))
+            QTest.mousePress(view.viewport(), Qt.LeftButton, pos=start)
+            QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=start)
+            self.assertEqual(center.call_count, 0)
+
+    def test_auto_center_discards_selection_gesture_if_frame_changes_before_release(self):
+        self.install_selection_cells()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        view = self.window.view
+        first = view.mapFromScene(QPointF(250, 220))
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.mousePress(view.viewport(), Qt.LeftButton, pos=first)
+            self.window.updateImage(3)
+            QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(center.call_count, 0)
+
+    def test_auto_center_discards_interrupted_gestures_even_after_cursor_and_frame_return(self):
+        cell_ids = self.install_selection_cells()
+        tree = self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+
+        def change_frame_and_return():
+            self.window.updateImage(3)
+            self.window.updateImage(2)
+
+        def change_tool_and_return():
+            self.window.apply_image_edit_tool_ui()
+            self.window.apply_cursor_tool_ui()
+
+        def temporary_pan_and_return():
+            QTest.keyPress(self.window, Qt.Key_Space)
+            self.assertTrue(self.window.is_pan_interaction_active())
+            QTest.keyRelease(self.window, Qt.Key_Space)
+
+        interruptions = (
+            self.window.displayMarkedRegions,
+            change_frame_and_return,
+            change_tool_and_return,
+            temporary_pan_and_return,
+        )
+        for surface in (tree, self.window.view):
+            for interrupt in interruptions:
+                with self.subTest(surface=type(surface).__name__, interrupt=interrupt.__name__):
+                    self.window.reselect_cell_ids([])
+                    self.set_camera(scale=1.0, center=QPointF(350, 270))
+                    original_center = self.center(self.window.view)
+                    position = (
+                        tree.visualItemRect(tree.topLevelItem(0)).center()
+                        if surface is tree else surface.mapFromScene(QPointF(250, 220))
+                    )
+                    with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+                        QTest.mousePress(surface.viewport(), Qt.LeftButton, pos=position)
+                        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+                        interrupt()
+                        self.assertEqual(self.window.tool_mode, "cursor")
+                        self.assertEqual(self.window.image_index, 2)
+                        self.window.reselect_cell_ids([cell_ids[0]])
+                        QTest.mouseRelease(surface.viewport(), Qt.LeftButton, pos=position)
+                        self.assertEqual(center.call_count, 0)
+                    self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_auto_center_ignores_image_edit_selection_in_viewer_and_cells_list(self):
+        cell_ids = self.install_selection_cells()
+        tree = self.show_cells_list()
+        self.enter_image_edit()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        original_center = self.center(self.window.view)
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            first = self.window.view.mapFromScene(QPointF(250, 220))
+            QTest.mouseClick(self.window.view.viewport(), Qt.LeftButton, pos=first)
+            self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+            second = tree.visualItemRect(tree.topLevelItem(1)).center()
+            QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=second)
+            self.assertEqual(self.selected_cell_ids(), {cell_ids[1]})
+            QTest.keyClick(tree, Qt.Key_Down)
+            self.assertEqual(self.selected_cell_ids(), {cell_ids[2]})
+            self.assertEqual(center.call_count, 0)
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_auto_center_ignores_single_and_group_edit_apply_and_return_to_cursor(self):
+        cell_ids = self.install_selection_cells()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        for selected_ids in ([cell_ids[0]], cell_ids[:2]):
+            with self.subTest(selected_ids=selected_ids):
+                self.window.reset_cursor_tool(True)
+                self.window.reselect_cell_ids(selected_ids)
+                self.set_camera(scale=1.0, center=QPointF(350, 270))
+                original_center = self.center(self.window.view)
+                before_positions = {
+                    item.cell_id: item.circle_pixel_positions
+                    for item in self.window.cell_items if item.cell_id in selected_ids
+                }
+                with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+                    self.window.editTool(True)
+                    self.assertEqual(self.window.tool_mode, "edit-new" if len(selected_ids) == 1 else "edit-group")
+                    self.window.preview_offset_x = 35.0
+                    self.window.preview_offset_y = 20.0
+                    self.window.update_grid_preview()
+                    if len(selected_ids) == 1:
+                        self.window.handle_circle_apply_action()
+                    else:
+                        self.window.handle_grid_apply_action()
+                    self.window.reset_cursor_tool(True)
+                    self.process_events()
+                    self.assertEqual(center.call_count, 0)
+                self.assertEqual(self.window.tool_mode, "cursor")
+                self.assert_linked(expected_scale=1.0, expected_center=original_center)
+                for item in self.window.cell_items:
+                    if item.cell_id in selected_ids:
+                        previous = before_positions[item.cell_id]
+                        self.assertEqual(item.circle_pixel_positions, (previous[0] + 35.0, previous[1] + 20.0))
+
+    def test_auto_center_ignores_add_and_delete_gestures_and_return_to_cursor(self):
+        cell_ids = self.install_selection_cells()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        original_center = self.center(self.window.view)
+        view = self.window.view
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            self.window.selectTool(True)
+            position = view.mapFromScene(QPointF(320, 350))
+            QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=position)
+            self.assertFalse(self.window.grid_preview_floating)
+            self.window.handle_circle_apply_action()
+            self.assertEqual(len(self.window.cell_items), len(cell_ids) + 1)
+            self.window.reset_cursor_tool(True)
+            self.window.apply_deselect_tool_ui()
+            position = view.mapFromScene(QPointF(250, 220))
+            QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=position)
+            self.assertNotIn(cell_ids[0], {item.cell_id for item in self.window.cell_items})
+            self.window.reset_cursor_tool(True)
+            self.process_events()
+            self.assertEqual(center.call_count, 0)
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
     def test_each_panel_uses_its_own_cell_keyframe_and_interpolation(self):
         self.install_moving_cell()
         for panel, expected in zip(self.panels(), [(150, 140, 15), (200, 160, 20), (250, 180, 25)]):

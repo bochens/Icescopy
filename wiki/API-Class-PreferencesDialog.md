@@ -3,7 +3,7 @@
 
 Edits application preferences and the default sample metadata schema.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L898) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L918) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_aux.py#L908)
+[Source](../src/icescopy_aux.py#L928)
 
 ```python
 def __init__(self, main_window, parent=None):
@@ -23,7 +23,7 @@ def __init__(self, main_window, parent=None):
 
 ### `collect_sample_metadata_schema`
 
-[Source](../src/icescopy_aux.py#L1778)
+[Source](../src/icescopy_aux.py#L1798)
 
 ```python
 def collect_sample_metadata_schema(self, *, skip_validation=False):
@@ -31,7 +31,7 @@ def collect_sample_metadata_schema(self, *, skip_validation=False):
 
 ### `save_preferences`
 
-[Source](../src/icescopy_aux.py#L1874)
+[Source](../src/icescopy_aux.py#L1894)
 
 ```python
 def save_preferences(self):
@@ -39,7 +39,7 @@ def save_preferences(self):
 
 ### `restore_visual_defaults`
 
-[Source](../src/icescopy_aux.py#L1995)
+[Source](../src/icescopy_aux.py#L2015)
 
 ```python
 def restore_visual_defaults(self):
