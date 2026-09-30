@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--method',choices=['template','embedding','learned','fast'],default='template')
     parser.add_argument('--threshold',type=float,help='Default .75 for original methods; recorded calibration threshold for fast')
     parser.add_argument('--model',type=Path)
+    parser.add_argument('--encoder-checkpoint',type=Path,help='Optional synthetically fine-tuned MobileNet checkpoint for neural methods')
     parser.add_argument('--state-in',type=Path,help='Previously saved state.json; IDs and all known cells are retained')
     args=parser.parse_args()
     if args.output.exists():
@@ -27,6 +28,8 @@ def main():
     if args.threshold is not None and not 0<=args.threshold<=1:
         parser.error('Threshold must be between zero and one.')
     try:
+        if args.encoder_checkpoint is not None and args.method not in ('embedding','learned'):
+            raise ValueError('--encoder-checkpoint requires an embedding or learned neural method.')
         payload=json.loads(args.examples.read_text())
         examples=[Circle(**row) for row in payload.get('examples',[])]
         existing=[Circle(**row) for row in payload.get('existing',[])]
@@ -40,11 +43,17 @@ def main():
             head=json.loads(args.model.read_text()) if args.model else None
             if args.method=='learned' and head is None:
                 raise ValueError('--model is required for the learned method.')
-        if args.threshold is None:args.threshold=head['threshold'] if args.method=='fast' else .75
+        encoder_sha=hashlib.sha256(args.encoder_checkpoint.read_bytes()).hexdigest() if args.encoder_checkpoint else None
+        if args.method=='learned' and 'encoder_sha256' in head and head['encoder_sha256']!=encoder_sha:
+            raise ValueError('Comparison head and encoder checkpoint hashes do not match; supply the recorded --encoder-checkpoint.')
+        if args.threshold is None:args.threshold=head.get('threshold',.75) if args.method in ('fast','learned') else .75
         raw=cv2.imread(str(args.image),cv2.IMREAD_UNCHANGED)
         if raw is None:raise ValueError(f'Cannot read image: {args.image}')
         image=preprocess_image(raw,color_order='BGR')
-        encoder=Encoder() if args.method in ('embedding','learned') else None
+        if args.encoder_checkpoint is not None:
+            from neural_model import FineTunedEncoder
+            encoder=FineTunedEncoder(args.encoder_checkpoint)
+        else:encoder=Encoder() if args.method in ('embedding','learned') else None
         start=time.perf_counter()
         selected=detect_current_frame(raw,examples,state=state,existing=existing,
                                      example_ids=payload.get('example_ids',[]),
@@ -60,6 +69,7 @@ def main():
             'method':args.method,'threshold':args.threshold,'seconds':elapsed,
             'examples':payload.get('examples',[]),'existing':payload.get('existing',[]),
             'example_ids':selected['example_ids'],'state_in':str(args.state_in) if args.state_in else None,
+            'encoder_checkpoint_sha256':encoder_sha,
             'suggestions':results,'note':'Experimental suggestions only. Scores are not occupancy probabilities.'}
     (args.output/'suggestions.json').write_text(json.dumps(result,indent=2)+'\n')
     (args.output/'state.json').write_text(json.dumps(selected['state'],indent=2)+'\n')

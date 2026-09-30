@@ -2,6 +2,9 @@
 import tempfile
 from pathlib import Path
 import unittest
+import json
+import subprocess
+import sys
 
 import numpy as np
 
@@ -9,6 +12,7 @@ from detector import Circle,Encoder,patches,preprocess_image
 from neural_model import FineTunedEncoder,adaptation_loss,batchnorm_buffers,changed_tensors,prefix_state,save_checkpoint,suffix_embeddings,tensor_hash,trainable_suffix
 from neural_synthetic import FAMILIES,SEEDS,render,scene_style
 from neural_train import Triplets
+from neural_compare import calibrate,fit_synthetic_head
 from structured_scenes import render as old_render
 
 
@@ -42,6 +46,26 @@ class NeuralSyntheticTests(unittest.TestCase):
             self.assertEqual(a['group'],p['group']);self.assertEqual(a['group'],n['group'])
             self.assertNotEqual(a['object_id'],p['object_id'])
             self.assertEqual((a['label'],p['label'],n['label']),(1,1,0))
+
+    def test_new_head_and_calibration_reject_real_scenes(self):
+        scene={'split':'fit','recording':'A','complete_labels':True}
+        with self.assertRaisesRegex(ValueError,'must be synthetic fit data'):
+            fit_synthetic_head([{'scene':scene}],0,None)
+        with self.assertRaisesRegex(ValueError,'synthetic calibration groups'):
+            calibrate([{'scene':dict(scene,split='calibration')}],0,{})
+
+    def test_adapted_head_requires_its_checkpoint_before_output_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);head=root/'head.json';examples=root/'examples.json'
+            head.write_text(json.dumps({'encoder_sha256':'an-adapted-checkpoint-hash'}))
+            examples.write_text(json.dumps({'examples':[{'x':10,'y':10,'radius':3}]}))
+            output=root/'selection'
+            result=subprocess.run([sys.executable,'experiments/cell_detection/run_detection.py',
+                                   str(root/'unused.png'),str(examples),'--method','learned',
+                                   '--model',str(head),'--output',str(output)],capture_output=True,text=True)
+            self.assertEqual(result.returncode,2)
+            self.assertIn('head and encoder checkpoint hashes do not match',result.stderr)
+            self.assertFalse(output.exists())
 
 
 class NeuralWeightTests(unittest.TestCase):

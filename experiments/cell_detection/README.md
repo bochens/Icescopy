@@ -2,11 +2,11 @@
 
 This is a separate research prototype. Icescopy does not import it or package its dependencies. It selects cells on one current frame, supplied as an image file or a decoded video array, and requires at least one marked example. Freezing detection remains a separate downstream brightness-convolution calculation. No other image, tracking, or automatic keyframe enters cell selection. The prototype writes a new directory and never edits an application session.
 
-The experiment compares image matching, a fixed MobileNetV3-Small image model, and a small trained classifier that combines neural similarity with image-matching measurements. The pretrained model recognizes general visual patterns; it was not originally trained to distinguish filled and empty experimental wells. Scores are rankings, not calibrated occupancy probabilities.
+The experiment compares image matching, a fixed MobileNetV3-Small image model, and a small trained classifier that combines neural similarity with image-matching measurements. The pretrained model recognizes general visual patterns; it was not originally trained to distinguish filled and empty experimental wells. Scores are rankings, not calibrated occupancy probabilities. The scripts call the small scoring model a head; it combines image-matching and neural measurements to score each candidate.
 
 ## Run locally
 
-Create a separate Python 3.11 environment. Install `numpy scipy pillow opencv-python-headless torch torchvision` in that environment, not in the application environment. Set `TORCH_HOME` to a private model-cache directory. The first neural-network run downloads the official TorchVision MobileNetV3-Small weights; subsequent runs use the local copy.
+Create a separate Python 3.11 environment. Install `numpy scipy pillow opencv-python-headless torch torchvision threadpoolctl` in that environment, not in the application environment. Set `TORCH_HOME` to a private model-cache directory. The first neural-network run downloads the official TorchVision MobileNetV3-Small weights; subsequent runs use the local copy.
 
 Save example circles in JSON, using original-image pixels:
 
@@ -49,6 +49,64 @@ Offscreen known cells retain their IDs, but examples must be visible. A changed
 frame size requires explicit complete position updates; it never rescales
 coordinates silently. Bad or incompatible state fails before a new output is
 created, and the input state file remains unchanged.
+
+## Synthetic neural post-training
+
+`neural_train.py` changes the original MobileNet's last three convolution
+blocks using only computer-rendered cells. The earlier blocks stay fixed, and
+their outputs are cached once. BatchNorm, the layers that normalize intermediate
+image measurements, retain their original running means and variances. The
+architecture and image preprocessing used for detection stay the same.
+
+Each training comparison contains two different filled objects and one labeled
+empty well, hole, or background object from the same generated scene. It trains
+the filled objects to have more similar network measurements than the negative
+object. A small preservation penalty discourages large changes from the original
+network measurements. Separate synthetic scenes choose the saved network, and
+another separate set chooses the final detection threshold.
+
+`neural_synthetic.py` covers PCR trays, cutout grids, perforated holders, large
+pockets with smaller droplets, and free droplets with background holes. Each
+family and split has balanced transmitted/reflected lighting and at least half
+neutral grayscale scenes. Liquid and frozen brightness follow different optical
+modes; holder color alone cannot indicate occupancy. Published apparatus images
+guide geometry and lighting only; no published or laboratory pixels enter new
+training. See [the reference notes](SYNTHETIC_REFERENCES.md). The approach follows
+the fixed-layer principle in the [PyTorch transfer-learning tutorial](https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html)
+and uses varied procedural appearance motivated by [Tobin et al. (2017)](https://arxiv.org/abs/1703.06907);
+neither source establishes that this detector will improve on real recordings.
+
+```sh
+python experiments/cell_detection/neural_synthetic.py --output output/new-neural-scenes
+python experiments/cell_detection/neural_train.py \
+  --labels output/new-neural-scenes/labels.json --output output/new-neural-fit
+python experiments/cell_detection/neural_compare.py \
+  --synthetic-labels output/new-neural-scenes/labels.json \
+  --checkpoint output/new-neural-fit/encoder.pt \
+  --real-labels path/to/private-real-labels.json \
+  --structured-labels path/to/structured-scenes-v3/labels.json \
+  --baseline-report path/to/original-benchmark/report.json \
+  --output output/new-neural-comparison
+python experiments/cell_detection/run_detection.py picture.png examples.json \
+  --method learned --encoder-checkpoint output/new-neural-fit/encoder.pt \
+  --model output/new-neural-comparison/adapted-synthetic-head.json \
+  --output output/new-adapted-selection
+```
+
+Set `TORCH_HOME` to the existing private model cache. The adapted head's default
+threshold comes from its synthetic calibration, and the CLI checks that its
+encoder checkpoint hash matches. `--state-in` retains all known cells exactly
+as in the original detector. Checkpoints contain tensor weights and plain
+metadata, load with `weights_only=True`, and verify that frozen layers and
+BatchNorm statistics were preserved.
+
+The comparison retains the original encoder, previous head, and threshold as
+`original`. `frozen_synthetic` fits a new head on synthetic scenes with the fixed
+encoder; `adapted_synthetic` uses the same fitting and threshold procedure with
+the updated encoder. Every new neural weight update, head fit, saved-network choice,
+and threshold choice is synthetic-only. The original baseline retains its prior
+recording-A-trained head; that prior training is not reused for either new head.
+All real results remain exploratory evaluations, including recording A.
 
 ## Separate fast tree experiment
 
