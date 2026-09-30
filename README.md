@@ -57,7 +57,11 @@ Assign selected cells to a **Sample ID** in **Tool Options**, then enter details
 
 Use the timeline's **analysis start and end markers** to skip setup, warming, or other unwanted parts of a recording. You can include several separate intervals. Both marked frames are included; without markers, the whole recording is analyzed.
 
-Choose **Analysis → Run Analysis** to measure brightness and find freeze events. Run it again after changing the markers. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers).
+Choose **Analysis → Run Analysis** to measure the average brightness inside each cell and find freeze events.
+
+Automatic freeze-frame detection uses **convolution**, a sliding comparison of nearby brightness values, to highlight sudden changes. It finds peaks or dips in this signal, then checks the original brightness measurements to locate likely freeze frames.
+
+Run analysis again after changing the markers. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers).
 
 ### 4. Review and refine freezing
 
