@@ -14,6 +14,9 @@ from PIL import Image
 
 
 CSU_IS_TIMESTAMP_RE = re.compile(r":\.(\d+)$")
+CSU_COUNT_SOURCE_IMAGES = "images"
+CSU_COUNT_SOURCE_INSTRUMENT = "instrument"
+CSU_COUNT_SOURCE_COMBINED = "combined"
 LINKSYS32_IML_TEMPERATURE_RE = re.compile(
     r"\bTemp\s+([-+]?\d+(?:\.\d+)?)\b",
     re.IGNORECASE,
@@ -197,7 +200,7 @@ class CSUISDatRow:
     timestamp_text: str
     avg_temp: float | None
     picture_name: str
-    sample_counts: dict[str, int]
+    sample_counts: dict[str, int | None]
 
 
 @dataclass
@@ -1161,7 +1164,7 @@ def parse_ice_array_calibration_csv(file_path):
 
 
 def parse_csu_is_dat(file_path):
-    with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as handle:
+    with open(file_path, "r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle, delimiter="\t")
         raw_rows = [list(row) for row in reader]
 
@@ -1172,22 +1175,37 @@ def parse_csu_is_dat(file_path):
     if not header:
         raise TemperatureImportError("The selected CSU .dat file has no header row.")
 
-    sample_columns = [name for name in header if name.startswith("Sample_")]
-    if not sample_columns:
-        raise TemperatureImportError("No CSU sample columns were found in the selected .dat file.")
+    seen_columns = set()
+    for column_name in header:
+        normalized_name = column_name.casefold()
+        if normalized_name not in {"avg_temp", "sample_temp", "picture"} and not normalized_name.startswith("sample_"):
+            continue
+        if normalized_name in seen_columns:
+            raise TemperatureImportError(
+                f"The selected CSU .dat file has a duplicate '{column_name}' column."
+            )
+        seen_columns.add(normalized_name)
 
-    avg_temp_index = None
-    picture_index = None
-    for index, column_name in enumerate(header):
-        if column_name == "Avg_Temp":
-            avg_temp_index = index
-        elif column_name == "Picture":
-            picture_index = index
-
-    if avg_temp_index is None:
-        raise TemperatureImportError("The selected CSU .dat file is missing the Avg_Temp column.")
-    if picture_index is None:
+    temperature_columns = [name for name in ("Avg_Temp", "Sample_Temp") if name in header]
+    if not temperature_columns:
+        raise TemperatureImportError(
+            "The selected CSU .dat file needs an Avg_Temp or Sample_Temp column."
+        )
+    if len(temperature_columns) > 1:
+        raise TemperatureImportError(
+            "The selected CSU .dat file contains both Avg_Temp and Sample_Temp. "
+            "The temperature source is ambiguous; provide a file with only the intended temperature column."
+        )
+    temperature_column = temperature_columns[0]
+    avg_temp_index = header.index(temperature_column)
+    if "Picture" not in header:
         raise TemperatureImportError("The selected CSU .dat file is missing the Picture column.")
+    picture_index = header.index("Picture")
+
+    sample_columns = [
+        name for name in header
+        if name.startswith("Sample_") and name != "Sample_Temp"
+    ]
 
     sample_indexes = {
         column_name: header.index(column_name)
@@ -1196,18 +1214,49 @@ def parse_csu_is_dat(file_path):
 
     rows = []
     picture_to_row = {}
-    for row_index, raw_row in enumerate(raw_rows[1:]):
+    picture_source_lines = {}
+    count_value_summary = {
+        "total_values": 0,
+        "valid_values": 0,
+        "invalid_values": 0,
+        "positive_values": 0,
+    }
+    invalid_sample_counts_by_column = {name: 0 for name in sample_columns}
+    for source_line, raw_row in enumerate(raw_rows[1:], start=2):
+        if not any(str(value).strip() for value in raw_row):
+            continue
+        row_index = len(rows)
         row = list(raw_row)
         if len(row) < len(header):
             row.extend([""] * (len(header) - len(row)))
 
         timestamp, timestamp_text = _parse_csu_is_timestamp(row[0], row[1] if len(row) > 1 else "")
         avg_temp = _safe_float(row[avg_temp_index])
-        picture_name = os.path.basename(str(row[picture_index] or "").strip())
-        sample_counts = {
-            column_name: _safe_int(row[column_index], default=0)
-            for column_name, column_index in sample_indexes.items()
-        }
+        if avg_temp is not None and not math.isfinite(avg_temp):
+            avg_temp = None
+        # Logger paths can come from Windows even when the images are opened on macOS.
+        picture_name = str(row[picture_index] or "").strip().replace("\\", "/").rsplit("/", 1)[-1]
+        picture_key = picture_name.casefold()
+        if picture_key and picture_key in picture_to_row:
+            previous_line = picture_source_lines[picture_key]
+            raise TemperatureImportError(
+                f"The CSU .dat file refers to picture '{picture_name}' more than once "
+                f"(lines {previous_line} and {source_line}); its timestamp is ambiguous."
+            )
+        sample_counts = {}
+        for column_name, column_index in sample_indexes.items():
+            count = _safe_int(row[column_index], default=None)
+            if count is not None and count < 0:
+                count = None
+            sample_counts[column_name] = count
+            count_value_summary["total_values"] += 1
+            if count is None:
+                count_value_summary["invalid_values"] += 1
+                invalid_sample_counts_by_column[column_name] += 1
+            else:
+                count_value_summary["valid_values"] += 1
+                if count > 0:
+                    count_value_summary["positive_values"] += 1
 
         parsed_row = CSUISDatRow(
             row_index=row_index,
@@ -1220,11 +1269,18 @@ def parse_csu_is_dat(file_path):
         rows.append(parsed_row)
 
         if picture_name:
-            picture_to_row[picture_name.casefold()] = row_index
+            picture_to_row[picture_key] = row_index
+            picture_source_lines[picture_key] = source_line
+
+    if not rows:
+        raise TemperatureImportError("The selected CSU .dat file has no data rows.")
 
     return {
         "file_path": str(file_path),
         "sample_columns": sample_columns,
+        "temperature_column": temperature_column,
+        "count_value_summary": count_value_summary,
+        "invalid_sample_counts_by_column": invalid_sample_counts_by_column,
         "rows": rows,
         "picture_to_row": picture_to_row,
     }

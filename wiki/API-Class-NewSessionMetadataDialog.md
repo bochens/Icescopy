@@ -3,7 +3,7 @@
 
 Collects project, user, institution, and date metadata for a session.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L152) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L155) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L153)
+[Source](../src/icescopy_dialogs.py#L156)
 
 ```python
 def __init__(self, parent=None, metadata=None, *, window_title='New Session'):
@@ -21,7 +21,7 @@ def __init__(self, parent=None, metadata=None, *, window_title='New Session'):
 
 ### `get_metadata`
 
-[Source](../src/icescopy_dialogs.py#L212)
+[Source](../src/icescopy_dialogs.py#L215)
 
 ```python
 def get_metadata(self):

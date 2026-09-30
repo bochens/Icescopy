@@ -103,7 +103,7 @@ The first five columns are:
 
 **CSU replaces `image_name` with `picture`.** A CSU row can have an empty picture field because the temperature logger can record more often than the camera.
 
-Standard, UTK, and TAMU obtain frame temperatures by interpolation; PKU uses tagged temperatures from embedded image records; CSU uses its `Avg_Temp` values. See [Temperature Import](Temperature-Import.md) for each input contract.
+Standard, UTK, and TAMU obtain frame temperatures by interpolation; PKU uses tagged temperatures from embedded image records; CSU uses `Avg_Temp` or `Sample_Temp` at its instrument records. See [Temperature Import](Temperature-Import.md) for each input contract.
 
 ### Columns for each output sample
 
@@ -122,7 +122,7 @@ A sample with 20 assigned cells may have a smaller **number total** after blank 
 - Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name and reimport.
 - Unassigned cells form an **Unassigned cells** group when named groups also exist, or **All cells** when no named groups exist.
 - Selected water blank groups contribute to the correction and are omitted from the ordinary sample columns.
-- CSU outputs named groups that match its instrument sample columns, plus any unassigned-cell group. Check the import summary for omissions.
+- CSU image mode includes all app groups. Recorded mode includes named groups matching instrument columns. Combined mode includes those matched groups plus unassigned cells. Check the import summary for omissions.
 
 Separate sample IDs can share the same name, producing identical column labels. The metadata identifies the groups, but some CSV readers automatically rename duplicate headers. Distinct sample names are easier to work with; CSU rejects ambiguous duplicate names when matching an instrument column.
 
@@ -130,7 +130,7 @@ Separate sample IDs can share the same name, producing identical column labels. 
 
 For Standard, UTK, TAMU, and PKU, data row 0 corresponds to loaded frame 0, including frames outside automatic-analysis intervals. Counting within a cycle uses each cell's first event in that cycle. Later events for the same cell in that cycle do not add another frozen cell. A later cycle starts its counts again and needs its own events.
 
-CSU rows follow the instrument record. Matched picture rows provide image-derived reference counts, and intervening instrument counts are constrained within the same cycle. Do not join CSU rows to the event table by row number.
+CSU rows follow the instrument record. Image mode holds each image's count forward from its matching picture row; recorded mode keeps instrument counts; combined mode uses image counts as references for the intervening instrument counts. Do not join CSU rows to the event table by row number.
 
 Analysis intervals and temperature cycles serve different purposes. Intervals restrict automatic measurement and detection; cycles reset counts based on the temperature record. Several analysis intervals can lie inside one temperature cycle, and one interval can span several cycles.
 

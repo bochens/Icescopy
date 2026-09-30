@@ -28,6 +28,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate, QSignalBlocker
 
 from icescopy_temperature_import import (
+    CSU_COUNT_SOURCE_COMBINED,
+    CSU_COUNT_SOURCE_IMAGES,
+    CSU_COUNT_SOURCE_INSTRUMENT,
     IMAGE_TIMESTAMP_SOURCE_CHOICES,
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_CREATED,
@@ -226,19 +229,22 @@ class CSUTemperatureImportDialog(QDialog):
         sample_names,
         initial_reset_temperature=None,
         parent=None,
+        *,
+        initial_count_source=CSU_COUNT_SOURCE_COMBINED,
     ):
         super().__init__(parent)
         self.main_window = main_window
-        self.setWindowTitle("CSU IS .dat import")
+        self.setWindowTitle("CSU .dat import")
         layout, self.scroll_area, self.scroll_contents, scroll_layout = _setup_fixed_width_scrolling_dialog(
             self,
             width=640,
-            initial_height=460,
+            initial_height=560,
             minimum_height=360,
         )
 
         intro_label = QLabel(
-            "Select the CSU .dat file and optionally mark app samples that should be treated as water blank controls.",
+            "Choose the CSU .dat file for the loaded images. "
+            "The Picture column matches image filenames to their recorded times.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -269,9 +275,24 @@ class CSUTemperatureImportDialog(QDialog):
         file_row_widget.setLayout(file_row)
         form.addRow("CSU .dat file", file_row_widget)
 
+        self.count_source_combo = QComboBox(self)
+        self.count_source_combo.addItem("Icescopy detections", CSU_COUNT_SOURCE_IMAGES)
+        self.count_source_combo.addItem("CSU recorded counts", CSU_COUNT_SOURCE_INSTRUMENT)
+        self.count_source_combo.addItem("Icescopy + CSU", CSU_COUNT_SOURCE_COMBINED)
+        source_index = self.count_source_combo.findData(initial_count_source)
+        if source_index < 0:
+            source_index = self.count_source_combo.findData(CSU_COUNT_SOURCE_COMBINED)
+        self.count_source_combo.setCurrentIndex(source_index)
+        form.addRow("Count source", self.count_source_combo)
+        self.count_source_help = QLabel(self)
+        self.count_source_help.setWordWrap(True)
+        form.addRow("", self.count_source_help)
+        self.count_source_combo.currentIndexChanged.connect(self.update_count_source_help)
+        self.update_count_source_help()
+
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
+        self.blank_sample_list.setFixedHeight(132)
         _populate_blank_sample_list(self.blank_sample_list, sample_names, set())
         form.addRow("Water blank samples", self.blank_sample_list)
 
@@ -296,7 +317,10 @@ class CSUTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            f"Water blank correction is applied within each cycle. {WATER_BLANK_CORRECTION_DESCRIPTION} {TEMPERATURE_RESET_DESCRIPTION}",
+            "Water blanks are water-only controls. Their frozen counts are subtracted from "
+            "each other sample's total and frozen counts. For repeated cooling cycles, set a "
+            "reset temperature; warming to this value marks a new cycle. "
+            "Otherwise leave reset Off.",
             self,
         )
         hint_label.setWordWrap(True)
@@ -307,6 +331,28 @@ class CSUTemperatureImportDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+    def update_count_source_help(self):
+        descriptions = {
+            CSU_COUNT_SOURCE_IMAGES: (
+                "Use freeze events found or edited in Icescopy. You can use any sample names; "
+                "CSU count columns are not required."
+            ),
+            CSU_COUNT_SOURCE_INSTRUMENT: (
+                "Use CSU's recorded counts, including any decreases. They do not identify individual "
+                "frozen cells. Draw all cells and assign them to samples in Icescopy, using the "
+                ".dat column names, such as Sample_0."
+            ),
+            CSU_COUNT_SOURCE_COMBINED: (
+                "Use Icescopy counts at image times and CSU counts between images. Run image "
+                "analysis first. Name the samples in Icescopy to match the .dat columns, "
+                "such as Sample_0."
+            ),
+        }
+        self.count_source_help.setText(
+            descriptions[self.count_source_combo.currentData()]
+            + " Temperatures (°C) come from Sample_Temp or Avg_Temp."
+        )
 
     def browse_file(self):
         initial_dir = ""
@@ -322,7 +368,7 @@ class CSUTemperatureImportDialog(QDialog):
             initial_dir = os.path.dirname(self.main_window.imagePaths[0])
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import CSU IS .dat file",
+            "Import CSU .dat file",
             initial_dir,
             "CSU Data Files (*.dat);;All Files (*)",
             options=self.main_window.file_dialog_options(),
@@ -335,14 +381,14 @@ class CSUTemperatureImportDialog(QDialog):
         if not file_path:
             QMessageBox.warning(
                 self,
-                "CSU IS .dat import",
+                "CSU .dat import",
                 "Choose a CSU .dat file before importing.",
             )
             return
         if not os.path.isfile(file_path):
             QMessageBox.warning(
                 self,
-                "CSU IS .dat import",
+                "CSU .dat import",
                 "The selected CSU .dat file does not exist.",
             )
             return
@@ -356,6 +402,7 @@ class CSUTemperatureImportDialog(QDialog):
             "file_path": self.file_path_edit.text().strip(),
             "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "reset_temperature": reset_temperature,
+            "count_source": self.count_source_combo.currentData(),
         }
 
 

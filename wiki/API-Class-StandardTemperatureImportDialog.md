@@ -3,7 +3,7 @@
 
 Collects standard CSV import choices and previews image timestamp parsing.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L842) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L889) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L843)
+[Source](../src/icescopy_dialogs.py#L890)
 
 ```python
 def __init__(self, main_window, initial_path, sample_names, initial_reset_temperature=None, initial_blank_sample_names=None, initial_image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME, initial_image_timestamp_style=TIMESTAMP_STYLE_AUTO, initial_temperature_timestamp_style=TIMESTAMP_STYLE_AUTO, initial_use_image_timestamp_style=True, initial_generated_start_text='', initial_frame_interval_seconds=1.0, initial_temperature_unit=TEMPERATURE_UNIT_CELSIUS, video_mode=False, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, sample_names, initial_reset_temper
 
 ### `evaluate_image_timestamp_test`
 
-[Source](../src/icescopy_dialogs.py#L1188)
+[Source](../src/icescopy_dialogs.py#L1235)
 
 ```python
 def evaluate_image_timestamp_test(self):
@@ -29,7 +29,7 @@ def evaluate_image_timestamp_test(self):
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L1239)
+[Source](../src/icescopy_dialogs.py#L1286)
 
 ```python
 def accept(self):
@@ -37,7 +37,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L1286)
+[Source](../src/icescopy_dialogs.py#L1333)
 
 ```python
 def get_values(self):
