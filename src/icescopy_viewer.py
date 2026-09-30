@@ -10,6 +10,7 @@ import shiboken6
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QBoxLayout,
     QFrame,
     QGraphicsItem,
@@ -35,9 +36,22 @@ class CellSelectionTreeWidget(QTreeWidget):
     def cancel_pending_selection_center(self):
         self._selection_navigation_start = None
 
+    def moveCursor(self, action, modifiers):
+        # Arrow navigation visits cells, not their nonselectable detail rows.
+        if action in (QAbstractItemView.MoveUp, QAbstractItemView.MoveDown):
+            item = self.currentItem()
+            if item is not None:
+                while item.parent() is not None:
+                    item = item.parent()
+                row = self.indexOfTopLevelItem(item)
+                step = -1 if action == QAbstractItemView.MoveUp else 1
+                row = max(0, min(self.topLevelItemCount() - 1, row + step))
+                return self.indexFromItem(self.topLevelItem(row))
+        return super().moveCursor(action, modifiers)
+
     def mousePressEvent(self, event):
         self._selection_navigation_start = (
-            self.main_window.cell_selection_navigation_state()
+            self.main_window.cell_list_navigation_state()
             if event.button() == Qt.LeftButton else None
         )
         super().mousePressEvent(event)
@@ -47,15 +61,15 @@ class CellSelectionTreeWidget(QTreeWidget):
         self._selection_navigation_start = None
         super().mouseReleaseEvent(event)
         if event.button() == Qt.LeftButton:
-            self.main_window.auto_center_after_cell_selection(before)
+            self.main_window.navigate_after_cell_list_selection(before)
 
     def keyPressEvent(self, event):
         before = (
-            self.main_window.cell_selection_navigation_state()
+            self.main_window.cell_list_navigation_state()
             if self._selection_navigation_start is None else None
         )
         super().keyPressEvent(event)
-        self.main_window.auto_center_after_cell_selection(before)
+        self.main_window.navigate_after_cell_list_selection(before)
 
     def focusOutEvent(self, event):
         self._selection_navigation_start = None

@@ -67,10 +67,6 @@ class DummyMainWindow:
     def sync_tool_options_panel(self):
         self.synced_tool_panel += 1
 
-    def cancel_cell_selection_navigation(self):
-        # This controller fixture has no pending user selection gestures.
-        pass
-
     def apply_cursor_tool_ui(self):
         self.applied_cursor = True
         self.tool_mode = "cursor"

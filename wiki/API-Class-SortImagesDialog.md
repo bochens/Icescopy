@@ -3,7 +3,7 @@
 
 Presents supported frame or video-clip ordering choices and returns the selected sort mode.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L2030) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L2010) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_aux.py#L2040)
+[Source](../src/icescopy_aux.py#L2020)
 
 ```python
 def __init__(self, main_window, availability, current_mode, parent=None, source_kind_label='images'):
@@ -21,7 +21,7 @@ def __init__(self, main_window, availability, current_mode, parent=None, source_
 
 ### `selected_mode`
 
-[Source](../src/icescopy_aux.py#L2104)
+[Source](../src/icescopy_aux.py#L2084)
 
 ```python
 def selected_mode(self):

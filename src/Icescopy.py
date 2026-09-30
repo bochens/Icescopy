@@ -1473,8 +1473,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.view.centerOn(bounds.center())
         return True
 
-    def cell_selection_navigation_state(self):
-        """Capture a normal selection gesture, never an edit or pan gesture."""
+    def cell_list_navigation_state(self):
+        """Capture a Cells-list gesture, never image selection or editing."""
         if (
             self.tool_mode != "cursor"
             or self.is_pan_interaction_active()
@@ -1486,25 +1486,34 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return None
         return (
             self.frame_source, self.image_index, self.tool_mode,
-            getattr(self, "cell_selection_navigation_revision", 0),
+            getattr(self, "cell_list_navigation_revision", 0),
             frozenset(item.cell_id for item in self.get_selected_cell_items()),
         )
 
-    def cancel_cell_selection_navigation(self):
+    def cancel_cell_list_navigation(self):
         # A gesture interrupted by redraw, history restoration, or a tool change
         # must not later center just because its original frame/mode returned.
-        self.cell_selection_navigation_revision = getattr(self, "cell_selection_navigation_revision", 0) + 1
-        for name in ("view", "cells_tree_widget"):
-            widget = getattr(self, name, None)
-            if widget is not None:
-                widget.cancel_pending_selection_center()
+        self.cell_list_navigation_revision = getattr(self, "cell_list_navigation_revision", 0) + 1
+        tree = getattr(self, "cells_tree_widget", None)
+        if tree is not None:
+            tree.cancel_pending_selection_center()
 
-    def auto_center_after_cell_selection(self, before):
-        checkbox = getattr(self, "cells_auto_center_checkbox", None)
-        if before is None or checkbox is None or not checkbox.isChecked():
+    def navigate_after_cell_list_selection(self, before):
+        """Apply opt-in list navigation only after a direct list interaction."""
+        if before is None:
             return
-        after = self.cell_selection_navigation_state()
-        if after is not None and before[:-1] == after[:-1] and after[-1] and before[-1] != after[-1]:
+        after = self.cell_list_navigation_state()
+        if after is None or before[:-1] != after[:-1] or not after[-1] or before[-1] == after[-1]:
+            return
+        freeze_checkbox = getattr(self, "cells_show_first_freeze_checkbox", None)
+        if freeze_checkbox is not None and freeze_checkbox.isChecked() and len(after[-1]) == 1:
+            frames = self.selected_cell_freeze_frames(self.get_selected_cell_items())
+            if frames:
+                self.navigate_to_image(frames[0], history_text="Show Cell Freeze Frame")
+        # The deliberate frame jump above redraws circles and cancels pending
+        # gestures. Center its new geometry directly, without reusing `before`.
+        checkbox = getattr(self, "cells_auto_center_checkbox", None)
+        if checkbox is not None and checkbox.isChecked():
             self.center_on_cell_selection()
 
     def should_refresh_cells_panel_from_redraw(self):
@@ -3642,6 +3651,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.scene.setItemIndexMethod(QGraphicsScene.NoIndex)
         self.scene.selectionChanged.connect(self.handle_scene_cell_selection_changed)
         self.view = CustomGraphicsView(self.scene, self)
+        self.view.interactionChanged.connect(self.cancel_cell_list_navigation)
         self.comparison_viewer = ComparisonViewer(self.view, self)
         self.comparison_viewer.set_layout(self.viewer_image_count, self.viewer_split_orientation)
 
@@ -4381,12 +4391,18 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.cells_auto_center_checkbox = QCheckBox("Auto-center", panel)
         self.cells_auto_center_checkbox.setChecked(False)
         self.cells_auto_center_checkbox.setToolTip(
-            "In Cursor mode, center after selecting cells in the list or image. Groups use their combined bounds; zoom stays unchanged."
+            "In Cursor mode, center after selecting cells in this list. Groups use their combined bounds; zoom stays unchanged. Selecting circles in the image never centers automatically."
         )
         center_controls.addWidget(self.cells_center_button)
         center_controls.addWidget(self.cells_auto_center_checkbox)
         center_controls.addStretch(1)
         layout.addLayout(center_controls)
+        self.cells_show_first_freeze_checkbox = QCheckBox("Show first freeze frame", panel)
+        self.cells_show_first_freeze_checkbox.setChecked(False)
+        self.cells_show_first_freeze_checkbox.setToolTip(
+            "In Cursor mode, selecting one cell in this list shows its earliest recorded freeze frame. Groups and cells without events leave the frame unchanged."
+        )
+        layout.addWidget(self.cells_show_first_freeze_checkbox)
 
         self.cells_tree_widget = CellSelectionTreeWidget(self, panel)
         self.cells_tree_widget.setColumnCount(2)

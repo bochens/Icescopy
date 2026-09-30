@@ -78,7 +78,7 @@ Each pane shows the cell positions and sizes for its own frame. If you use [keyf
 
 Use the **Current** pane to select, add, or edit cells; neighboring panes show their cell outlines and labels for comparison. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
 
-To bring selected cells to the middle of the view, use **Center on selection** in **Cells** or the Cursor Tool Options. All panes follow the Current pane's center without changing zoom. The optional **Auto-center** checkbox in Cells centers after a selection change in Cursor mode; it does not follow frame changes. See [Center the selection](Annotation-Workflow.md#center-the-selection) for group behavior and controls.
+To bring selected cells to the middle of the view, use **Center on selection** in **Cells** or the Cursor Tool Options. All panes follow the Current pane's center without changing zoom. The optional **Auto-center** checkbox responds only to selection changes made in the **Cells list** with the Cursor tool active. Selecting circles in the image or changing frames does not trigger it. See [Center the selection](Annotation-Workflow.md#center-the-selection) for group behavior and controls.
 
 At the beginning or end of the recording, the unavailable pane stays blank and its label says **no earlier frame** or **no later frame**. While dragging the video timeline, neighboring panes may be blank with **updates after seeking** labels; they reload when you finish seeking. Each pane always represents the previous, current, or next frame, rather than a separately chosen frame.
 
@@ -92,6 +92,8 @@ After analysis, select a cell and open **Window → Grayscale Plot** to compare 
 4. Click the listed frames and compare the images around each event.
 
 The list contains freeze frames for the **current cell selection**, including manual corrections. With no cells selected, it shows events from all cells. It keeps the original frame numbers. If the list is empty, check whether the selected cells have recorded events. Turn the filter off to return to all frames. Filtering the list does not limit analysis.
+
+To review cells one at a time, enable **Show first freeze frame** in **Cells** and select individual Cell rows with **Up/Down** or a click in Cursor mode. This opens each cell's earliest available recorded freeze frame. Enable **Auto-center** as well to center the cell at that frame without changing zoom. See [Show a selected cell's first freeze frame](Annotation-Workflow.md#show-a-selected-cells-first-freeze-frame) for behavior with groups and missing events.
 
 ## Decide which frames to analyze
 

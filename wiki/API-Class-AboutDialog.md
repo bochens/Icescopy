@@ -3,7 +3,7 @@
 
 Displays application information.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L841) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L821) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_aux.py#L842)
+[Source](../src/icescopy_aux.py#L822)
 
 ```python
 def __init__(self, parent=None):

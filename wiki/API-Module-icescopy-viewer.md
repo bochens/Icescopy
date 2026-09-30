@@ -5,13 +5,13 @@ Separate previous, current, and next frame panes with synchronized pan and zoom.
 
 [Source](../src/icescopy_viewer.py) · [API index](API-Reference.md)
 
-The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The Cells list also reports completed user selections so optional centering waits until the interaction ends. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.
+The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The Cells list also reports completed user selections so optional frame navigation and centering wait until the interaction ends. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.
 
 ## Classes
 
 | Class | Role |
 | --- | --- |
-| [`CellSelectionTreeWidget`](API-Class-CellSelectionTreeWidget.md) | Reports completed Cells-list mouse and keyboard selections to the main window for optional centering. |
+| [`CellSelectionTreeWidget`](API-Class-CellSelectionTreeWidget.md) | Reports completed Cells-list mouse and keyboard selections for optional frame navigation and centering. |
 | [`LinkedGraphicsView`](API-Class-LinkedGraphicsView.md) | Reports changes to image position and zoom so the other panes can follow them. |
 | [`ReferenceGraphicsView`](API-Class-ReferenceGraphicsView.md) | Handles pan, zoom, and image-edit controls in a neighboring-frame pane. |
 | [`FramePanel`](API-Class-FramePanel.md) | Combines one frame's label, view, image, cell outlines, and image-edit overlays. |

@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_aux.py#L282)
+[Source](../src/icescopy_aux.py#L275)
 
 ```python
 def mousePressEvent(self, event):
@@ -23,7 +23,7 @@ def mousePressEvent(self, event):
 
 ### `mouseMoveEvent`
 
-[Source](../src/icescopy_aux.py#L320)
+[Source](../src/icescopy_aux.py#L309)
 
 ```python
 def mouseMoveEvent(self, event):
@@ -31,7 +31,7 @@ def mouseMoveEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_aux.py#L352)
+[Source](../src/icescopy_aux.py#L341)
 
 ```python
 def mouseReleaseEvent(self, event):
@@ -39,7 +39,7 @@ def mouseReleaseEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_aux.py#L398)
+[Source](../src/icescopy_aux.py#L378)
 
 ```python
 def keyPressEvent(self, event):

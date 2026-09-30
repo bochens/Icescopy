@@ -213,10 +213,6 @@ class CustomGraphicsView(LinkedGraphicsView):
         super().__init__(scene)
         self.main_window = main_window
         self.selected_items = []
-        self._selection_navigation_start = None
-        # Space can start and finish a temporary pan before mouse release.
-        # A changed interaction mode invalidates the original selection gesture.
-        self.interactionChanged.connect(self.main_window.cancel_cell_selection_navigation)
         self.preview_double_click_armed = False
         self.preview_double_click_timer = QTimer(self)
         self.preview_double_click_timer.setSingleShot(True)
@@ -234,9 +230,6 @@ class CustomGraphicsView(LinkedGraphicsView):
 
     def _clear_preview_double_click_arm(self):
         self.preview_double_click_armed = False
-
-    def cancel_pending_selection_center(self):
-        self._selection_navigation_start = None
 
     def wheelEvent(self, event):
         wheel_delta = event.angleDelta().y()
@@ -282,10 +275,6 @@ class CustomGraphicsView(LinkedGraphicsView):
     def mousePressEvent(self, event):
         self.main_window.set_active_image_panel("viewer")
         self.setFocus()
-        self._selection_navigation_start = (
-            self.main_window.cell_selection_navigation_state()
-            if event.button() == Qt.LeftButton else None
-        )
         if self.main_window.is_pan_interaction_active():
             self.preview_double_click_armed = False
             self.selected_items = self.main_window.scene.selectedItems()
@@ -385,15 +374,6 @@ class CustomGraphicsView(LinkedGraphicsView):
                 for item in self.main_window.scene.items():
                     if item in self.selected_items:
                         item.setSelected(True)
-
-        before = self._selection_navigation_start
-        self._selection_navigation_start = None
-        if event.button() == Qt.LeftButton:
-            self.main_window.auto_center_after_cell_selection(before)
-
-    def focusOutEvent(self, event):
-        self.cancel_pending_selection_center()
-        super().focusOutEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):

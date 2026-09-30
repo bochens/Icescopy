@@ -7,7 +7,7 @@ Owns the active desktop session and coordinates helper modules.
 
 **Bases:** `QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin`.
 
-Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Selection centering uses current-frame circle bounds and keeps zoom unchanged. Automatic centering compares selection IDs before and after a completed user gesture; selection refresh signals alone must not move the view. Redraws, history restoration, and interaction changes cancel pending centering so an interrupted gesture cannot move the view later.
+Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Automatic navigation responds only to completed selections in the Cells list while the Cursor tool is active. It compares selection IDs before and after the gesture and can optionally open one cell's earliest available recorded freeze frame, then center circle bounds at the displayed frame without changing zoom. Image selections and selection refresh signals do not trigger either automatic action. Manual centering remains available for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.
 
 ## Selected methods
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `active_frame_source`
 
-[Source](../src/Icescopy.py#L1865)
+[Source](../src/Icescopy.py#L1874)
 
 ```python
 def active_frame_source(self):
@@ -23,7 +23,7 @@ def active_frame_source(self):
 
 ### `set_frame_source`
 
-[Source](../src/Icescopy.py#L1976)
+[Source](../src/Icescopy.py#L1985)
 
 ```python
 def set_frame_source(self, frame_source, *, reset_frame_ids=True):
@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10600)
+[Source](../src/Icescopy.py#L10616)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10684)
+[Source](../src/Icescopy.py#L10700)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10723)
+[Source](../src/Icescopy.py#L10739)
 
 ```python
 def onThreadFinished(self):
@@ -63,7 +63,7 @@ def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refre
 
 ### `apply_image_edit_state`
 
-[Source](../src/Icescopy.py#L2041)
+[Source](../src/Icescopy.py#L2050)
 
 ```python
 def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_display=True, sync_controls=True):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5598)
+[Source](../src/Icescopy.py#L5614)
 
 ```python
 def capture_session_state(self):
@@ -79,7 +79,7 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6201)
+[Source](../src/Icescopy.py#L6217)
 
 ```python
 def restore_session_state(self, state, preserve_active_tool=False):
@@ -101,33 +101,33 @@ def cell_selection_bounds(self):
 def center_on_cell_selection(self):
 ```
 
-### `cell_selection_navigation_state`
+### `cell_list_navigation_state`
 
 [Source](../src/Icescopy.py#L1476)
 
 ```python
-def cell_selection_navigation_state(self):
+def cell_list_navigation_state(self):
 ```
 
-### `cancel_cell_selection_navigation`
+### `cancel_cell_list_navigation`
 
 [Source](../src/Icescopy.py#L1493)
 
 ```python
-def cancel_cell_selection_navigation(self):
+def cancel_cell_list_navigation(self):
 ```
 
-### `auto_center_after_cell_selection`
+### `navigate_after_cell_list_selection`
 
-[Source](../src/Icescopy.py#L1502)
+[Source](../src/Icescopy.py#L1501)
 
 ```python
-def auto_center_after_cell_selection(self, before):
+def navigate_after_cell_list_selection(self, before):
 ```
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9122)
+[Source](../src/Icescopy.py#L9138)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -135,7 +135,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9400)
+[Source](../src/Icescopy.py#L9416)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -143,7 +143,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6799)
+[Source](../src/Icescopy.py#L6815)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -151,7 +151,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11117)
+[Source](../src/Icescopy.py#L11133)
 
 ```python
 def closeEvent(self, event):

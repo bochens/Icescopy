@@ -436,8 +436,8 @@ class CellEditController:
             viewer.refresh_reference_cells()
 
     def redraw_current_cells(self, preserve_selection=True, force_scene_scan=False):
-        if hasattr(self.main_window, "cancel_cell_selection_navigation"):
-            self.main_window.cancel_cell_selection_navigation()
+        if hasattr(self.main_window, "cancel_cell_list_navigation"):
+            self.main_window.cancel_cell_list_navigation()
         selected_cell_ids = self.selected_scene_cell_ids() if preserve_selection else []
         self.main_window.view.setUpdatesEnabled(False)
         try:
@@ -453,8 +453,8 @@ class CellEditController:
         self._refresh_reference_cells()
 
     def redraw_interpolated_cells(self, frame_index, preview=False):
-        if hasattr(self.main_window, "cancel_cell_selection_navigation"):
-            self.main_window.cancel_cell_selection_navigation()
+        if hasattr(self.main_window, "cancel_cell_list_navigation"):
+            self.main_window.cancel_cell_list_navigation()
         selected_cell_ids = [] if preview else self.selected_scene_cell_ids()
         edit_target_numbers = [item.cell_id for item in self.main_window.cell_items if item.edit_chosen]
         if self.group_cell_ids:

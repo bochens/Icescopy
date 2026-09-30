@@ -145,6 +145,141 @@ class ComparisonViewerTests(unittest.TestCase):
     def selected_cell_ids(self):
         return {item.cell_id for item in self.window.get_selected_cell_items()}
 
+    def set_freeze_frames(self, cell_ids, events):
+        for cell_id, frames in zip(cell_ids, events):
+            self.window.ensure_cell_record(cell_id).freeze_event_indices = list(frames)
+
+    def test_first_freeze_and_auto_center_are_independent_and_wait_for_list_release(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([4, 0, 3], [1], [4]))
+        tree = self.show_cells_list()
+        self.assertFalse(self.window.cells_show_first_freeze_checkbox.isChecked())
+        self.assertFalse(self.window.cells_auto_center_checkbox.isChecked())
+        for auto_center, show_freeze in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(auto_center=auto_center, show_freeze=show_freeze):
+                self.window.navigate_to_image(2)
+                self.window.reselect_cell_ids([cell_ids[0]])
+                self.set_camera(scale=1.1, center=QPointF(350, 270))
+                original_center = self.center(self.window.view)
+                self.window.cells_auto_center_checkbox.setChecked(auto_center)
+                self.window.cells_show_first_freeze_checkbox.setChecked(show_freeze)
+                self.process_events()
+                self.assertEqual(self.window.image_index, 2)
+                self.assert_linked(expected_scale=1.1, expected_center=original_center)
+                self.window.reselect_cell_ids([])
+                position = tree.visualItemRect(tree.topLevelItem(0)).center()
+                QTest.mousePress(tree.viewport(), Qt.LeftButton, pos=position)
+                self.assertEqual(self.window.image_index, 2)
+                self.assert_linked(expected_scale=1.1, expected_center=original_center)
+                QTest.mouseRelease(tree.viewport(), Qt.LeftButton, pos=position)
+                self.process_events()
+                self.assertEqual(self.window.image_index, 0 if show_freeze else 2)
+                self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+                expected_center = QPointF(250, 220) if auto_center else original_center
+                self.assert_linked(expected_scale=1.1, expected_center=expected_center)
+
+    def test_cells_list_up_down_skips_expanded_details_and_preserves_focus_after_freeze_seek(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([4, 0, 3], [3, 1], [4]))
+        tree = self.show_cells_list()
+        for row in range(tree.topLevelItemCount()):
+            tree.topLevelItem(row).setExpanded(True)
+        tree.setCurrentItem(tree.topLevelItem(0))
+        self.window.reselect_cell_ids([cell_ids[0]])
+        tree.setFocus()
+        self.set_camera(scale=1.1, center=QPointF(350, 270))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        for key, row, frame, position in (
+            (Qt.Key_Down, 1, 1, QPointF(400, 300)),
+            (Qt.Key_Down, 2, 4, QPointF(350, 190)),
+            (Qt.Key_Up, 1, 1, QPointF(400, 300)),
+            (Qt.Key_Up, 0, 0, QPointF(250, 220)),
+        ):
+            with self.subTest(key=key, row=row):
+                QTest.keyClick(tree, key)
+                self.process_events()
+                self.assertEqual(self.window.image_index, frame)
+                self.assertEqual(self.selected_cell_ids(), {cell_ids[row]})
+                self.assertIs(tree.currentItem(), tree.topLevelItem(row))
+                self.assertEqual(tree.selectedItems(), [tree.topLevelItem(row)])
+                self.assertTrue(tree.hasFocus())
+                self.assertTrue(tree.topLevelItem(row).isExpanded())
+                self.assert_linked(expected_scale=1.1, expected_center=position)
+
+    def test_first_freeze_skips_missing_invalid_and_current_events_and_multiselection(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([], [-3, 5, 100], [-1, 4, 2, 99]))
+        tree = self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        history_count = self.window.undo_stack.count()
+        for row, position in enumerate((QPointF(250, 220), QPointF(400, 300), QPointF(350, 190))):
+            with self.subTest(row=row):
+                self.window.reselect_cell_ids([])
+                self.set_camera(scale=1.0, center=QPointF(500, 420))
+                point = tree.visualItemRect(tree.topLevelItem(row)).center()
+                QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+                self.assertEqual(self.window.image_index, 2)
+                self.assertEqual(self.window.undo_stack.count(), history_count)
+                self.assertEqual(self.selected_cell_ids(), {cell_ids[row]})
+                self.assert_linked(expected_scale=1.0, expected_center=position)
+
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        self.window.cells_panel_force_refresh = True
+        self.window.refresh_cells_panel()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        second = tree.visualItemRect(tree.topLevelItem(1)).center()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, Qt.ControlModifier, second)
+        self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+        self.assertEqual(self.window.image_index, 2)
+        self.assertEqual(self.window.undo_stack.count(), history_count)
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(345, 280))
+
+    def test_first_freeze_centers_the_destination_frames_interpolated_cropped_cell(self):
+        cell_id = self.install_moving_cell()
+        self.window.apply_cursor_tool_ui()
+        self.set_freeze_frames([cell_id], ([3, 1],))
+        crop = {"center_x": 280.0, "center_y": 240.0, "width": 400.0, "height": 300.0, "angle": 15.0}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(crop=crop))
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.5, center=QPointF(320, 260))
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        point = tree.visualItemRect(tree.topLevelItem(0)).center()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+        self.process_events()
+
+        self.assertEqual(self.window.image_index, 1)
+        self.assertEqual(self.selected_cell_ids(), {cell_id})
+        selected = self.window.get_selected_cell_items()[0]
+        self.assertEqual(selected.circle_pixel_positions, (150, 140))
+        self.assertEqual(selected.circle_sizes, 15)
+        expected = QPointF(*self.window.image_pixel_to_scene_coordinates(150, 140, index=1))
+        self.assert_linked(expected_scale=1.5, expected_center=expected)
+
+    def test_first_freeze_navigation_undo_and_redo_do_not_start_another_selection_navigation(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([])
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        point = tree.visualItemRect(tree.topLevelItem(0)).center()
+        history_count = self.window.undo_stack.count()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+        self.assertEqual(self.window.image_index, 0)
+        self.assertEqual(self.window.undo_stack.count(), history_count + 1)
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            self.window.undo_stack.undo()
+            self.assertEqual(self.window.image_index, 2)
+            self.window.undo_stack.redo()
+            self.assertEqual(self.window.image_index, 0)
+            self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+            self.assertEqual(center.call_count, 0)
+        self.assertEqual(self.window.undo_stack.count(), history_count + 1)
+
     def test_center_selection_uses_circle_bounds_without_changing_zoom_or_cells(self):
         cell_ids = self.install_selection_cells()
         self.window.reselect_cell_ids(cell_ids[:2])
@@ -275,8 +410,10 @@ class ComparisonViewerTests(unittest.TestCase):
             self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
             self.assertEqual(center.call_count, 1)
 
-    def test_viewer_auto_center_is_opt_in_and_waits_for_mouse_release(self):
+    def test_viewer_click_never_uses_cells_list_automatic_navigation_options(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         self.window.reselect_cell_ids([])
         self.set_camera(scale=1.0, center=QPointF(350, 270))
         view = self.window.view
@@ -293,15 +430,18 @@ class ComparisonViewerTests(unittest.TestCase):
             self.assertEqual(center.call_count, 0)
             self.assert_linked(expected_scale=1.0, expected_center=original_center)
             QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=first)
-            self.assertEqual(center.call_count, 1)
+            self.assertEqual(center.call_count, 0)
         self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
-        self.assert_linked(expected_scale=1.0, expected_center=QPointF(250, 220))
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 2)
 
-    def test_viewer_rubber_band_centers_complete_selection_once_on_release(self):
+    def test_viewer_rubber_band_never_uses_cells_list_automatic_navigation_options(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
         self.window.reselect_cell_ids([])
         self.set_camera(scale=0.7, center=QPointF(350, 270))
         self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         view = self.window.view
         start = view.mapFromScene(QPointF(225, 205))
         end = view.mapFromScene(QPointF(460, 360))
@@ -313,12 +453,45 @@ class ComparisonViewerTests(unittest.TestCase):
             self.assertEqual(center.call_count, 0)
             self.assert_linked(expected_scale=0.7, expected_center=original_center)
             QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=end)
-            self.assertEqual(center.call_count, 1)
+            self.assertEqual(center.call_count, 0)
         self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
-        self.assert_linked(expected_scale=0.7, expected_center=QPointF(345, 280))
+        self.assert_linked(expected_scale=0.7, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 2)
+
+    def test_only_cells_list_changes_navigate_automatically_and_cursor_button_remains_explicit(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        tree = self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        original_center = self.center(self.window.view)
+        view = self.window.view
+
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.mapFromScene(QPointF(250, 220)))
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        self.assertEqual(self.window.image_index, 2)
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+        second = tree.visualItemRect(tree.topLevelItem(1)).center()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=second)
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[1]})
+        self.assertEqual(self.window.image_index, 4)
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(400, 300))
+
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.mapFromScene(QPointF(350, 190)))
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[2]})
+        self.assertEqual(self.window.image_index, 4)
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(400, 300))
+        self.window.cursor_center_button.click()
+        self.assertEqual(self.window.image_index, 4)
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(350, 190))
 
     def test_auto_center_ignores_programmatic_selection_redraw_frames_and_history(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         self.set_camera(scale=1.2, center=QPointF(500, 420))
         original_center = self.center(self.window.view)
         self.window.cells_auto_center_checkbox.setChecked(True)
@@ -327,6 +500,7 @@ class ComparisonViewerTests(unittest.TestCase):
             self.window.reselect_cell_ids(cell_ids[:2])
             self.window.displayMarkedRegions()
             self.window.refresh_cells_panel()
+            self.assertEqual(self.window.image_index, 2)
             self.window.updateImage(3)
             self.window.reselect_cell_ids([cell_ids[1]])
             self.assertTrue(self.window.delete_selected_cells())
@@ -336,6 +510,7 @@ class ComparisonViewerTests(unittest.TestCase):
             self.process_events()
             self.assertEqual(center.call_count, 0)
         self.assert_linked(expected_scale=1.2, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 3)
 
     def test_auto_center_ignores_pan_and_space_pan_selection_restoration(self):
         cell_ids = self.install_selection_cells()
@@ -406,8 +581,10 @@ class ComparisonViewerTests(unittest.TestCase):
 
     def test_auto_center_discards_interrupted_gestures_even_after_cursor_and_frame_return(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
         tree = self.show_cells_list()
         self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
 
         def change_frame_and_return():
             self.window.updateImage(3)
@@ -447,16 +624,19 @@ class ComparisonViewerTests(unittest.TestCase):
                         self.window.reselect_cell_ids([cell_ids[0]])
                         QTest.mouseRelease(surface.viewport(), Qt.LeftButton, pos=position)
                         self.assertEqual(center.call_count, 0)
+                        self.assertEqual(self.window.image_index, 2)
                     self.assert_linked(expected_scale=1.0, expected_center=original_center)
 
     def test_auto_center_ignores_image_edit_selection_in_viewer_and_cells_list(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
         tree = self.show_cells_list()
         self.enter_image_edit()
         self.window.reselect_cell_ids([])
         self.set_camera(scale=1.0, center=QPointF(350, 270))
         original_center = self.center(self.window.view)
         self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
             first = self.window.view.mapFromScene(QPointF(250, 220))
             QTest.mouseClick(self.window.view.viewport(), Qt.LeftButton, pos=first)
@@ -468,10 +648,13 @@ class ComparisonViewerTests(unittest.TestCase):
             self.assertEqual(self.selected_cell_ids(), {cell_ids[2]})
             self.assertEqual(center.call_count, 0)
         self.assert_linked(expected_scale=1.0, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 2)
 
     def test_auto_center_ignores_single_and_group_edit_apply_and_return_to_cursor(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
         self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         for selected_ids in ([cell_ids[0]], cell_ids[:2]):
             with self.subTest(selected_ids=selected_ids):
                 self.window.reset_cursor_tool(True)
@@ -496,6 +679,7 @@ class ComparisonViewerTests(unittest.TestCase):
                     self.process_events()
                     self.assertEqual(center.call_count, 0)
                 self.assertEqual(self.window.tool_mode, "cursor")
+                self.assertEqual(self.window.image_index, 2)
                 self.assert_linked(expected_scale=1.0, expected_center=original_center)
                 for item in self.window.cell_items:
                     if item.cell_id in selected_ids:
@@ -504,7 +688,9 @@ class ComparisonViewerTests(unittest.TestCase):
 
     def test_auto_center_ignores_add_and_delete_gestures_and_return_to_cursor(self):
         cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
         self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
         self.set_camera(scale=1.0, center=QPointF(350, 270))
         original_center = self.center(self.window.view)
         view = self.window.view
@@ -524,6 +710,7 @@ class ComparisonViewerTests(unittest.TestCase):
             self.process_events()
             self.assertEqual(center.call_count, 0)
         self.assert_linked(expected_scale=1.0, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 2)
 
     def test_each_panel_uses_its_own_cell_keyframe_and_interpolation(self):
         self.install_moving_cell()
