@@ -59,7 +59,7 @@ Icescopy finds likely freeze frames by tracking each cell’s average brightness
 
 Analyze the whole recording, or use the timeline’s **analysis start and end markers** to select one or more intervals and exclude setup, warming, or other unwanted frames.
 
-Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the intervals. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for details.
+Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the analysis intervals or cells. See [setting analysis limits](wiki/Analysis-and-Results.md#limit-analysis-with-start-and-end-markers) for details.
 
 ### 4. Review and refine freezing
 
