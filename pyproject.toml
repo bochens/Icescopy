@@ -69,4 +69,5 @@ py-modules = [
   "icescopy_validate",
   "icescopy_version",
   "icescopy_video_preview",
+  "icescopy_viewer",
 ]

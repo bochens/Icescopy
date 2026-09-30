@@ -72,7 +72,11 @@ Use the toolbar controls or their entries in the **Window** menu:
 | **Show Two Images** | Previous frame and current frame |
 | **Show Three Images** | Previous, current, and next frame |
 
-Choose **Stack Top to Bottom** or **Stack Left to Right** to fit the comparison to your window. A neighboring frame is unavailable at the beginning or end of the recording. Cell selection and editing use the **current** image; the other images provide context.
+Each frame has its own labeled pane. Choose **Stack Top to Bottom** or **Stack Left to Right** to fit the comparison to your window. In Pan mode (**Z**), pan or zoom in any pane; all panes follow the same image position and zoom, so you can inspect the same cell across neighboring frames. Holding **Space** also lets you pan or zoom temporarily.
+
+Use the **Current** pane to select, add, or edit cells. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
+
+At the beginning or end of the recording, the unavailable pane stays blank and its label says **no earlier frame** or **no later frame**. While dragging the video timeline, neighboring panes may be blank with **updates after seeking** labels; they reload when you finish seeking. Each pane always represents the previous, current, or next frame, rather than a separately chosen frame.
 
 After analysis, select a cell and open **Window → Grayscale Plot** to compare its brightness changes with these images. If the plot has been panned or zoomed into an unhelpful range, selecting a different cell and then returning to the original cell fits its data again.
 

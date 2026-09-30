@@ -64,7 +64,7 @@
         },
         "CustomGraphicsView": {
           "summary": "Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.",
-          "details": "",
+          "details": "This is the current-frame view. It inherits synchronized pan and zoom support from `LinkedGraphicsView`; neighboring panes use `ReferenceGraphicsView` so their mouse events cannot modify current-frame cells.",
           "methods": [
             "mousePressEvent",
             "mouseMoveEvent",
@@ -808,6 +808,57 @@
       "details": "`__version__` supplies Python package metadata and macOS bundle metadata. The Windows installer receives its version as a separate build parameter. Keep those values aligned deliberately when preparing a release.",
       "functions": [],
       "classes": {}
+    },
+    "icescopy_viewer": {
+      "summary": "Separate previous, current, and next frame panes with synchronized pan and zoom.",
+      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
+      "functions": [],
+      "classes": {
+        "LinkedGraphicsView": {
+          "summary": "Reports changes to image position and zoom so the other panes can follow them.",
+          "details": "`content_rect` stores the actual image bounds. The scrollable scene has extra space so each pane can center the same image point near an edge. Pass `content_rect`, rather than the expanded scene rectangle, when fitting the image. `cameraChanged` and `viewportResized` identify the view whose transform or size changed.",
+          "methods": [
+            "__init__",
+            "scene_center",
+            "setSceneRect",
+            "setTransform",
+            "centerOn",
+            "fitInView"
+          ]
+        },
+        "ReferenceGraphicsView": {
+          "summary": "Handles pan, zoom, and image-edit controls in a neighboring-frame pane.",
+          "details": "Frame navigation and crop Apply/Cancel reach the main window. Cell selection and drawing remain in the current pane; Delete and Backspace in a neighboring pane do not delete a current-frame selection.",
+          "methods": [
+            "__init__",
+            "wheelEvent",
+            "keyPressEvent",
+            "keyReleaseEvent"
+          ]
+        },
+        "FramePanel": {
+          "summary": "Combines one frame's label, view, image, and image-edit overlays.",
+          "details": "A missing pixmap clears the neighboring image and hides its overlays. The label distinguishes unavailable edge frames from neighbors awaiting a completed video seek. `clear()` owns reference-scene cleanup; current-scene contents remain the main window's responsibility.",
+          "methods": [
+            "__init__",
+            "show_reference",
+            "clear"
+          ]
+        },
+        "ComparisonViewer": {
+          "summary": "Arranges one, two, or three panes and keeps their image position and zoom synchronized.",
+          "details": "Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.",
+          "methods": [
+            "__init__",
+            "suspend_sync",
+            "sync_from",
+            "set_layout",
+            "show_frames",
+            "sync_interaction",
+            "clear"
+          ]
+        }
+      }
     },
     "icescopy_video_preview": {
       "summary": "Decode video previews outside the GUI thread.",

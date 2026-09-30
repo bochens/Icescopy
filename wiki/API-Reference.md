@@ -35,6 +35,7 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_validate`](API-Module-icescopy-validate.md) | Command-line checks for the installed package, dependencies, and required resources. |
 | [`icescopy_version`](API-Module-icescopy-version.md) | The version value used by the application and Python package. |
 | [`icescopy_video_preview`](API-Module-icescopy-video-preview.md) | Decode video previews outside the GUI thread. |
+| [`icescopy_viewer`](API-Module-icescopy-viewer.md) | Separate previous, current, and next frame panes with synchronized pan and zoom. |
 
 ## Keeping this reference current
 

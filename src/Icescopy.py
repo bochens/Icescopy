@@ -56,6 +56,7 @@ from icescopy_frame_source import (
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
+from icescopy_viewer import ComparisonViewer
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -1776,8 +1777,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_edit_uniform_exposure_overlay = None
         self.image_edit_crop_overlay = None
         self.displayed_image_edit_crop_applied = None
-        self.context_pixmap_items = []
-        self.placeholder_items = []
+        self.displayed_image_edit_matrix = None
+        self.comparison_preview_pending = False
         self.grid_preview_items = []
         self.grid_preview_handle_item = None
         self.grid_preview_origin_pixels = None
@@ -2088,19 +2089,28 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.updateImage(self.image_index)
             return
 
-        current_transform = self.view.transform()
-        current_hscroll = self.view.horizontalScrollBar().value()
-        current_vscroll = self.view.verticalScrollBar().value()
-
-        self.view.setUpdatesEnabled(False)
-        try:
+        camera = self.capture_image_view_camera()
+        with self.comparison_viewer.suspend_sync():
             q_image = self.update_display_pixmaps(self.image_index)
-            self.view.setTransform(current_transform)
-            self.view.horizontalScrollBar().setValue(current_hscroll)
-            self.view.verticalScrollBar().setValue(current_vscroll)
+            self.restore_image_view_camera(camera)
             self.request_image_edit_histogram_refresh(q_image)
-        finally:
-            self.view.setUpdatesEnabled(True)
+        self.comparison_viewer.sync_from(self.view)
+
+    def capture_image_view_camera(self):
+        """Keep the visible center in original image pixels across crop changes."""
+        center = self.view.scene_center()
+        matrix = self.displayed_image_edit_matrix
+        if matrix is not None:
+            center = QPointF(*apply_affine_to_point(invert_affine_matrix(matrix), center.x(), center.y()))
+        return self.view.transform(), center
+
+    def restore_image_view_camera(self, camera):
+        transform, center = camera
+        matrix = self.displayed_image_edit_matrix
+        if matrix is not None:
+            center = QPointF(*apply_affine_to_point(matrix, center.x(), center.y()))
+        self.view.setTransform(transform)
+        self.view.centerOn(center)
 
     def prewarm_current_image_edit_render_cache(self):
         if not self.has_frames():
@@ -2653,6 +2663,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
         current = self.current_image_edit_uniform_exposure_area_state()
         if normalized == current:
+            if finalize:
+                self.sync_image_edit_controls()
             return
         self.image_edit_uniform_exposure_area_x = float(normalized["x"])
         self.image_edit_uniform_exposure_area_y = float(normalized["y"])
@@ -2661,6 +2673,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.request_image_edit_histogram_refresh()
         if finalize:
             self.sync_image_edit_controls()
+        else:
+            self.sync_image_edit_uniform_exposure_overlay()
 
     def ensure_image_edit_uniform_exposure_overlay(self):
         overlay = getattr(self, "image_edit_uniform_exposure_overlay", None)
@@ -2685,13 +2699,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if not should_show:
             if overlay is not None:
                 overlay.hide()
+            self._sync_reference_image_edit_overlays("uniform")
             return
         overlay = self.ensure_image_edit_uniform_exposure_overlay()
-        overlay.set_interactive(True)
+        overlay.set_interactive(not self.is_pan_interaction_active())
         image_rect = self.pixmap_item.sceneBoundingRect()
         area_state = self.current_image_edit_uniform_exposure_area_state()
         if area_state is None:
             overlay.hide()
+            self._sync_reference_image_edit_overlays("uniform")
             return
         top_left = self.image_pixel_to_scene_coordinates(area_state["x"], area_state["y"], image_rect=image_rect, apply_crop=False)
         bottom_right = self.image_pixel_to_scene_coordinates(
@@ -2711,6 +2727,58 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             },
         )
         overlay.show()
+        self._sync_reference_image_edit_overlays("uniform", area_state)
+
+    def _sync_reference_image_edit_overlays(self, overlay_kind, state=None):
+        """Show the shared edit area in each neighboring frame's own scene."""
+        comparison_viewer = getattr(self, "comparison_viewer", None)
+        panels = getattr(comparison_viewer, "reference_panels", ())
+        is_crop = overlay_kind == "crop"
+        attribute = "crop_overlay" if is_crop else "uniform_overlay"
+        interactive = not self.is_pan_interaction_active()
+        for panel in panels:
+            overlay = getattr(panel, attribute, None)
+            if overlay is not None and not shiboken6.isValid(overlay):
+                overlay = None
+                setattr(panel, attribute, None)
+            pixmap_item = getattr(panel, "pixmap_item", None)
+            has_image = (
+                getattr(panel, "frame_index", None) is not None
+                and pixmap_item is not None
+                and shiboken6.isValid(pixmap_item)
+                and not pixmap_item.pixmap().isNull()
+            )
+            if state is None or not has_image:
+                if overlay is not None:
+                    overlay.hide()
+                continue
+            if overlay is None or overlay.scene() is not panel.scene:
+                if overlay is not None:
+                    overlay.hide()
+                overlay = ImageCropOverlayItem() if is_crop else ImageRectOverlayItem()
+                if is_crop:
+                    overlay.cropChanged.connect(self.handle_image_edit_crop_overlay_changed)
+                    overlay.cropChangeFinished.connect(
+                        lambda value: self.handle_image_edit_crop_overlay_changed(value, finalize=True)
+                    )
+                else:
+                    overlay.areaChanged.connect(self.handle_image_edit_uniform_exposure_overlay_changed)
+                    overlay.areaChangeFinished.connect(
+                        lambda value: self.handle_image_edit_uniform_exposure_overlay_changed(value, finalize=True)
+                    )
+                panel.scene.addItem(overlay)
+                setattr(panel, attribute, overlay)
+            image_rect = pixmap_item.sceneBoundingRect()
+            if is_crop:
+                overlay.sync_from_state(image_rect, state)
+                overlay.setAcceptedMouseButtons(Qt.LeftButton if interactive else Qt.NoButton)
+                overlay.setAcceptHoverEvents(interactive)
+                if not interactive:
+                    overlay.unsetCursor()
+            else:
+                overlay.sync_from_rect(image_rect, state)
+                overlay.set_interactive(interactive)
+            overlay.show()
 
     def show_image_edit_progress_frame(self, index):
         if not self.has_frames():
@@ -3011,10 +3079,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         crop_state = self.normalize_image_edit_crop_state(crop_state)
         changed = crop_state != self.get_image_edit_crop_draft_state()
         if not changed:
+            if finalize:
+                self.sync_image_edit_controls()
             return
         self.temporary_event_data["image_edit_crop_draft_state"] = dict(crop_state)
         if finalize:
             self.sync_image_edit_controls()
+        else:
+            self.sync_image_edit_crop_overlay()
 
     def ensure_image_edit_crop_overlay(self):
         overlay = getattr(self, "image_edit_crop_overlay", None)
@@ -3038,13 +3110,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if not should_show:
             if overlay is not None:
                 overlay.hide()
+            self._sync_reference_image_edit_overlays("crop")
             return
         overlay = self.ensure_image_edit_crop_overlay()
+        interactive = not self.is_pan_interaction_active()
+        overlay.setAcceptedMouseButtons(Qt.LeftButton if interactive else Qt.NoButton)
+        overlay.setAcceptHoverEvents(interactive)
+        if not interactive:
+            overlay.unsetCursor()
         overlay.show()
+        crop_state = self.normalize_image_edit_crop_state(self.get_image_edit_crop_draft_state())
         overlay.sync_from_state(
             self.pixmap_item.sceneBoundingRect(),
-            self.normalize_image_edit_crop_state(self.get_image_edit_crop_draft_state()),
+            crop_state,
         )
+        self._sync_reference_image_edit_overlays("crop", crop_state)
 
     def apply_session_metadata(self, metadata):
         metadata = metadata or {}
@@ -3495,8 +3575,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.scene.setItemIndexMethod(QGraphicsScene.NoIndex)
         self.scene.selectionChanged.connect(self.handle_scene_cell_selection_changed)
         self.view = CustomGraphicsView(self.scene, self)
-        
-        view_slider_layout.addWidget(self.view)
+        self.comparison_viewer = ComparisonViewer(self.view, self)
+        self.comparison_viewer.set_layout(self.viewer_image_count, self.viewer_split_orientation)
+
+        view_slider_layout.addWidget(self.comparison_viewer)
         view_slider_layout.addWidget(slider_buttons_widget)
         view_slider_layout.addLayout(image_navigation_layout)
         view_slider_layout.setSpacing(0)
@@ -5734,7 +5816,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             force_scene_scan=True,
         )
         if fit_view and getattr(self, "rendered_cell_items", []) and hasattr(self, "view"):
-            self.view.fitInView(self.view.sceneRect(), Qt.KeepAspectRatio)
+            self.view.fitInView(self.view.content_rect, Qt.KeepAspectRatio)
 
     def restore_image_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
@@ -5857,6 +5939,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.populate_image_list()
                 self.reset_transient_interaction_state()
                 preserved_cell_items = copy.deepcopy(self.cell_items)
+                self.clear_context_pixmaps()
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
@@ -5991,6 +6074,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             else:
                 self.populate_image_list()
                 self.reset_transient_interaction_state()
+                self.clear_context_pixmaps()
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
@@ -6157,6 +6241,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.image_textbox.clear()
                 self.image_name_label.clear()
                 self.reset_transient_interaction_state()
+                self.clear_context_pixmaps()
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
@@ -6220,6 +6305,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.analysis_start_frame_list = []
                 self.analysis_end_frame_list = []
                 self.keyframe_cell_items_dict = {}
+                self.clear_context_pixmaps()
                 self.scene.clear()
                 if hasattr(self, 'pixmap_item'):
                     del(self.pixmap_item)
@@ -8316,10 +8402,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.temporary_event_data["previous_edit_mode"] = self.tool_mode
 
     def set_view_cursor_shape(self, cursor_shape):
-        self.view.unsetCursor()
-        self.view.viewport().unsetCursor()
-        self.view.setCursor(cursor_shape)
-        self.view.viewport().setCursor(cursor_shape)
+        for view in self.comparison_viewer.views:
+            view.unsetCursor()
+            view.viewport().unsetCursor()
+            view.setCursor(cursor_shape)
+            view.viewport().setCursor(cursor_shape)
+        self.comparison_viewer.sync_interaction()
+        self.sync_image_edit_crop_overlay()
+        self.sync_image_edit_uniform_exposure_overlay()
 
     def apply_cursor_tool_ui(self):
         self.tool_mode = "cursor"
@@ -9175,7 +9265,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if resolved_indexes:
             self.updateImage(self.image_index)
             self.finalize_frame_update(self.image_index)
-            self.view.fitInView(self.view.sceneRect(), Qt.KeepAspectRatio)
+            self.view.fitInView(self.view.content_rect, Qt.KeepAspectRatio)
         elif self.imagePaths:
             self.image_name_label.setText(self.imageNames[self.image_index] if 0 <= self.image_index < len(self.imageNames) else "")
             self.image_textbox.setText(str(self.image_index))
@@ -9521,6 +9611,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_list_entry_ids = []
         self.next_image_list_entry_id = 0
 
+        self.clear_context_pixmaps()
         self.scene.clear()
         if hasattr(self, 'pixmap_item'):
             del(self.pixmap_item)
@@ -9583,6 +9674,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.reset_transient_interaction_state()
         self.reset_pending_frame_navigation_state(stop_timer=True)
+        self.clear_context_pixmaps()
         self.scene.clear()
         if hasattr(self, 'pixmap_item'):
             del(self.pixmap_item)
@@ -9803,6 +9895,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         restore_index = int(self.slider_drag_start_index)
         preview_diverged = (
             self.image_index != restore_index
+            or self.comparison_preview_pending
             or (
                 self.pending_preview_image_index is not None
                 and int(self.pending_preview_image_index) != restore_index
@@ -9863,7 +9956,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             and self.has_frames()
             and self.frame_key(index) in getattr(self, "preview_raw_frame_keys", set())
         )
-        if self.has_frames() and self.image_index == index and not needs_full_video_frame:
+        if self.has_frames() and self.image_index == index and not needs_full_video_frame and not self.comparison_preview_pending:
             self.finalize_frame_update(index)
         else:
             self.updateImage(index, preview=False)
@@ -9926,49 +10019,42 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.image_slider.blockSignals(False)
 
     def updateImage(self, index, preview=False):
-            if self.has_frames():
-                try:
-                    index = int(index)
-                except (TypeError, ValueError):
-                    index = int(getattr(self, "last_committed_image_index", self.image_index))
-                index = max(0, min(index, self.frame_count() - 1))
-                current_transform = self.view.transform()
-                current_hscroll = self.view.horizontalScrollBar().value()
-                current_vscroll = self.view.verticalScrollBar().value()
-                had_pixmap_item = hasattr(self, 'pixmap_item')
+        if self.has_frames():
+            try:
+                index = int(index)
+            except (TypeError, ValueError):
+                index = int(getattr(self, "last_committed_image_index", self.image_index))
+            index = max(0, min(index, self.frame_count() - 1))
+            camera = self.capture_image_view_camera()
+            had_pixmap_item = hasattr(self, 'pixmap_item')
 
-                self.view.setUpdatesEnabled(False)
-                try:
-                    self.image_index = index
-                    self.image_textbox.setText(str(index))
-                    if (not preview) and self.is_video_source():
-                        self.discard_preview_raw_frame_cache(index)
-                    q_image = self.update_display_pixmaps(index, preview=preview)
-                    if not had_pixmap_item:
-                        self.view.fitInView(self.view.sceneRect(), Qt.KeepAspectRatio)
+            with self.comparison_viewer.suspend_sync():
+                self.image_index = index
+                self.image_textbox.setText(str(index))
+                if (not preview) and self.is_video_source():
+                    self.discard_preview_raw_frame_cache(index)
+                q_image = self.update_display_pixmaps(index, preview=preview)
+                if not had_pixmap_item:
+                    self.view.fitInView(self.view.content_rect, Qt.KeepAspectRatio)
+                else:
+                    self.restore_image_view_camera(camera)
 
-                    self.view.setTransform(current_transform)
-                    self.view.horizontalScrollBar().setValue(current_hscroll)
-                    self.view.verticalScrollBar().setValue(current_vscroll)
+                self.image_width = self.get_raw_image_dimensions(index)[0]
+                self.interpolate_and_displayMarkedRegions(index, preview=preview)
+                if self.cell_controller.uses_grid_preview():
+                    self.cell_controller.rebase_edit_preview_to_current_frame()
+                    self.update_grid_preview()
+                self.update_grayscale_plot_current_frame()
+                if (not preview) or self.tool_mode == "image-edit":
+                    self.request_image_edit_histogram_refresh(q_image)
+                if self.tool_mode == "image-edit":
+                    self.sync_image_edit_controls()
 
-                    self.image_width = self.get_raw_image_dimensions(index)[0]
-                    self.interpolate_and_displayMarkedRegions(index, preview=preview)
-                    if self.cell_controller.uses_grid_preview():
-                        self.cell_controller.rebase_edit_preview_to_current_frame()
-                        self.update_grid_preview()
-                    self.update_grayscale_plot_current_frame()
-                    if (not preview) or self.tool_mode == "image-edit":
-                        self.request_image_edit_histogram_refresh(q_image)
-                    if self.tool_mode == "image-edit":
-                        self.sync_image_edit_controls()
+                if not preview:
+                    self.finalize_frame_update(index)
+            self.comparison_viewer.sync_from(self.view)
+            self.updateZoomTextbox()
 
-                    if not preview:
-                        self.finalize_frame_update(index)
-                finally:
-                    self.view.setUpdatesEnabled(True)
-
-                
-                    
     def decreaseSliderValue(self):
         current_value = self.image_slider.value()
         if current_value > self.image_slider.minimum():
@@ -10093,88 +10179,43 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return int(getattr(self, "viewer_image_count", 1)) in (2, 3) and str(getattr(self, "viewer_split_orientation", "horizontal")) == "vertical"
 
     def clear_context_pixmaps(self):
-        for item in self.context_pixmap_items:
-            self.scene.removeItem(item)
-        self.context_pixmap_items = []
-        for item in self.placeholder_items:
-            self.scene.removeItem(item)
-        self.placeholder_items = []
+        self.comparison_viewer.clear()
+        self.comparison_preview_pending = False
+        # scene.clear() destroys these objects when a source/session is removed.
+        for name in ("image_edit_crop_overlay", "image_edit_uniform_exposure_overlay"):
+            overlay = getattr(self, name, None)
+            if overlay is not None and shiboken6.isValid(overlay) and overlay.scene() is self.scene:
+                self.scene.removeItem(overlay)
+            setattr(self, name, None)
 
     def update_display_pixmaps(self, current_index, *, apply_crop=None, preview=False):
         if apply_crop is None:
             apply_crop = self.should_apply_crop_in_display()
-        display_slots = [current_index] if (preview and self.is_video_source()) else self.get_display_slots(current_index)
+        display_slots = self.get_display_slots(current_index)
         if not display_slots:
             return None
 
-        spacing = 30
-        layout_vertical = self.is_viewer_split_vertical()
         active_image = self.get_cached_image(current_index, apply_crop=apply_crop)
         active_pixmap = self.get_cached_pixmap(current_index, apply_crop=apply_crop)
-        slot_width = active_pixmap.width()
-        slot_height = active_pixmap.height()
-
-        entries = []
-        current_left = 0
-        current_top = 0
+        preview_neighbors = bool(preview and self.is_video_source())
+        self.comparison_preview_pending = preview_neighbors
+        pixmaps = {current_index: active_pixmap}
         for display_index in display_slots:
-            if display_index is None:
-                entries.append((None, None, None, current_left, current_top))
-                if layout_vertical:
-                    current_top += slot_height + spacing
-                else:
-                    current_left += slot_width + spacing
+            if display_index is None or display_index == current_index or preview_neighbors:
                 continue
-
-            q_image = self.get_cached_image(display_index, apply_crop=apply_crop)
-            pixmap = self.get_cached_pixmap(display_index, apply_crop=apply_crop)
-            entries.append((display_index, pixmap, q_image, current_left, current_top))
-            if layout_vertical:
-                current_top += slot_height + spacing
-            else:
-                current_left += slot_width + spacing
-
-        active_entry = next((entry for entry in entries if entry[0] == current_index), entries[-1])
-        active_x = active_entry[3]
-        active_y = active_entry[4]
+            pixmaps[display_index] = self.get_cached_pixmap(display_index, apply_crop=apply_crop)
 
         if hasattr(self, 'pixmap_item'):
             self.pixmap_item.setPixmap(active_pixmap)
         else:
             self.pixmap_item = self.scene.addPixmap(active_pixmap)
         self.pixmap_item.setZValue(-100)
-        self.pixmap_item.setPos(active_x, active_y)
-
-        self.clear_context_pixmaps()
-        for display_index, pixmap, _, x_pos, y_pos in entries:
-            if display_index is None:
-                border_color = QColor(160, 160, 160, 180) if darkdetect.isDark() else QColor(175, 175, 175, 180)
-                fill_color = QColor(255, 255, 255, 18) if darkdetect.isDark() else QColor(0, 0, 0, 10)
-                placeholder_item = self.scene.addRect(
-                    x_pos,
-                    y_pos,
-                    slot_width,
-                    slot_height,
-                    QPen(border_color, 1, Qt.DashLine),
-                    QBrush(fill_color),
-                )
-                placeholder_item.setZValue(-110)
-                self.placeholder_items.append(placeholder_item)
-                continue
-            if display_index == current_index:
-                continue
-            context_item = self.scene.addPixmap(pixmap)
-            context_item.setZValue(-120)
-            context_item.setPos(x_pos, y_pos)
-            self.context_pixmap_items.append(context_item)
-
-        scene_rect = self.pixmap_item.sceneBoundingRect()
-        for item in self.context_pixmap_items:
-            scene_rect = scene_rect.united(item.sceneBoundingRect())
-        for item in self.placeholder_items:
-            scene_rect = scene_rect.united(item.sceneBoundingRect())
-        self.view.setSceneRect(scene_rect)
+        self.pixmap_item.setPos(0, 0)
+        self.comparison_viewer.show_frames(display_slots, current_index, pixmaps, preview=preview_neighbors)
         self.displayed_image_edit_crop_applied = bool(apply_crop)
+        self.displayed_image_edit_matrix = self.current_image_edit_crop_transform(
+            index=current_index, apply_crop=apply_crop,
+        )[1]
         self.image_width = self.get_raw_image_dimensions(current_index)[0]
         return active_image
 
@@ -10388,11 +10429,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     else:
                         value.setEnabled(False)
 
+                self.space_held = True
                 if self.pan_tool_action.isEnabled():
                     self.enter_temporary_pan_mode()
                     self.key_press_toolbutton_highlight(self.pan_tool_action)
-
-                self.space_held = True
 
         else:
             super().keyPressEvent(event)
@@ -10833,6 +10873,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         selected_action = dict(enumerate(actions, start=1)).get(self.viewer_image_count)
         self.set_mode_action_checks(actions, selected_action)
         self.update_viewer_orientation_toggle_action()
+        if hasattr(self, "comparison_viewer"):
+            self.comparison_viewer.set_layout(self.viewer_image_count, self.viewer_split_orientation)
 
     def update_viewer_orientation_toggle_action(self, mode_folder=None):
         if mode_folder is None:
@@ -10853,7 +10895,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
 
     def set_viewer_image_count(self, count):
-        self.viewer_image_count = count
+        self.viewer_image_count = max(1, min(int(count), 3))
         self.update_viewer_mode_actions()
         self.log(f"Viewer layout: show {count} image(s)")
         if self.has_frames():
@@ -10861,6 +10903,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def toggle_viewer_split_orientation(self):
         self.viewer_split_orientation = "vertical" if not self.is_viewer_split_vertical() else "horizontal"
+        self.comparison_viewer.set_layout(self.viewer_image_count, self.viewer_split_orientation)
         self.update_viewer_orientation_toggle_action()
         layout_label = "top-down" if self.is_viewer_split_vertical() else "left-right"
         self.log(f"Viewer split layout: {layout_label}")

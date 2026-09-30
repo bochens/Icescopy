@@ -2202,6 +2202,7 @@ class SessionIoTests(unittest.TestCase):
             keyframe_cell_items_dict={0: [cell_items[0]]},
             image_width=100,
             scene=DummyScene(),
+            reference_frames_cleared=False,
             image_name_label=DummyLabel(),
             image_textbox=DummyLabel(),
             image_slider=DummySlider(),
@@ -2222,6 +2223,7 @@ class SessionIoTests(unittest.TestCase):
         fake_window.reset_transient_interaction_state = lambda: None
         fake_window.reset_pending_frame_navigation_state = lambda stop_timer=True: None
         fake_window.clear_image_caches = lambda: None
+        fake_window.clear_context_pixmaps = lambda: setattr(fake_window, "reference_frames_cleared", True)
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
         fake_window.recompute_next_cell_id = lambda preserve_if_larger=True: None
         fake_window.update_session_actions_state = lambda: None
@@ -2240,6 +2242,7 @@ class SessionIoTests(unittest.TestCase):
         IceScopy.clear_loaded_images(fake_window, confirm=False)
 
         self.assertTrue(fake_window.scene.cleared)
+        self.assertTrue(fake_window.reference_frames_cleared)
         self.assertEqual([item.cell_id for item in fake_window.cell_items], [0, 1])
         self.assertIsNot(fake_window.cell_items[0], cell_items[0])
         self.assertEqual(fake_window.next_cell_id, 2)

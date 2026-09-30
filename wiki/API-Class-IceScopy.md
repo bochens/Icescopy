@@ -3,7 +3,7 @@
 
 Owns the active desktop session and coordinates helper modules.
 
-[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L234) · [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L235) · [API index](API-Reference.md)
 
 **Bases:** `QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `active_frame_source`
 
-[Source](../src/Icescopy.py#L1797)
+[Source](../src/Icescopy.py#L1798)
 
 ```python
 def active_frame_source(self):
@@ -23,7 +23,7 @@ def active_frame_source(self):
 
 ### `set_frame_source`
 
-[Source](../src/Icescopy.py#L1908)
+[Source](../src/Icescopy.py#L1909)
 
 ```python
 def set_frame_source(self, frame_source, *, reset_frame_ids=True):
@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10458)
+[Source](../src/Icescopy.py#L10498)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10542)
+[Source](../src/Icescopy.py#L10582)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10581)
+[Source](../src/Icescopy.py#L10621)
 
 ```python
 def onThreadFinished(self):
@@ -55,7 +55,7 @@ def onThreadFinished(self):
 
 ### `apply_manual_freeze_event_indices`
 
-[Source](../src/Icescopy.py#L1110)
+[Source](../src/Icescopy.py#L1111)
 
 ```python
 def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refresh_tables=True, refresh_freeze_markers=True, refresh_freeze_count_table=True):
@@ -63,7 +63,7 @@ def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refre
 
 ### `apply_image_edit_state`
 
-[Source](../src/Icescopy.py#L1973)
+[Source](../src/Icescopy.py#L1974)
 
 ```python
 def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_display=True, sync_controls=True):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5424)
+[Source](../src/Icescopy.py#L5506)
 
 ```python
 def capture_session_state(self):
@@ -79,7 +79,7 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6025)
+[Source](../src/Icescopy.py#L6109)
 
 ```python
 def restore_session_state(self, state, preserve_active_tool=False):
@@ -87,7 +87,7 @@ def restore_session_state(self, state, preserve_active_tool=False):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L8936)
+[Source](../src/Icescopy.py#L9026)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -95,7 +95,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9214)
+[Source](../src/Icescopy.py#L9304)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -103,7 +103,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6620)
+[Source](../src/Icescopy.py#L6706)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -111,7 +111,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L10972)
+[Source](../src/Icescopy.py#L11015)
 
 ```python
 def closeEvent(self, event):

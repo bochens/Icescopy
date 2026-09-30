@@ -3,7 +3,7 @@
 
 Handles operating-system file-open events and defers session opening until the main window is available.
 
-[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L156) · [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L157) · [API index](API-Reference.md)
 
 **Bases:** `QApplication`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `set_main_window`
 
-[Source](../src/Icescopy.py#L165)
+[Source](../src/Icescopy.py#L166)
 
 ```python
 def set_main_window(self, main_window):
@@ -21,7 +21,7 @@ def set_main_window(self, main_window):
 
 ### `open_session_path`
 
-[Source](../src/Icescopy.py#L187)
+[Source](../src/Icescopy.py#L188)
 
 ```python
 def open_session_path(self, file_path):
@@ -29,7 +29,7 @@ def open_session_path(self, file_path):
 
 ### `open_pending_session_paths`
 
-[Source](../src/Icescopy.py#L204)
+[Source](../src/Icescopy.py#L205)
 
 ```python
 def open_pending_session_paths(self):

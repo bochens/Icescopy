@@ -1,0 +1,368 @@
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
+
+from Icescopy import IceScopy
+from icescopy_cell_items import CellCircle
+from icescopy_frame_source import ImageSequenceFrameSource
+
+
+class ComparisonViewerTests(unittest.TestCase):
+    """Exercise comparison through the same window and edit paths as one-image view."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        config = patch.dict(os.environ, {"ICESCOPY_CONFIG_DIR": str(self.root / "config")})
+        config.start()
+        self.addCleanup(config.stop)
+        self.paths = []
+        self.brightness = [40, 60, 80, 100, 120]
+        for index, level in enumerate(self.brightness):
+            path = self.root / f"frame_{index:03d}.png"
+            image = QImage(800, 600, QImage.Format_RGB32)
+            image.fill(QColor(level, level, level))
+            self.assertTrue(image.save(str(path)))
+            self.paths.append(path)
+        self.window = IceScopy()
+        self.addCleanup(self.dispose_window)
+        self.window.resize(1500, 950)
+        self.window.session_active = True
+        self.window.set_frame_source(ImageSequenceFrameSource(self.paths))
+        self.window.populate_image_list()
+        self.window.updateImage(2)
+        self.window.set_viewer_image_count(3)
+        self.window.update_session_actions_state()
+        self.window.show()
+        self.process_events()
+        self.viewer = self.window.comparison_viewer
+
+    def dispose_window(self):
+        self.window.hide()
+        self.window.stop_video_preview_decoder()
+        self.window.deleteLater()
+        self.app.processEvents()
+
+    def process_events(self):
+        # Resize and layout changes arrive through the Qt event queue.
+        self.app.processEvents()
+        self.app.processEvents()
+
+    def panels(self):
+        return [self.viewer.previous, self.viewer.current, self.viewer.next]
+
+    def visible_panels(self):
+        return [panel for panel in self.panels() if panel.isVisible()]
+
+    def center(self, view):
+        return view.mapToScene(QPoint(view.viewport().width() // 2, view.viewport().height() // 2))
+
+    def assert_linked(self, expected_scale=None, expected_center=None):
+        views = [panel.view for panel in self.visible_panels()]
+        scale = views[0].transform().m11() if expected_scale is None else expected_scale
+        center = self.center(views[0]) if expected_center is None else expected_center
+        # Scroll bars round device coordinates; at most two device pixels may differ.
+        tolerance = 2.1 / max(scale, 0.03)
+        for view in views:
+            self.assertAlmostEqual(view.transform().m11(), scale, places=8)
+            actual = self.center(view)
+            self.assertAlmostEqual(actual.x(), center.x(), delta=tolerance)
+            self.assertAlmostEqual(actual.y(), center.y(), delta=tolerance)
+
+    def set_camera(self, scale=1.5, center=QPointF(350, 270)):
+        self.window.zoom_textbox.setText(str(scale * 100))
+        self.window.updateZoomLevel()
+        self.window.view.centerOn(center)
+        self.process_events()
+
+    def panel_pixmap_item(self, panel):
+        return self.window.pixmap_item if panel is self.viewer.current else panel.pixmap_item
+
+    def panel_pixel(self, panel):
+        image = self.panel_pixmap_item(panel).pixmap().toImage()
+        return image.pixelColor(image.width() // 2, image.height() // 2).red()
+
+    def assert_panel_images(self, expected_indices):
+        self.assertEqual([panel.frame_index for panel in self.visible_panels()], expected_indices)
+        for panel, index in zip(self.visible_panels(), expected_indices):
+            if index is not None:
+                self.assertEqual(self.panel_pixmap_item(panel).pos(), QPointF(0, 0))
+                self.assertEqual(self.panel_pixel(panel), self.brightness[index])
+
+    def enter_image_edit(self):
+        self.window.imageEditTool(True)
+        self.process_events()
+
+    def test_panels_have_separate_scenes_and_keep_neighbor_slots_at_recording_edges(self):
+        self.assertEqual(len({id(panel.view.scene()) for panel in self.panels()}), 3)
+        self.assertIs(self.viewer.current.view, self.window.view)
+        self.assertEqual(self.window.zoom_textbox.text(), f"{self.window.view.transform().m11() * 100:.0f}")
+        self.assert_panel_images([1, 2, 3])
+        for panel in self.panels():
+            pixmaps = [item for item in panel.view.scene().items() if isinstance(item, QGraphicsPixmapItem)]
+            self.assertEqual(len(pixmaps), 1)
+        self.window.set_viewer_image_count(2)
+        self.process_events()
+        self.assert_panel_images([1, 2])
+        self.window.updateImage(0)
+        self.assert_panel_images([None, 0])
+        self.window.set_viewer_image_count(3)
+        self.window.updateImage(4)
+        self.process_events()
+        self.assert_panel_images([3, 4, None])
+
+    def test_wheel_zoom_and_drag_pan_in_every_panel_update_all_views(self):
+        self.window.panTool(True)
+        self.set_camera()
+        for panel in self.panels():
+            with self.subTest(panel=panel):
+                view = panel.view
+                position = view.viewport().rect().center()
+                previous_scale = view.transform().m11()
+                wheel = QWheelEvent(
+                    QPointF(position), QPointF(view.viewport().mapToGlobal(position)),
+                    QPoint(), QPoint(0, 120), Qt.NoButton, Qt.NoModifier,
+                    Qt.NoScrollPhase, False,
+                )
+                self.app.sendEvent(view.viewport(), wheel)
+                self.process_events()
+                self.assertGreater(view.transform().m11(), previous_scale)
+                self.assert_linked(expected_scale=view.transform().m11(), expected_center=self.center(view))
+                before_pan = self.center(view)
+                QTest.mousePress(view.viewport(), Qt.LeftButton, pos=position)
+                QTest.mouseMove(view.viewport(), position + QPoint(35, 24), delay=10)
+                QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=position + QPoint(35, 24))
+                self.process_events()
+                after_pan = self.center(view)
+                self.assertGreater((after_pan - before_pan).manhattanLength(), 5)
+                self.assert_linked(expected_center=after_pan)
+
+    def test_manual_zoom_navigation_resize_and_layout_preserve_shared_camera(self):
+        self.set_camera(scale=1.6)
+        center = self.center(self.window.view)
+        self.assert_linked(expected_scale=1.6, expected_center=center)
+        self.window.navigate_to_image(3)
+        self.process_events()
+        self.assert_panel_images([2, 3, 4])
+        self.assert_linked(expected_scale=1.6, expected_center=center)
+        self.window.resize(1350, 850)
+        self.process_events()
+        self.assert_linked(expected_scale=1.6, expected_center=center)
+        for count in (2, 1, 3) * 3:
+            self.window.set_viewer_image_count(count)
+            self.process_events()
+            self.assert_linked(expected_scale=1.6, expected_center=center)
+        self.window.toggle_viewer_split_orientation()
+        self.process_events()
+        self.assert_linked(expected_scale=1.6, expected_center=center)
+
+    def test_edge_center_stays_linked_with_different_frame_dimensions(self):
+        # Imported recordings may contain differently sized source images. Camera
+        # alignment uses image pixel coordinates, rather than each image's center.
+        dimensions = [(800, 600), (320, 240), (800, 600), (1100, 900), (800, 600)]
+        paths = []
+        for index, (width, height) in enumerate(dimensions):
+            path = self.root / f"mixed_size_{index}.png"
+            image = QImage(width, height, QImage.Format_RGB32)
+            image.fill(QColor(self.brightness[index], self.brightness[index], self.brightness[index]))
+            self.assertTrue(image.save(str(path)))
+            paths.append(path)
+        self.window.set_frame_source(ImageSequenceFrameSource(paths))
+        self.window.updateImage(2)
+        for panel, dimensions in zip(self.panels(), dimensions[1:4]):
+            self.assertEqual((panel.view.content_rect.width(), panel.view.content_rect.height()), dimensions)
+        for position in (QPointF(1, 1), QPointF(790, 590)):
+            with self.subTest(position=position):
+                self.set_camera(scale=0.6, center=position)
+                center = self.center(self.window.view)
+                for count in (2, 3) * 3:
+                    self.window.set_viewer_image_count(count)
+                    self.window.toggle_viewer_split_orientation()
+                    self.process_events()
+                    self.assert_linked(expected_scale=0.6, expected_center=center)
+
+    def test_reference_mouse_and_delete_keys_leave_current_cells_unchanged(self):
+        self.window.cell_controller.add_single_cell((350.0, 270.0), (350.0, 270.0), 25.0)
+        self.set_camera(scale=1.5)
+        current_cell = next(item for item in self.window.scene.items() if isinstance(item, CellCircle))
+        current_cell.setSelected(True)
+        before = [(item.cell_id, item.circle_pixel_positions, item.circle_sizes) for item in self.window.cell_items]
+        for panel in self.viewer.reference_panels:
+            start = panel.view.mapFromScene(QPointF(350, 270))
+            QTest.mousePress(panel.view.viewport(), Qt.LeftButton, pos=start)
+            QTest.mouseMove(panel.view.viewport(), start + QPoint(35, 24), delay=10)
+            QTest.mouseRelease(panel.view.viewport(), Qt.LeftButton, pos=start + QPoint(35, 24))
+            for key in (Qt.Key_Delete, Qt.Key_Backspace):
+                QTest.keyClick(panel.view, key)
+            after = [(item.cell_id, item.circle_pixel_positions, item.circle_sizes) for item in self.window.cell_items]
+            self.assertEqual(after, before)
+        self.window.apply_deselect_tool_ui()
+        for panel in self.viewer.reference_panels:
+            QTest.mouseClick(panel.view.viewport(), Qt.LeftButton, pos=panel.view.mapFromScene(QPointF(350, 270)))
+        self.assertEqual([(item.cell_id, item.circle_pixel_positions, item.circle_sizes) for item in self.window.cell_items], before)
+
+    def test_exposure_and_contrast_preview_refresh_every_panel_and_undo(self):
+        self.enter_image_edit()
+        self.set_camera()
+        center = self.center(self.window.view)
+        for count in (2, 3):
+            with self.subTest(count=count):
+                self.window.set_viewer_image_count(count)
+                self.window.handle_image_edit_exposure_spinbox_changed(1.0)
+                self.assertEqual([self.panel_pixel(panel) for panel in self.visible_panels()], [120, 160, 200][:count])
+                self.window.handle_image_edit_contrast_spinbox_changed(50.0)
+                self.assertEqual([self.panel_pixel(panel) for panel in self.visible_panels()], [116, 176, 236][:count])
+                self.assert_linked(expected_center=center)
+                self.window.undo_stack.undo()
+                self.assertEqual([self.panel_pixel(panel) for panel in self.visible_panels()], [120, 160, 200][:count])
+                self.window.undo_stack.undo()
+                self.assert_panel_images([1, 2, 3][:count])
+
+    def test_uniform_exposure_uses_each_panels_frame_offset(self):
+        self.enter_image_edit()
+        offsets = {self.window.frame_key(1): 1.0, self.window.frame_key(2): 0.0, self.window.frame_key(3): -1.0}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(
+            uniform_exposure={"area": {"x": 100, "y": 100, "width": 200, "height": 200}, "offsets": offsets}
+        ))
+        self.assertEqual([self.panel_pixel(panel) for panel in self.panels()], [120, 80, 50])
+
+    def test_crop_draft_cancel_apply_and_undo_update_all_panels(self):
+        self.enter_image_edit()
+        self.set_camera(scale=1.5, center=QPointF(350, 260))
+        original_raw_center = self.window.scene_to_image_pixel_coordinates(self.center(self.window.view))
+        original = self.window.current_image_edit_crop_state()
+        crop = {"center_x": 400.0, "center_y": 300.0, "width": 400.0, "height": 300.0, "angle": 15.0}
+        self.window.begin_image_edit_crop()
+        self.window.handle_image_edit_crop_overlay_changed(crop, finalize=True)
+        self.assertEqual(self.window.current_image_edit_crop_state(), original)
+        for panel in self.panels():
+            self.assertEqual(self.panel_pixmap_item(panel).pixmap().size().width(), 800)
+        self.window.cancel_image_edit_crop()
+        self.assertEqual(self.window.current_image_edit_crop_state(), original)
+        self.window.begin_image_edit_crop()
+        self.window.handle_image_edit_crop_overlay_changed(crop, finalize=True)
+        self.window.apply_image_edit_crop()
+        self.assertEqual(self.window.current_image_edit_crop_state(), crop)
+        for panel in self.panels():
+            self.assertEqual(self.panel_pixmap_item(panel).pixmap().size().width(), 400)
+            self.assertEqual(self.panel_pixmap_item(panel).pixmap().size().height(), 300)
+        self.assert_linked()
+        cropped_raw_center = self.window.scene_to_image_pixel_coordinates(self.center(self.window.view))
+        for before, after in zip(original_raw_center, cropped_raw_center):
+            self.assertAlmostEqual(before, after, delta=2.1 / 1.5)
+        self.window.undo_stack.undo()
+        self.assertEqual(self.window.current_image_edit_crop_state(), original)
+        self.assertEqual([self.panel_pixmap_item(panel).pixmap().width() for panel in self.panels()], [800, 800, 800])
+        self.window.undo_stack.redo()
+        self.assertEqual([self.panel_pixmap_item(panel).pixmap().width() for panel in self.panels()], [400, 400, 400])
+
+    def test_crop_overlay_from_reference_changes_one_shared_draft(self):
+        self.enter_image_edit()
+        self.window.begin_image_edit_crop()
+        reference = self.viewer.previous
+        self.assertTrue(reference.crop_overlay.isVisible())
+        crop = {"center_x": 350.0, "center_y": 260.0, "width": 450.0, "height": 320.0, "angle": 10.0}
+        reference.crop_overlay.cropChanged.emit(crop)
+        reference.crop_overlay.cropChangeFinished.emit(crop)
+        self.assertEqual(self.window.get_image_edit_crop_draft_state(), crop)
+        for overlay in (self.window.image_edit_crop_overlay, self.viewer.previous.crop_overlay, self.viewer.next.crop_overlay):
+            self.assertEqual(overlay._crop_state, crop)
+        self.set_camera(scale=0.7, center=QPointF(350, 260))
+        start = reference.view.mapFromScene(QPointF(350, 260))
+        QTest.mousePress(reference.view.viewport(), Qt.LeftButton, pos=start)
+        QTest.mouseMove(reference.view.viewport(), start + QPoint(21, 14), delay=10)
+        QTest.mouseRelease(reference.view.viewport(), Qt.LeftButton, pos=start + QPoint(21, 14))
+        moved = self.window.get_image_edit_crop_draft_state()
+        self.assertGreater(moved["center_x"], crop["center_x"])
+        self.assertGreater(moved["center_y"], crop["center_y"])
+        for overlay in (self.window.image_edit_crop_overlay, self.viewer.previous.crop_overlay, self.viewer.next.crop_overlay):
+            self.assertEqual(overlay._crop_state, moved)
+        self.assertEqual(self.window.image_index, 2)
+        self.window.cancel_image_edit_crop()
+        self.assertFalse(reference.crop_overlay.isVisible())
+
+    def test_uniform_area_overlay_from_reference_updates_current_and_other_reference(self):
+        self.enter_image_edit()
+        self.window.begin_image_edit_uniform_exposure_area()
+        reference = self.viewer.next
+        self.assertTrue(reference.uniform_overlay.isVisible())
+        area = {"x": 120.0, "y": 90.0, "width": 220.0, "height": 180.0}
+        reference.uniform_overlay.areaChanged.emit(area)
+        reference.uniform_overlay.areaChangeFinished.emit(area)
+        self.assertEqual(self.window.current_image_edit_uniform_exposure_area_state(), area)
+        for overlay in (self.window.image_edit_uniform_exposure_overlay, self.viewer.previous.uniform_overlay, self.viewer.next.uniform_overlay):
+            self.assertEqual(overlay.area_state(), area)
+        self.set_camera(scale=0.7, center=QPointF(230, 180))
+        start = reference.view.mapFromScene(QPointF(230, 180))
+        QTest.mousePress(reference.view.viewport(), Qt.LeftButton, pos=start)
+        QTest.mouseMove(reference.view.viewport(), start + QPoint(21, 14), delay=10)
+        QTest.mouseRelease(reference.view.viewport(), Qt.LeftButton, pos=start + QPoint(21, 14))
+        moved = self.window.current_image_edit_uniform_exposure_area_state()
+        self.assertGreater(moved["x"], area["x"])
+        self.assertGreater(moved["y"], area["y"])
+        for overlay in (self.window.image_edit_uniform_exposure_overlay, self.viewer.previous.uniform_overlay, self.viewer.next.uniform_overlay):
+            self.assertEqual(overlay.area_state(), moved)
+        self.assertEqual(self.window.image_index, 2)
+
+    def test_video_scrub_preview_does_not_read_neighbors_or_leave_stale_reference_frames(self):
+        with patch.object(self.window, "is_video_source", return_value=True), patch.object(
+            self.window, "get_cached_image", wraps=self.window.get_cached_image
+        ) as read_frame:
+            self.window.updateImage(3, preview=True)
+        self.assertEqual({call.args[0] for call in read_frame.call_args_list}, {3})
+        for panel in self.viewer.reference_panels:
+            self.assertIsNone(panel.frame_index)
+            self.assertTrue(panel.pixmap_item.pixmap().isNull())
+        self.window.handle_committed_image_slider_value(3)
+        self.assert_panel_images([2, 3, 4])
+
+    def test_video_scrub_returning_to_start_restores_reference_frames_on_release(self):
+        history_count = self.window.undo_stack.count()
+        self.window.handle_image_slider_pressed()
+        with patch.object(self.window, "is_video_source", return_value=True):
+            self.window.updateImage(3, preview=True)
+            self.window.updateImage(2, preview=True)
+            self.assertTrue(self.window.comparison_preview_pending)
+            self.assertEqual([panel.frame_index for panel in self.viewer.reference_panels], [None, None])
+            self.window.handle_image_slider_released()
+        self.assert_panel_images([1, 2, 3])
+        self.assertFalse(self.window.comparison_preview_pending)
+        self.assertIsNone(self.window.slider_drag_start_index)
+        self.assertEqual(self.window.undo_stack.count(), history_count)
+
+    def test_clear_and_reload_do_not_keep_reference_images_or_overlay_state(self):
+        self.enter_image_edit()
+        self.window.begin_image_edit_crop()
+        self.window.clear_loaded_images(confirm=False)
+        self.assertFalse(self.window.has_frames())
+        self.assertIsNone(self.viewer.current.pixmap_item)
+        self.assertIsNone(self.viewer.current.frame_index)
+        for panel in self.viewer.reference_panels:
+            self.assertIsNone(panel.frame_index)
+            self.assertTrue(panel.pixmap_item is None or panel.pixmap_item.pixmap().isNull())
+            self.assertTrue(panel.crop_overlay is None or not panel.crop_overlay.isVisible())
+        self.window.set_frame_source(ImageSequenceFrameSource(self.paths))
+        self.window.updateImage(1)
+        self.window.set_viewer_image_count(3)
+        self.process_events()
+        self.assert_panel_images([0, 1, 2])
+
+
+if __name__ == "__main__":
+    unittest.main()
