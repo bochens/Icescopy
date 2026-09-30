@@ -50,6 +50,68 @@ frame size requires explicit complete position updates; it never rescales
 coordinates silently. Bad or incompatible state fails before a new output is
 created, and the input state file remains unchanged.
 
+## Separate fast tree experiment
+
+`fast_model.py` adds a selectable alternative without changing the original
+models. It measures 32-pixel patches directly and uses a small tree classifier:
+100 successive decision trees, each with at most 15 final outcomes. The trees
+learn combinations of image measurements instead of evaluating a neural
+network on every candidate crop. CPU calculations are limited to four threads.
+It does not import Torch. Install `scikit-learn==1.9.1 threadpoolctl joblib` only
+in the separate experiment environment if running this alternative.
+
+The measurements retain signed brightness matching, quarter-turn-tolerant
+matching, radial brightness and texture, and the difference between each
+candidate and example. Absolute radial profiles keep the central surface and
+surrounding well distinguishable; brightness polarity is preserved. A similar
+circular holder by itself is insufficient evidence of a filled well.
+
+```sh
+python experiments/cell_detection/fast_benchmark.py \
+  --real-labels path/to/private-real-labels.json \
+  --structured-labels path/to/structured-scenes-v3/labels.json \
+  --output output/new-fast-tree-experiment
+python experiments/cell_detection/run_detection.py picture.png examples.json \
+  --method fast --model output/new-fast-tree-experiment/fast-model.joblib \
+  --output output/new-fast-detection
+```
+
+The fast CLI uses the model's recorded threshold unless `--threshold` is
+explicitly supplied. `--state-in` and manual state edits work identically for
+all methods. The joblib file is a locally generated Python model; use only a
+trusted experiment's model file and its recorded scikit-learn version.
+
+The one fixed experiment fits only real recording A and independent rendered
+training groups. Separate rendered groups choose a threshold targeting 99%
+aggregate precision (the fraction of proposed additions that match references),
+then the model and threshold are frozen before evaluation. Each holder family
+also has its own calibration counts. Clear, glare and blur images with the
+same family and seed remain in the same group. The existing structured test
+seeds and their variants are excluded from training and calibration. Real
+recordings already inspected during development remain exploratory tests.
+Simulations approximate appearance and cannot establish real liquid occupancy.
+
+Results include a model bundle, readable feature/training metadata, input
+hashes, and `evaluation/report.json`. `single_frame_timings` measure current
+frame normalization, proposals, candidate patches, one or two example patches,
+classification and duplicate exclusion. File and model loading are excluded.
+Cached benchmark preparation also measures every reference patch and is
+reported separately. Use the original baseline report alongside this report
+to assess speed and accuracy; a faster alternative is not automatically a
+better cell selector.
+
+The first fixed tree run (`fast-tree-v1`) measured roughly 0.58–1.16 seconds
+per current-frame call on this Mac. It improved the rendered PCR clear case
+from a mean 43.4 of 68 remaining targets with 20.8 extra circles to 68 of 68
+with zero extras across five two-example choices. Real transfer was worse:
+recording B frame 50 found a mean 15.6 of 48 remaining targets with 9.8 extras,
+versus the original learned model's 39.8 with 0.4 extras. For TAMU-A frame 0,
+the original examples 0 and 8 recovered the missed target at (424, 230), but
+also added 13 false circles. These exploratory results support keeping the
+tree as an alternative, not replacing the original learned model. Synthetic
+calibration precision was 99.12% overall but only 96.33% for small pockets;
+the aggregate number does not describe every holder or any real recording.
+
 ## Evaluate
 
 `benchmark.py` reads a local label manifest, extracts proposals and fixed model features, trains the small comparison classifier only on scenes marked `development`, and chooses thresholds on those development scenes. Other recordings are evaluated afterward with the model and thresholds fixed. It tries ten choices of one example and five pairs, where enough reference cells exist. The first reference example fixes the measurement radius for each picture in this pilot.

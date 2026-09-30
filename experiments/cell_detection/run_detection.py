@@ -17,33 +17,40 @@ def main():
     parser.add_argument('image',type=Path)
     parser.add_argument('examples',type=Path,help='JSON containing examples or saved example_ids, plus optional existing circles/current_positions')
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--method',choices=['template','embedding','learned'],default='template')
-    parser.add_argument('--threshold',type=float,default=.75)
+    parser.add_argument('--method',choices=['template','embedding','learned','fast'],default='template')
+    parser.add_argument('--threshold',type=float,help='Default .75 for original methods; recorded calibration threshold for fast')
     parser.add_argument('--model',type=Path)
     parser.add_argument('--state-in',type=Path,help='Previously saved state.json; IDs and all known cells are retained')
     args=parser.parse_args()
     if args.output.exists():
         parser.error('Output folder already exists; choose a new name.')
-    if not 0<=args.threshold<=1:
+    if args.threshold is not None and not 0<=args.threshold<=1:
         parser.error('Threshold must be between zero and one.')
     try:
         payload=json.loads(args.examples.read_text())
         examples=[Circle(**row) for row in payload.get('examples',[])]
         existing=[Circle(**row) for row in payload.get('existing',[])]
         state=json.loads(args.state_in.read_text()) if args.state_in else None
-        head=json.loads(args.model.read_text()) if args.model else None
-        if args.method=='learned' and head is None:
-            raise ValueError('--model is required for the learned method.')
+        alternate=None
+        if args.method=='fast':
+            from fast_model import detect as alternate, load_model
+            if args.model is None:raise ValueError('--model is required for the fast method.')
+            head=load_model(args.model)
+        else:
+            head=json.loads(args.model.read_text()) if args.model else None
+            if args.method=='learned' and head is None:
+                raise ValueError('--model is required for the learned method.')
+        if args.threshold is None:args.threshold=head['threshold'] if args.method=='fast' else .75
         raw=cv2.imread(str(args.image),cv2.IMREAD_UNCHANGED)
         if raw is None:raise ValueError(f'Cannot read image: {args.image}')
         image=preprocess_image(raw,color_order='BGR')
-        encoder=Encoder() if args.method!='template' else None
+        encoder=Encoder() if args.method in ('embedding','learned') else None
         start=time.perf_counter()
         selected=detect_current_frame(raw,examples,state=state,existing=existing,
                                      example_ids=payload.get('example_ids',[]),
                                      current_positions=payload.get('current_positions'),
                                      remove_ids=payload.get('remove_ids',[]),color_order='BGR',
-                                     method=args.method,threshold=args.threshold,encoder=encoder,head=head)
+                                     method=args.method,threshold=args.threshold,encoder=encoder,head=head,detector=alternate)
         elapsed=time.perf_counter()-start
     except (ValueError,TypeError,KeyError,OSError) as error:
         parser.error(str(error))
