@@ -105,8 +105,66 @@ The comparison retains the original encoder, previous head, and threshold as
 encoder; `adapted_synthetic` uses the same fitting and threshold procedure with
 the updated encoder. Every new neural weight update, head fit, saved-network choice,
 and threshold choice is synthetic-only. The original baseline retains its prior
-recording-A-trained head; that prior training is not reused for either new head.
-All real results remain exploratory evaluations, including recording A.
+head fitted on development recordings; that prior training is not reused for
+either new head. All real results remain exploratory evaluations, including the
+original development recordings.
+
+Recall is the fraction of remaining labeled cells found; precision is the
+fraction of selected circles matching a labeled cell.
+
+Threshold selection examines every distinct accepted synthetic calibration
+score. Duplicate removal runs once in descending score order; lower scores
+cannot change earlier choices. Each score prefix is matched to labeled targets
+again, allowing earlier assignments to change. The objective stays highest
+recall at aggregate precision of at least 99%, or highest precision if that
+target cannot be met. The former 100-point threshold grid remains in the search,
+and sampled thresholds are checked against the unchanged evaluator. Scores are
+recomputed from unrounded saved features.
+
+`neural_rescore.py` can correct an older coarse-grid comparison without repeating
+image encoding or fitting. Run calibration first, then repeat the same command
+with `--phase evaluation` after the source comparison finishes. The new directory
+must not exist before calibration; evaluation appends its report and two final
+adapted-model timing calls. Saved input hashes must match, and neither phase
+overwrites the source comparison.
+
+```sh
+python experiments/cell_detection/neural_rescore.py --phase calibration \
+  --source output/older-neural-comparison \
+  --synthetic-labels output/new-neural-scenes/labels.json \
+  --real-labels path/to/private-real-labels.json \
+  --structured-labels path/to/structured-scenes-v3/labels.json \
+  --checkpoint output/new-neural-fit/encoder.pt \
+  --output output/refined-neural-comparison
+```
+
+The completed run changed 11 arrays of convolution weights while preserving the
+earlier layers and BatchNorm statistics exactly. Separate synthetic validation
+loss fell from 0.06972 to 0.02285; training pass 5 was selected. CPU training took 527
+seconds, with another 101 seconds to cache the fixed layers. Refined synthetic
+calibration achieved 58.8% recall at 99.0% precision for the adapted model,
+compared with 34.3%/99.1% for the matched frozen control. These synthetic results
+do not establish real-image accuracy.
+
+On eight fully labeled real images, the standard ten single-example and five
+two-example trials per image gave the following aggregate results. Counts
+combine repeated trials, not independent new images.
+
+| Model | One-example recall / precision | Two-example recall / precision |
+| --- | --- | --- |
+| Preserved original | 80.9% / 99.4% | 94.3% / 99.1% |
+| Frozen encoder, synthetic head | 20.9% / 100.0% | 33.5% / 100.0% |
+| Adapted encoder, synthetic head | 63.6% / 99.8% | 78.0% / 99.7% |
+
+Every labeled real target had a proposed circle within the matching radius;
+the observed losses therefore occurred during scoring or selection in this
+evaluation. The adapted model reduced false selections but missed more real
+cells than the original. Two final adapted current-frame calls took 8.9 and 11.8 seconds on CPU,
+including preprocessing through selection and excluding model/file loading.
+This run is not a better replacement for the original. Incomplete annotations
+support reference recall and unmatched counts only. Synthetic occupancy and
+lighting remain approximations, and the fixed results were not used for further
+model or threshold changes.
 
 ## Separate fast tree experiment
 

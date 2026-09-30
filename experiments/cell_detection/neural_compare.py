@@ -22,6 +22,7 @@ from benchmark import evaluate,example_trials,subset
 from detector import Circle,Encoder,detect,pair_features,patch_descriptors,patches,preprocess_image,propose,read_image,scores,unit_rows
 from neural_model import FIRST_TRAINABLE_BLOCK,FineTunedEncoder
 from neural_train import check_manifest
+from neural_calibration import exact_calibrate
 
 
 TIMED_SCENES={'A-0','B-50','TAMU-A-0','pcr-glare'}
@@ -104,35 +105,10 @@ def fit_synthetic_head(prepared,index,encoder_sha):
 
 
 def calibrate(prepared,index,head):
-    cached=[]
-    for item in prepared:
-        if item['scene']['split']!='calibration' or not item['scene']['recording'].startswith('neural-synthetic-'):
-            raise ValueError('Threshold calibration requires separate synthetic calibration groups.')
-        for ids in example_trials(len(item['truth'])):
-            cached.append((item,ids,scores(item['banks'][index],subset(item['examples'][index],ids),'learned',head)))
-    choices=[]
-    for threshold in np.linspace(.3,.999,100):
-        tp=fp=remaining=0
-        for item,ids,value in cached:
-            r=evaluate(item,value,ids,threshold);tp+=r['found'];fp+=r['false_detections'];remaining+=r['remaining']
-        precision=tp/max(1,tp+fp);recall=tp/max(1,remaining)
-        choices.append((precision>=.99,recall if precision>=.99 else precision,recall,float(threshold),precision,tp,fp,remaining))
-    best=max(choices);by_family={}
-    for item,ids,value in cached:
-        family=item['scene']['rendering']['family'];totals=by_family.setdefault(family,{'found':0,'false_detections':0,'remaining':0})
-        r=evaluate(item,value,ids,best[3])
-        for key in totals:totals[key]+=r[key]
-    for totals in by_family.values():
-        totals['precision']=totals['found']/max(1,totals['found']+totals['false_detections'])
-        totals['recall']=totals['found']/max(1,totals['remaining'])
-    result={'threshold':best[3],'precision':best[4],'recall':best[2],'found':best[5],'false_detections':best[6],
-            'remaining':best[7],'groups':sorted({p['scene']['group'] for p in prepared}),'by_family':by_family,
-            'selection':'Highest recall at aggregate precision >=99%, otherwise highest precision; separate generated calibration scenes only.'}
-    head['threshold']=best[3];head['calibration']=result
-    return result
+    return exact_calibrate(prepared,index,head)
 
 
-def report_entries(prepared,heads,thresholds,frozen,adapted):
+def report_entries(prepared,heads,thresholds,frozen,adapted,timed_scenes=TIMED_SCENES):
     report=[];indices={'original':0,'frozen_synthetic':0,'adapted_synthetic':1}
     for item in prepared:
         scene=item['scene'];entry={k:scene[k] for k in ['id','recording','split','width','height','label_status','complete_labels']}
@@ -147,7 +123,7 @@ def report_entries(prepared,heads,thresholds,frozen,adapted):
                 values=scores(item['banks'][index],subset(item['examples'][index],ids),'learned',heads[method])
                 r=evaluate(item,values,ids,thresholds[method]['threshold'])
                 r.update(method=method,scores=np.round(values,5).tolist());entry['results'].append(r)
-        if scene['id'] in TIMED_SCENES:
+        if scene['id'] in timed_scenes:
             raw=cv2.imread(scene['source'],cv2.IMREAD_UNCHANGED);timings=[]
             # Frozen control has the same full architecture as the original
             # baseline; measure it and the adapted version with one/two examples.
@@ -205,7 +181,7 @@ def main():
             'input_hashes':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in
                             [args.synthetic_labels,args.real_labels,args.structured_labels,args.baseline_report]},
             'scenes':report_entries(test,heads,thresholds,frozen,adapted),
-            'limitations':['All new neural gradients, comparison heads, checkpoint selection and threshold calibration use generated data only.',
+            'limitations':['All new neural weight updates, comparison heads, checkpoint selection and threshold calibration use generated data only.',
                            'Original is the preserved ImageNet encoder plus prior real-A-trained head/threshold; recording A is not an untouched baseline test.',
                            'Frozen_synthetic and adapted_synthetic use identical new head-fitting and threshold-calibration procedures, groups, crops and candidate proposals.',
                            'Every real result is exploratory. Incomplete IS/PKU annotations do not support precision or claims that unmatched circles are empty.',
