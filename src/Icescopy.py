@@ -58,7 +58,7 @@ from icescopy_freeze_cycles import restore_cycle_metadata, set_cycle_metadata
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
 from icescopy_viewer import CellSelectionTreeWidget, ComparisonViewer
-from icescopy_event_navigation import FreezeEventSelector
+from icescopy_event_navigation import FreezeEventButton, FreezeEventSelector
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -1236,6 +1236,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if changed_frames:
             self.update_image_list_annotations(sorted(changed_frames))
         self.update_toggle_flagging_button_icon()
+        self.update_freeze_event_navigation_controls()
 
     def selected_cells_freeze_state_at_current_frame(self, selected_items=None):
         if selected_items is None:
@@ -1477,6 +1478,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def cell_list_navigation_state(self):
         """Capture a Cells-list gesture, never image selection or editing."""
+        slider = getattr(self, "image_slider", None)
         if (
             self.tool_mode not in {"cursor", "pan"}
             or self.space_held
@@ -1486,6 +1488,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             or self.is_image_edit_uniform_exposure_area_active()
             or getattr(self, "history_restoring", False)
             or getattr(self, "preview_frame_update_in_progress", False)
+            or (slider is not None and slider.isSliderDown())
             or getattr(self, "output_state", False)
         ):
             return None
@@ -1499,9 +1502,61 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         # A gesture interrupted by redraw, history restoration, or a tool change
         # must not later center just because its original frame/mode returned.
         self.cell_list_navigation_revision = getattr(self, "cell_list_navigation_revision", 0) + 1
+        self._freeze_event_button_context = None
         tree = getattr(self, "cells_tree_widget", None)
         if tree is not None:
             tree.cancel_pending_selection_center()
+
+    def freeze_event_navigation_context(self):
+        """Capture the current frame and the events represented by its flags."""
+        if not self.has_frames() or not hasattr(self, "scene") or not hasattr(self, "cell_controller"):
+            return None
+        state = self.cell_list_navigation_state()
+        if state is None:
+            return None
+        return state, tuple(self.selected_cell_freeze_frames())
+
+    @staticmethod
+    def freeze_event_navigation_target(context, direction):
+        if context is None or direction not in (-1, 1):
+            return None
+        state, frames = context
+        current_frame = state[1]
+        if direction < 0:
+            return next((frame for frame in reversed(frames) if frame < current_frame), None)
+        return next((frame for frame in frames if frame > current_frame), None)
+
+    def update_freeze_event_navigation_controls(self):
+        selector = getattr(self, "cells_freeze_event_selector", None)
+        if selector is not None:
+            selector.refresh()
+        previous_button = getattr(self, "previous_freeze_button", None)
+        next_button = getattr(self, "next_freeze_button", None)
+        if previous_button is None or next_button is None:
+            return
+        context = self.freeze_event_navigation_context()
+        previous_button.setEnabled(self.freeze_event_navigation_target(context, -1) is not None)
+        next_button.setEnabled(self.freeze_event_navigation_target(context, 1) is not None)
+
+    def remember_freeze_event_button_context(self, direction):
+        self._freeze_event_button_context = (direction, self.freeze_event_navigation_context())
+
+    def navigate_from_freeze_event_button(self, direction):
+        before = getattr(self, "_freeze_event_button_context", None)
+        self._freeze_event_button_context = None
+        if before is not None and before == (direction, self.freeze_event_navigation_context()):
+            self.navigate_to_freeze_event(direction)
+        self.update_freeze_event_navigation_controls()
+
+    def navigate_to_freeze_event(self, direction):
+        """Seek a visible freeze flag without changing the camera or cycle choice."""
+        context = self.freeze_event_navigation_context()
+        target = self.freeze_event_navigation_target(context, direction)
+        if target is None:
+            return False
+        history_text = "Show Previous Freeze Frame" if direction < 0 else "Show Next Freeze Frame"
+        self.navigate_to_image(target, history_text=history_text)
+        return True
 
     def navigate_after_cell_list_selection(self, before, *, reapply=False):
         """Apply opt-in list navigation only after a direct list interaction."""
@@ -3625,6 +3680,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         # Create the buttons
         self.leftButton = QPushButton()
         self.rightButton = QPushButton()
+        self.previous_freeze_button = FreezeEventButton(direction=-1, parent=self)
+        self.next_freeze_button = FreezeEventButton(direction=1, parent=self)
+        self.previous_freeze_button.setAccessibleName("Previous freeze event on timeline")
+        self.next_freeze_button.setAccessibleName("Next freeze event on timeline")
         self.keyframe_toggle_button = QPushButton()
         self.flag_toggle_button = QPushButton()
         self.analysis_start_toggle_button = QPushButton()
@@ -3632,9 +3691,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.flag_toggle_button.setToolTip("Mark or clear the current frame as frozen for selected cells")
         self.analysis_start_toggle_button.setToolTip("Toggle analysis start marker at the current frame")
         self.analysis_end_toggle_button.setToolTip("Toggle analysis end marker at the current frame")
+        self.previous_freeze_button.setToolTip("Previous freeze event before this frame for selected cells, or all cells when none are selected")
+        self.next_freeze_button.setToolTip("Next freeze event after this frame for selected cells, or all cells when none are selected")
 
         self.leftButton.clicked.connect(self.decreaseSliderValue)
         self.rightButton.clicked.connect(self.increaseSliderValue)
+        self.previous_freeze_button.pressed.connect(lambda: self.remember_freeze_event_button_context(-1))
+        self.next_freeze_button.pressed.connect(lambda: self.remember_freeze_event_button_context(1))
+        self.previous_freeze_button.clicked.connect(lambda: self.navigate_from_freeze_event_button(-1))
+        self.next_freeze_button.clicked.connect(lambda: self.navigate_from_freeze_event_button(1))
         self.keyframe_toggle_button.clicked.connect(self.image_slider.toggle_keyframe)
         self.flag_toggle_button.clicked.connect(self.image_slider.toggle_flagging)
         self.analysis_start_toggle_button.clicked.connect(self.image_slider.toggle_analysis_start)
@@ -3648,9 +3713,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         slider_buttons_layout.addStretch(1)
         slider_buttons_layout.addWidget(self.keyframe_toggle_button)
         slider_buttons_layout.addWidget(self.flag_toggle_button)
+        slider_buttons_layout.addWidget(self.previous_freeze_button)
         slider_buttons_layout.addWidget(self.leftButton)
         slider_buttons_layout.addWidget(self.zoom_slider)
         slider_buttons_layout.addWidget(self.rightButton)
+        slider_buttons_layout.addWidget(self.next_freeze_button)
         slider_buttons_layout.addWidget(self.analysis_start_toggle_button)
         slider_buttons_layout.addWidget(self.analysis_end_toggle_button)
         slider_buttons_layout.addStretch(1)
@@ -4609,9 +4676,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_preview_shortcut_enabled_state()
         self.update_cursor_sample_controls()
         self.update_grid_apply_state()
-        selector = getattr(self, "cells_freeze_event_selector", None)
-        if selector is not None:
-            selector.refresh()
+        self.update_freeze_event_navigation_controls()
 
     def update_preview_shortcut_enabled_state(self):
         preview_shortcuts_enabled = (
@@ -5025,6 +5090,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return self.cell_controller.get_target_items()
 
     def handle_scene_cell_selection_changed(self):
+        self._freeze_event_button_context = None
         if hasattr(self, "tool_options_stack"):
             self.sync_tool_options_panel()
         self.sync_cells_panel_selection()
@@ -5343,6 +5409,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
         self.update_image_list_annotations([frame_index])
         self.update_toggle_flagging_button_icon()
+        self.update_freeze_event_navigation_controls()
 
     def refresh_freeze_annotation_views_fast(
         self,
@@ -6111,6 +6178,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6246,6 +6314,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6416,6 +6485,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6600,6 +6670,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6678,6 +6749,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6690,6 +6762,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6749,6 +6822,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.refresh_cell_sample_visuals()
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6797,6 +6871,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6815,6 +6890,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -6840,6 +6916,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.restore_tool_mode_ui(restore_tool_mode)
         finally:
             self.history_restoring = False
+            self.update_freeze_event_navigation_controls()
             self.set_undo_status()
             self.set_redo_status()
 
@@ -10023,6 +10100,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.image_preview_timer.start(self.get_preview_frame_interval_ms())
 
     def handle_image_slider_pressed(self):
+        self.cancel_cell_list_navigation()
+        self.updateButtonStates()
         if not self.has_frames() or self.history_restoring:
             return
         committed_index = max(
@@ -10034,6 +10113,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.pending_navigation_history_text = "Change Frame"
 
     def handle_image_slider_released(self):
+        self.updateButtonStates()
         # Drag-release can occur without a committed value change. In that case,
         # clear pending navigation start so it cannot leak into the next move.
         if self.history_restoring:
@@ -10435,9 +10515,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     
     def updateButtonStates(self):
         self.update_cell_center_controls()
-        selector = getattr(self, "cells_freeze_event_selector", None)
-        if selector is not None:
-            selector.refresh()
+        self.update_freeze_event_navigation_controls()
         frame_count = self.frame_count()
         has_frames = frame_count > 0
         has_selected_cells = (
@@ -10946,6 +11024,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 getattr(self, "analysis_end_toggle_button", None),
                 getattr(self, "leftButton", None),
                 getattr(self, "rightButton", None),
+                getattr(self, "previous_freeze_button", None),
+                getattr(self, "next_freeze_button", None),
             )
             if widget is not None
         ]
@@ -10996,6 +11076,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.flag_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
             self.analysis_start_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
             self.analysis_end_toggle_button.setStyleSheet(icescopy_stylesheet.light_mode_button_stylesheet)
+        self.update_freeze_event_button_appearance()
+
+    def update_freeze_event_button_appearance(self):
+        """Use the same event-navigation buttons in Cells and the timeline."""
+        selector = getattr(self, "cells_freeze_event_selector", None)
+        pairs = [
+            (getattr(self, "previous_freeze_button", None), self.leftButton),
+            (getattr(self, "next_freeze_button", None), self.rightButton),
+        ]
+        if selector is not None:
+            pairs.extend(((selector.previous_button, self.leftButton), (selector.next_button, self.rightButton)))
+        for button, caret_button in pairs:
+            if button is not None:
+                button.update_appearance(caret_button.icon(), darkdetect.isDark())
 
     def toolbar_icon(self, mode_folder, icon_name):
         return QIcon(os.path.join(resources_dir, "tool_bar", mode_folder, "large", icon_name))
@@ -11149,6 +11243,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         else:
             self.leftButton.setIcon(QIcon(os.path.join(ui_images_dir, 'caret-left_2.png')))
             self.rightButton.setIcon(QIcon(os.path.join(ui_images_dir, 'caret-right_2.png')))
+        self.update_freeze_event_button_appearance()
 
     def update_cell_items_selectable_state(self): # update items in the scenes, called when changing tools.
         self.cell_controller.update_scene_selectable_state()

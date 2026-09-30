@@ -7,7 +7,7 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -800,9 +800,13 @@ class SessionIoTests(unittest.TestCase):
         fake_window.set_redo_status = (
             lambda: setattr(fake_window, "redo_status_updates", fake_window.redo_status_updates + 1)
         )
+        fake_window.update_freeze_event_navigation_controls = Mock(
+            side_effect=lambda: self.assertFalse(fake_window.history_restoring)
+        )
 
         IceScopy.restore_freeze_annotation_state(fake_window, state, preserve_active_tool=True)
 
+        fake_window.update_freeze_event_navigation_controls.assert_called_once_with()
         self.assertEqual(fake_window.row_updates, [[0]])
         self.assertEqual(fake_window.marker_updates, [(2, False)])
         self.assertEqual(fake_window.freeze_count_timeseries_headers, [])

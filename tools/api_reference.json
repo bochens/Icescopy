@@ -18,7 +18,7 @@
         },
         "IceScopy": {
           "summary": "Owns the active desktop session and coordinates helper modules.",
-          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens the event chosen by `FreezeEventSelector`, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Explicit event selection works independently of Show freeze frame and honors Auto-center. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger navigation. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens the event chosen by `FreezeEventSelector`, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Explicit Cells event selection works independently of Show freeze frame and honors Auto-center. Timeline event arrows instead choose the nearest earlier or later event relative to the current frame across selected cells, or all cells when none are selected; they preserve the camera and remembered cycle without applying Auto-center. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger navigation. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending navigation so an interrupted gesture cannot move the view later.",
           "methods": [
             "active_frame_source",
             "set_frame_source",
@@ -36,6 +36,13 @@
             "apply_cell_list_navigation",
             "handle_cell_list_navigation_option_clicked",
             "navigate_after_cell_list_selection",
+            "freeze_event_navigation_context",
+            "freeze_event_navigation_target",
+            "update_freeze_event_navigation_controls",
+            "remember_freeze_event_button_context",
+            "navigate_from_freeze_event_button",
+            "navigate_to_freeze_event",
+            "update_freeze_event_button_appearance",
             "open_session_file_path",
             "persist_session_to_path",
             "push_cell_history",
@@ -380,10 +387,18 @@
       }
     },
     "icescopy_event_navigation": {
-      "summary": "Review one cell's recorded freeze events while preserving the chosen cooling cycle across cells.",
-      "details": "The selector below the Cells checkboxes provides previous/next arrows and a dropdown. Explicit actions navigate even when Show freeze frame is off, and Auto-center independently controls centering at the destination. Controls refresh without navigating. Known cooling cycles come from imported frame assignments; unknown cycles use event-order labels without inferring cycle identity.",
+      "summary": "Provide shared freeze-event buttons and a Cells selector that retains the chosen cooling cycle.",
+      "details": "`FreezeEventButton` gives the Cells selector and timeline matching arrow-and-dot icons and button styling. The selector below the Cells checkboxes provides previous/next arrows and a dropdown. Its explicit actions navigate even when Show freeze frame is off, and Auto-center independently controls centering at the destination. Controls refresh without navigating. Known cooling cycles come from imported frame assignments; unknown cycles use event-order labels without inferring cycle identity. Timeline event targets and camera-preserving navigation are coordinated by the main window.",
       "functions": [],
       "classes": {
+        "FreezeEventButton": {
+          "summary": "Render the existing timeline arrowhead with a freeze-event dot in a shared button style.",
+          "details": "Used by both the Cells selector and the timeline. `update_appearance()` receives the existing directional arrow icon and active theme, adds the red event dot, and supplies a gray disabled version. It retains the timeline's button geometry and interaction styling while keeping a fixed compact width. The button owns appearance only; its caller supplies event-navigation behavior.",
+          "methods": [
+            "__init__",
+            "update_appearance"
+          ]
+        },
         "FreezeEventComboBox": {
           "summary": "Captures the selection context when an event dropdown or keyboard action begins.",
           "details": "Internal `QComboBox` subclass owned by `FreezeEventSelector`. It refreshes available events before interaction and retains the context used to reject an activation after the cell, frame source, event records, or cycle assignments change.",

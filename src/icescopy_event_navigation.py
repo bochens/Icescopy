@@ -1,7 +1,45 @@
 """Explicit navigation through one cell's freeze events without changing zoom."""
 
-from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QSizePolicy, QToolButton, QWidget
+from PySide6.QtCore import QPointF, QRect, QSignalBlocker, QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton, QSizePolicy, QWidget
+
+import icescopy_stylesheet
+
+
+class FreezeEventButton(QPushButton):
+    """The timeline's chevron and red event dot in its existing button shape."""
+
+    def __init__(self, direction, parent=None):
+        super().__init__(parent)
+        self.direction = -1 if direction < 0 else 1
+        self.setAutoDefault(False)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setIconSize(QSize(24, 16))
+
+    def update_appearance(self, caret_icon, dark):
+        stylesheet = (
+            icescopy_stylesheet.dark_mode_button_stylesheet if dark
+            else icescopy_stylesheet.light_mode_button_stylesheet
+        )
+        # Keep the compact width identical in both themes. All other button
+        # geometry, hover and pressed styling follows the existing timeline.
+        self.setStyleSheet(stylesheet + "QPushButton { width: 40px; min-width: 40px; max-width: 40px; }")
+        icon = QIcon()
+        for mode in (QIcon.Normal, QIcon.Disabled):
+            pixmap = QPixmap(96, 64)
+            pixmap.setDevicePixelRatio(4)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+            caret_x = 0 if self.direction < 0 else 8
+            caret_icon.paint(painter, QRect(caret_x, 0, 16, 16), Qt.AlignCenter, mode)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 69, 58) if mode == QIcon.Normal else QColor(145, 145, 145))
+            painter.drawEllipse(QPointF(19 if self.direction < 0 else 5, 8), 2.5, 2.5)
+            painter.end()
+            icon.addPixmap(pixmap, mode)
+        self.setIcon(icon)
 
 
 class FreezeEventComboBox(QComboBox):
@@ -52,9 +90,8 @@ class FreezeEventSelector(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        self.previous_button = QToolButton(self)
-        self.previous_button.setArrowType(Qt.LeftArrow)
+        layout.setSpacing(4)
+        self.previous_button = FreezeEventButton(-1, self)
         self.previous_button.setAccessibleName("Previous freeze event")
         self.previous_button.setToolTip("Previous freeze event for the selected cell")
         self.combo = FreezeEventComboBox(self)
@@ -62,8 +99,7 @@ class FreezeEventSelector(QWidget):
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(0)
         self.combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.next_button = QToolButton(self)
-        self.next_button.setArrowType(Qt.RightArrow)
+        self.next_button = FreezeEventButton(1, self)
         self.next_button.setAccessibleName("Next freeze event")
         self.next_button.setToolTip("Next freeze event for the selected cell")
         layout.addWidget(self.previous_button)
@@ -126,7 +162,7 @@ class FreezeEventSelector(QWidget):
             entries.append(("Select one cell", None))
         elif self._target is None:
             text = "No freeze events" if self._preferred_cycle is None else (
-                f"Cycle {self._preferred_cycle + 1} · No freeze event"
+                f"Cycle {self._preferred_cycle + 1} · No event"
             )
             entries.append((text, None))
         for index, frame in enumerate(self._frames):

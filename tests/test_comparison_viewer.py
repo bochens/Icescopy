@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
+from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem, QHBoxLayout, QPushButton
 
 from Icescopy import IceScopy
 from icescopy_cell_items import CellCircle, CellSnapshot
@@ -171,6 +171,154 @@ class ComparisonViewerTests(unittest.TestCase):
         QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=position)
         self.process_events()
 
+    def test_freeze_navigation_uses_matching_pushbuttons_in_existing_horizontal_rows(self):
+        selector = self.window.cells_freeze_event_selector
+        self.assertIsInstance(selector.layout(), QHBoxLayout)
+        self.assertEqual(selector.layout().count(), 3)
+        self.assertEqual([selector.layout().itemAt(index).widget() for index in range(3)], [
+            selector.previous_button, selector.combo, selector.next_button,
+        ])
+        buttons = (
+            selector.previous_button, selector.next_button,
+            self.window.previous_freeze_button, self.window.next_freeze_button,
+        )
+        for button in buttons:
+            self.assertIsInstance(button, QPushButton)
+            self.assertIs(type(button), type(selector.previous_button))
+            self.assertFalse(button.icon().isNull())
+            self.assertTrue(button.accessibleName())
+        for button in (self.window.previous_freeze_button, self.window.next_freeze_button):
+            self.assertGreaterEqual(self.window.slider_buttons_layout.indexOf(button), 0)
+
+    def test_timeline_freeze_buttons_use_nearest_strict_event_for_selected_union_or_all(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([4, 0, 2, 2, -1, 5], [1, 3], [3, 4]))
+        for selected, previous, following in ((cell_ids[:1], 0, 4), (cell_ids[:2], 1, 3), ([], 1, 3)):
+            with self.subTest(selected=selected):
+                self.window.reselect_cell_ids(selected)
+                self.window.navigate_to_image(2)
+                self.window.updateButtonStates()
+                self.assertTrue(self.window.previous_freeze_button.isEnabled())
+                self.assertTrue(self.window.next_freeze_button.isEnabled())
+                QTest.mouseClick(self.window.previous_freeze_button, Qt.LeftButton)
+                self.assertEqual(self.window.image_index, previous)
+                self.assertEqual(self.selected_cell_ids(), set(selected))
+                self.window.navigate_to_image(2)
+                QTest.mouseClick(self.window.next_freeze_button, Qt.LeftButton)
+                self.assertEqual(self.window.image_index, following)
+                self.assertEqual(self.selected_cell_ids(), set(selected))
+
+    def test_timeline_freeze_buttons_disable_at_boundaries_and_without_valid_events(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], [-1, 5, 100]))
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.navigate_to_image(0)
+        self.assertFalse(self.window.previous_freeze_button.isEnabled())
+        self.assertTrue(self.window.next_freeze_button.isEnabled())
+        QTest.mouseClick(self.window.next_freeze_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 4)
+        self.assertTrue(self.window.previous_freeze_button.isEnabled())
+        self.assertFalse(self.window.next_freeze_button.isEnabled())
+        history_count = self.window.undo_stack.count()
+        self.window.navigate_to_freeze_event(1)
+        self.assertEqual(self.window.image_index, 4)
+        self.assertEqual(self.window.undo_stack.count(), history_count)
+        for cell_id in cell_ids[1:]:
+            self.window.reselect_cell_ids([cell_id])
+            self.assertFalse(self.window.previous_freeze_button.isEnabled())
+            self.assertFalse(self.window.next_freeze_button.isEnabled())
+            self.window.navigate_to_freeze_event(-1)
+            self.assertEqual(self.window.image_index, 4)
+            self.assertEqual(self.window.undo_stack.count(), history_count)
+
+    def test_timeline_freeze_jumps_preserve_camera_annotations_and_cells_event_choice(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 3, 4], [], []))
+        self.install_freeze_review_cycles()
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.window.panTool(True)
+        self.set_camera(scale=1.4, center=QPointF(500, 420))
+        original_center = self.center(self.window.view)
+        records = copy.deepcopy(self.window.serialize_cell_records())
+        geometry = [(item.cell_id, item.circle_pixel_positions, item.circle_sizes) for item in self.window.cell_items]
+        history_count = self.window.undo_stack.count()
+        selector = self.window.cells_freeze_event_selector
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            for button, expected in (
+                (self.window.next_freeze_button, 4),
+                (self.window.previous_freeze_button, 3),
+                (self.window.previous_freeze_button, 0),
+            ):
+                QTest.mouseClick(button, Qt.LeftButton)
+                self.assertEqual(self.window.image_index, expected)
+                self.assertEqual(selector.selected_frame(), 3)
+                self.assertEqual(selector.combo.currentText(), "Cycle 2 · Frame 3")
+                self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+                self.assertEqual(self.window.tool_mode, "pan")
+                self.assert_linked(expected_scale=1.4, expected_center=original_center)
+            self.assertEqual(center.call_count, 0)
+            self.assertEqual(self.window.undo_stack.count(), history_count + 3)
+            self.window.undo_stack.undo()
+            self.assertEqual(self.window.image_index, 3)
+            self.assertTrue(selector.combo.isEnabled())
+            self.assertTrue(selector.previous_button.isEnabled())
+            self.assertTrue(selector.next_button.isEnabled())
+            self.assertTrue(self.window.previous_freeze_button.isEnabled())
+            self.assertTrue(self.window.next_freeze_button.isEnabled())
+            self.window.undo_stack.redo()
+            self.assertEqual(self.window.image_index, 0)
+            self.assertTrue(selector.combo.isEnabled())
+            self.assertTrue(selector.previous_button.isEnabled())
+            self.assertTrue(selector.next_button.isEnabled())
+            self.assertFalse(self.window.previous_freeze_button.isEnabled())
+            self.assertTrue(self.window.next_freeze_button.isEnabled())
+            self.assertEqual(center.call_count, 0)
+        self.assertEqual(self.window.serialize_cell_records(), records)
+        self.assertEqual([(item.cell_id, item.circle_pixel_positions, item.circle_sizes) for item in self.window.cell_items], geometry)
+
+    def test_timeline_freeze_actions_are_blocked_during_slider_drag(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], []))
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.image_slider.setSliderDown(True)
+        try:
+            self.window.updateButtonStates()
+            self.assertFalse(self.window.previous_freeze_button.isEnabled())
+            self.assertFalse(self.window.next_freeze_button.isEnabled())
+            self.window.navigate_to_freeze_event(-1)
+            self.window.navigate_to_freeze_event(1)
+            self.assertEqual(self.window.image_index, 2)
+        finally:
+            self.window.image_slider.setSliderDown(False)
+        self.window.updateButtonStates()
+        self.assertTrue(self.window.previous_freeze_button.isEnabled())
+        self.assertTrue(self.window.next_freeze_button.isEnabled())
+
+    def test_timeline_freeze_button_rejects_a_press_interrupted_by_navigation_context_changes(self):
+        cell_ids = self.install_selection_cells()
+        interruptions = (
+            ("frame", lambda: self.window.navigate_to_image(3), 3),
+            ("selection", lambda: self.window.reselect_cell_ids([cell_ids[1]]), 2),
+            ("events", lambda: self.set_freeze_frames(cell_ids[:1], ([0, 3],)), 2),
+            ("source", lambda: self.window.set_frame_source(ImageSequenceFrameSource(self.paths)), 2),
+        )
+        for name, interrupt, expected_frame in interruptions:
+            with self.subTest(interruption=name):
+                self.set_freeze_frames(cell_ids, ([0, 4], [1, 3], []))
+                self.window.reselect_cell_ids([cell_ids[0]])
+                self.window.navigate_to_image(2)
+                self.window.updateButtonStates()
+                self.assertTrue(self.window.next_freeze_button.isEnabled())
+                QTest.mousePress(self.window.next_freeze_button, Qt.LeftButton)
+                interrupt()
+                self.window.updateButtonStates()
+                QTest.mouseRelease(self.window.next_freeze_button, Qt.LeftButton)
+                self.assertEqual(self.window.image_index, expected_frame)
+
     def test_event_selector_orders_valid_events_and_navigates_with_arrows_and_dropdown(self):
         cell_ids = self.install_selection_cells()
         self.set_freeze_frames(cell_ids, ([4, 0, 2, 2, -1, 5], [], []))
@@ -240,7 +388,7 @@ class ComparisonViewerTests(unittest.TestCase):
 
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(1)).center())
         self.assertEqual(self.window.image_index, 3)
-        self.assertEqual(selector.combo.currentText(), "Cycle 2 · No freeze event")
+        self.assertEqual(selector.combo.currentText(), "Cycle 2 · No event")
         self.assertIsNone(selector.selected_frame())
         self.assertGreaterEqual(selector.combo.findText("Cycle 1 · Frame 0"), 0)
         self.assertGreaterEqual(selector.combo.findText("Cycle 3 · Frame 4"), 0)
@@ -338,16 +486,22 @@ class ComparisonViewerTests(unittest.TestCase):
         QTest.keyPress(self.window, Qt.Key_Space)
         selector.activate_event(1)
         selector.step_event(1)
+        self.window.navigate_to_freeze_event(-1)
+        self.window.navigate_to_freeze_event(1)
         self.assertEqual(self.window.image_index, 2)
         QTest.keyRelease(self.window, Qt.Key_Space)
         self.window.imageEditTool(True)
         selector.activate_event(1)
+        self.window.navigate_to_freeze_event(-1)
+        self.window.navigate_to_freeze_event(1)
         self.assertEqual(self.window.image_index, 2)
         self.window.reset_cursor_tool(True)
         self.window.reselect_cell_ids([cell_ids[0]])
         with patch.object(self.window, "output_state", True):
             selector.activate_event(1)
             selector.step_event(1)
+            self.window.navigate_to_freeze_event(-1)
+            self.window.navigate_to_freeze_event(1)
             self.assertEqual(self.window.image_index, 2)
         self.window.panTool(True)
         selector.refresh()
@@ -637,6 +791,8 @@ class ComparisonViewerTests(unittest.TestCase):
                     QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
                     self.window.cells_freeze_event_selector.activate_event(0)
                     self.window.cells_freeze_event_selector.step_event(1)
+                    self.window.navigate_to_freeze_event(-1)
+                    self.window.navigate_to_freeze_event(1)
                     self.assertEqual(center.call_count, 0)
                 self.assertEqual(self.window.image_index, 2)
                 self.assertEqual(self.window.tool_mode, "pan")

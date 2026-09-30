@@ -52,7 +52,8 @@ You cannot append another video or images to a loaded video source. To change th
 
 | Task | Control |
 | --- | --- |
-| Step one frame | Click previous/next, or press **Left/Right** with the image viewer focused. **Comma/period** also step backward/forward. |
+| Step one frame | Click the plain previous/next arrows, or press **Left/Right** with the image viewer focused. **Comma/period** also step backward/forward. |
+| Jump to a freeze event | Click a timeline arrow marked with a **red dot**. |
 | Jump to a frame | Enter its number in **Frame Number** in the status bar and press **Enter**. |
 | Scan the recording | Drag the timeline slider. Release it at the frame you want to inspect. |
 | Jump from the file list | Click a row in **Images**. |
@@ -61,6 +62,8 @@ You cannot append another video or images to a loaded video source. To change th
 | Pan temporarily while placing cells | Hold **Space**, pan or zoom, then release it to return to the previous tool. |
 
 Image zoom and timeline zoom have different jobs. Image zoom changes the displayed size of the recording. Timeline zoom changes the range visible on the slider. Neither changes analysis values or removes frames.
+
+The timeline's **red-dot arrows** jump to the nearest freeze event strictly before or after the current frame. With one cell selected, they use that cell's events; with several selected, they use any event from those cells; with no selection, they use all cells. An arrow is disabled when there is no event in its direction, and navigation does not wrap around. These jumps preserve image position, zoom, and the Cells selector's chosen cycle; they do not apply Auto-center.
 
 ### Compare neighboring images
 
