@@ -54,9 +54,11 @@ from icescopy_frame_source import (
     normalize_video_grayscale_mode,
 )
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
+from icescopy_freeze_cycles import restore_cycle_metadata, set_cycle_metadata
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
 from icescopy_viewer import CellSelectionTreeWidget, ComparisonViewer
+from icescopy_event_navigation import FreezeEventSelector
 from icescopy_image_edit import (
     IMAGE_EDIT_HISTOGRAM_BIN_COUNT,
     ImageCropOverlayItem,
@@ -1349,6 +1351,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def refresh_cells_panel(self, changed_columns=None, preserve_selection=False):
         if not hasattr(self, "cells_tree_widget"):
             return
+        self.cells_freeze_event_selector.refresh()
         if (not self.should_refresh_cells_panel_from_redraw()) and not bool(getattr(self, "cells_panel_force_refresh", False)):
             self.cells_panel_dirty = True
             return
@@ -1483,6 +1486,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             or self.is_image_edit_uniform_exposure_area_active()
             or getattr(self, "history_restoring", False)
             or getattr(self, "preview_frame_update_in_progress", False)
+            or getattr(self, "output_state", False)
         ):
             return None
         return (
@@ -1520,9 +1524,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return
         freeze_checkbox = getattr(self, "cells_show_first_freeze_checkbox", None)
         if freeze_checkbox is not None and freeze_checkbox.isChecked() and len(state[-1]) == 1:
-            frames = self.selected_cell_freeze_frames(self.get_selected_cell_items())
-            if frames:
-                self.navigate_to_image(frames[0], history_text="Show Cell Freeze Frame")
+            frame = self.cells_freeze_event_selector.selected_frame()
+            if frame is not None:
+                self.cells_freeze_event_selector.remember_target()
+                self.navigate_to_image(frame, history_text="Show Cell Freeze Frame")
         # The deliberate frame jump above redraws circles and cancels pending
         # gestures. Center its new geometry directly after the requested seek.
         checkbox = getattr(self, "cells_auto_center_checkbox", None)
@@ -1827,6 +1832,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.freeze_count_timeseries_headers = []
         self.freeze_count_timeseries_rows = []
         self.freeze_count_timeseries_summary = {}
+        self.freeze_review_cycle_metadata = {}
+        self._freeze_review_cycle_cache = None
         self.last_temperature_import_path = None
         self.last_temperature_calibration_path = None
         self.last_temperature_reset_temperature = None
@@ -4405,12 +4412,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.cells_show_first_freeze_checkbox = QCheckBox("Show freeze frame", panel)
         self.cells_show_first_freeze_checkbox.setChecked(False)
         self.cells_show_first_freeze_checkbox.setToolTip(
-            "Show the selected cell's first recorded freeze frame when checked or when its row is selected or clicked again. Groups and cells without events leave the frame unchanged."
+            "Show the chosen freeze event when checked or when a cell row is selected or clicked again. Keep the chosen cycle across cells. Groups and cells without a matching event leave the frame unchanged."
         )
         self.cells_show_first_freeze_checkbox.clicked.connect(self.handle_cell_list_navigation_option_clicked)
         navigation_controls.addWidget(self.cells_show_first_freeze_checkbox)
         navigation_controls.addStretch(1)
         layout.addLayout(navigation_controls)
+
+        self.cells_freeze_event_selector = FreezeEventSelector(self, panel)
+        layout.addWidget(self.cells_freeze_event_selector)
 
         self.cells_tree_widget = CellSelectionTreeWidget(self, panel)
         self.cells_tree_widget.setColumnCount(2)
@@ -4599,6 +4609,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_preview_shortcut_enabled_state()
         self.update_cursor_sample_controls()
         self.update_grid_apply_state()
+        selector = getattr(self, "cells_freeze_event_selector", None)
+        if selector is not None:
+            selector.refresh()
 
     def update_preview_shortcut_enabled_state(self):
         preview_shortcuts_enabled = (
@@ -5393,6 +5406,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             for row in (rows or [])
         ]
         self.freeze_count_timeseries_summary = dict(summary or {})
+        restore_cycle_metadata(self, {
+            "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers,
+            "freeze_count_timeseries_rows": self.freeze_count_timeseries_rows,
+            "freeze_count_timeseries_summary": self.freeze_count_timeseries_summary,
+        })
         self.freeze_count_timeseries_summary.setdefault(
             "sample_metadata_schema",
             self.serialize_sample_metadata_schema(),
@@ -5403,6 +5421,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.results_table_tabs.setCurrentIndex(2)
             self.show_dock_widget(self.results_tables_dock)
         self.update_session_actions_state()
+        if hasattr(self, "cells_tree_widget"):
+            self.updateButtonStates()
 
     def relabel_freeze_count_timeseries_header_sample_name(self, header_text, sample_name):
         current_header = str(header_text or "")
@@ -5621,6 +5641,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_session_state(self):
         return {
+            "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "session_metadata": copy.deepcopy(self.serialize_session_metadata()),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "cell_items": copy.deepcopy(self.cell_items),
@@ -5669,6 +5690,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_cell_state(self, include_analysis=False):
         state = {
+            "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "cell_items": copy.deepcopy(self.cell_items),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
@@ -5710,6 +5732,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_data_state(self):
         return {
+            "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
@@ -5781,6 +5804,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_image_session_state(self):
         return {
+            "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "cell_items": copy.deepcopy(self.cell_items),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
@@ -5833,6 +5857,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_loaded_images_state(self):
         return {
+            "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
             "next_cell_id": int(getattr(self, "next_cell_id", 0)),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
@@ -5937,6 +5962,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def restore_image_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
+            set_cycle_metadata(self, state.get("freeze_review_cycle_metadata"))
             self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
@@ -6091,6 +6117,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def restore_loaded_images_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
+            set_cycle_metadata(self, state.get("freeze_review_cycle_metadata"))
             self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
@@ -6225,6 +6252,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def restore_session_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
+            set_cycle_metadata(self, None)
             self.invalidate_freeze_count_timeseries_results()
             self.clear_image_caches()
             self.reset_pending_image_edit_preview_state(stop_timer=True)
@@ -6275,6 +6303,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             self.image_list_entry_ids = state.get("image_list_entry_ids", default_entry_ids)
             self.next_image_list_entry_id = state.get("next_image_list_entry_id", len(self.image_list_entry_ids))
+            restore_cycle_metadata(self, state)
             self.sort_mode = state.get("sort_mode", self.sort_mode)
             self.apply_image_edit_state(
                 state.get("image_edit_state", self.serialize_image_edit_state()),
@@ -6393,6 +6422,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def restore_cell_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
+            if "freeze_review_cycle_metadata" in state:
+                set_cycle_metadata(self, state["freeze_review_cycle_metadata"])
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
             self.pending_navigation_before_index = None
@@ -6665,6 +6696,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def restore_data_state(self, state, preserve_active_tool=False):
         self.history_restoring = True
         try:
+            restore_cycle_metadata(self, state)
             self.reset_pending_image_edit_preview_state(stop_timer=True)
             self.apply_image_edit_state(state.get("image_edit_state", self.serialize_image_edit_state()), invalidate_results=False, refresh_display=False, sync_controls=False)
             restore_tool_mode = self.get_active_tool_for_restore() if preserve_active_tool else state.get("tool_mode", getattr(self, "tool_mode", "cursor"))
@@ -10403,6 +10435,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     
     def updateButtonStates(self):
         self.update_cell_center_controls()
+        selector = getattr(self, "cells_freeze_event_selector", None)
+        if selector is not None:
+            selector.refresh()
         frame_count = self.frame_count()
         has_frames = frame_count > 0
         has_selected_cells = (

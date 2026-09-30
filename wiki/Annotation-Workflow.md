@@ -55,11 +55,19 @@ To center automatically from the **Cells list**, enable **Auto-center** at the t
 
 Manual frame changes, editing, drawing, deletion, cropping, panning, and Undo/Redo do not trigger Auto-center. Use **Center on selection** whenever you want to center the current selection again.
 
-### Show a selected cell's first freeze frame
+<a name="show-a-selected-cells-first-freeze-frame"></a>
 
-Enable **Show freeze frame** at the top of **Cells**, then select one Cell row by clicking it or pressing **Up/Down** in the list. The arrow keys move between Cell rows and skip their expanded details. Icescopy opens that cell's earliest recorded freeze frame that is available in the loaded recording. Clicking the same Cell row again returns to that frame after you browse elsewhere. Selecting a group, or a cell with no available freeze frame, leaves the current frame unchanged. Selecting circles in the image never triggers this frame jump.
+### Review a selected cell's freeze events
 
-**Show freeze frame** and **Auto-center** are independent options, and both start unchecked when you open the app. Checking either option, by clicking it or pressing **Space** while it has focus, immediately applies all enabled options to the current selection. Unchecking an option does not move the view or change the frame. With both enabled, Icescopy opens a single selected cell's freeze frame first, then centers its circle at that frame without changing zoom. Groups can still be centered with Auto-center.
+Select one Cell row in **Cells**. Below the two checkboxes, use the **previous arrow**, **event dropdown**, and **next arrow** to open its recorded freeze events. These controls work even when **Show freeze frame** is unchecked. The arrows stop at the first and last available events; they do not wrap around. With no cell or several cells selected, the event controls are disabled.
+
+Enable **Show freeze frame** to open the chosen event whenever you select a Cell row by clicking it or pressing **Up/Down** in the list. The arrow keys move between Cell rows and skip their expanded details. The first available event is chosen initially. After you choose another event, clicking the same Cell row returns to that event even if you have browsed other frames. Selecting circles in the image never triggers this frame jump.
+
+When cooling-cycle information is available, the dropdown shows labels such as **Cycle 2 · Frame 150**. A cooling cycle is one temperature-defined part of a repeated cooling experiment; see [Repeated cooling cycles](Temperature-Import.md#repeated-cooling-cycles). The selector displays cycle numbers starting at **1**; stored and exported cycle numbers start at **0**. Frame numbers remain unchanged and start at **0**. Without known cycle information, labels such as **Event 2 · Frame 150** count that cell's events in frame order; an event number does not establish a cooling cycle.
+
+The chosen cycle stays selected when you move to another cell, using that cell's first event in the cycle. If the cell has no event in that cycle, the dropdown shows **Cycle N · No freeze event** and the frame stays unchanged. Other recorded events remain available through the dropdown and arrows. Selecting a group, or a cell with no recorded events, also leaves the frame unchanged. Known cycle assignments come from temperature import with a configured reset temperature; they remain available after freeze-frame corrections and are saved with the session.
+
+**Show freeze frame** and **Auto-center** are independent options, and both start unchecked when you open the app. Checking either option, by clicking it or pressing **Space** while it has focus, immediately applies all enabled options to the current selection. Unchecking an option does not move the view or change the frame. When Auto-center is enabled, opening an event from the dropdown, arrows, or list centers the cell at the destination frame without changing zoom. Groups can still be centered with Auto-center.
 
 These controls work with either **Cursor** or **Pan and Zoom** active and leave your chosen tool unchanged. Finish or cancel cell drawing, cell edits, or image-edit controls before using them; temporarily panning by holding Space also prevents list navigation. Clicking an expander, a detail row, empty list space, or the right mouse button does not reapply either option. Image selections, frame browsing, and Undo/Redo do not trigger them.
 

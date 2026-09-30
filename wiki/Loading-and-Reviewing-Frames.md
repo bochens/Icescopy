@@ -93,7 +93,7 @@ After analysis, select a cell and open **Window → Grayscale Plot** to compare 
 
 The list contains freeze frames for the **current cell selection**, including manual corrections. With no cells selected, it shows events from all cells. It keeps the original frame numbers. If the list is empty, check whether the selected cells have recorded events. Turn the filter off to return to all frames. Filtering the list does not limit analysis.
 
-To review cells one at a time, enable **Show freeze frame** in **Cells** and select individual Cell rows with **Up/Down** or a click. This opens each cell's earliest available recorded freeze frame. Enable **Auto-center** as well to center the cell at that frame without changing zoom. Checking either option immediately applies all enabled options to the current selection. Both options work with Cursor or Pan and Zoom active. See [Show a selected cell's first freeze frame](Annotation-Workflow.md#show-a-selected-cells-first-freeze-frame) for behavior with groups, repeated clicks, and missing events.
+To review one cell's events, select its row in **Cells** and use the event dropdown or previous/next arrows below the checkboxes. These controls work even with **Show freeze frame** unchecked. Enable that checkbox to open the chosen event as you move between Cell rows with **Up/Down** or a click. A chosen cooling cycle stays selected across cells; if a cell has no event in that cycle, the frame stays unchanged. **Auto-center** independently centers the cell at the destination frame without changing zoom. See [Review a selected cell's freeze events](Annotation-Workflow.md#review-a-selected-cells-freeze-events) for cycle labels, repeated clicks, and missing events.
 
 ## Decide which frames to analyze
 

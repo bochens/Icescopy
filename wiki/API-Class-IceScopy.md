@@ -3,11 +3,11 @@
 
 Owns the active desktop session and coordinates helper modules.
 
-[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L235) · [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L237) · [API index](API-Reference.md)
 
 **Bases:** `QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin`.
 
-Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens one cell's earliest available recorded freeze frame, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger either automatic action. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.
+Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens the event chosen by `FreezeEventSelector`, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Explicit event selection works independently of Show freeze frame and honors Auto-center. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger navigation. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.
 
 ## Selected methods
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `active_frame_source`
 
-[Source](../src/Icescopy.py#L1887)
+[Source](../src/Icescopy.py#L1894)
 
 ```python
 def active_frame_source(self):
@@ -23,7 +23,7 @@ def active_frame_source(self):
 
 ### `set_frame_source`
 
-[Source](../src/Icescopy.py#L1998)
+[Source](../src/Icescopy.py#L2005)
 
 ```python
 def set_frame_source(self, frame_source, *, reset_frame_ids=True):
@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10624)
+[Source](../src/Icescopy.py#L10659)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10708)
+[Source](../src/Icescopy.py#L10743)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10747)
+[Source](../src/Icescopy.py#L10782)
 
 ```python
 def onThreadFinished(self):
@@ -55,7 +55,7 @@ def onThreadFinished(self):
 
 ### `apply_manual_freeze_event_indices`
 
-[Source](../src/Icescopy.py#L1115)
+[Source](../src/Icescopy.py#L1117)
 
 ```python
 def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refresh_tables=True, refresh_freeze_markers=True, refresh_freeze_count_table=True):
@@ -63,7 +63,7 @@ def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refre
 
 ### `apply_image_edit_state`
 
-[Source](../src/Icescopy.py#L2063)
+[Source](../src/Icescopy.py#L2070)
 
 ```python
 def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_display=True, sync_controls=True):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5622)
+[Source](../src/Icescopy.py#L5642)
 
 ```python
 def capture_session_state(self):
@@ -79,7 +79,7 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6225)
+[Source](../src/Icescopy.py#L6252)
 
 ```python
 def restore_session_state(self, state, preserve_active_tool=False):
@@ -87,7 +87,7 @@ def restore_session_state(self, state, preserve_active_tool=False):
 
 ### `cell_selection_bounds`
 
-[Source](../src/Icescopy.py#L1447)
+[Source](../src/Icescopy.py#L1450)
 
 ```python
 def cell_selection_bounds(self):
@@ -95,7 +95,7 @@ def cell_selection_bounds(self):
 
 ### `center_on_cell_selection`
 
-[Source](../src/Icescopy.py#L1467)
+[Source](../src/Icescopy.py#L1470)
 
 ```python
 def center_on_cell_selection(self):
@@ -103,7 +103,7 @@ def center_on_cell_selection(self):
 
 ### `cell_list_navigation_state`
 
-[Source](../src/Icescopy.py#L1475)
+[Source](../src/Icescopy.py#L1478)
 
 ```python
 def cell_list_navigation_state(self):
@@ -111,7 +111,7 @@ def cell_list_navigation_state(self):
 
 ### `cancel_cell_list_navigation`
 
-[Source](../src/Icescopy.py#L1494)
+[Source](../src/Icescopy.py#L1498)
 
 ```python
 def cancel_cell_list_navigation(self):
@@ -119,7 +119,7 @@ def cancel_cell_list_navigation(self):
 
 ### `apply_cell_list_navigation`
 
-[Source](../src/Icescopy.py#L1516)
+[Source](../src/Icescopy.py#L1520)
 
 ```python
 def apply_cell_list_navigation(self):
@@ -127,7 +127,7 @@ def apply_cell_list_navigation(self):
 
 ### `handle_cell_list_navigation_option_clicked`
 
-[Source](../src/Icescopy.py#L1512)
+[Source](../src/Icescopy.py#L1516)
 
 ```python
 def handle_cell_list_navigation_option_clicked(self, checked):
@@ -135,7 +135,7 @@ def handle_cell_list_navigation_option_clicked(self, checked):
 
 ### `navigate_after_cell_list_selection`
 
-[Source](../src/Icescopy.py#L1502)
+[Source](../src/Icescopy.py#L1506)
 
 ```python
 def navigate_after_cell_list_selection(self, before, *, reapply=False):
@@ -143,7 +143,7 @@ def navigate_after_cell_list_selection(self, before, *, reapply=False):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9146)
+[Source](../src/Icescopy.py#L9178)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -151,7 +151,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9424)
+[Source](../src/Icescopy.py#L9456)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -159,7 +159,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6823)
+[Source](../src/Icescopy.py#L6855)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -167,7 +167,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11141)
+[Source](../src/Icescopy.py#L11176)
 
 ```python
 def closeEvent(self, event):

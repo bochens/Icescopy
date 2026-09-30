@@ -18,7 +18,7 @@
         },
         "IceScopy": {
           "summary": "Owns the active desktop session and coordinates helper modules.",
-          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens one cell's earliest available recorded freeze frame, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger either automatic action. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens the event chosen by `FreezeEventSelector`, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Explicit event selection works independently of Show freeze frame and honors Auto-center. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger navigation. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.",
           "methods": [
             "active_frame_source",
             "set_frame_source",
@@ -379,6 +379,34 @@
         }
       }
     },
+    "icescopy_event_navigation": {
+      "summary": "Review one cell's recorded freeze events while preserving the chosen cooling cycle across cells.",
+      "details": "The selector below the Cells checkboxes provides previous/next arrows and a dropdown. Explicit actions navigate even when Show freeze frame is off, and Auto-center independently controls centering at the destination. Controls refresh without navigating. Known cooling cycles come from imported frame assignments; unknown cycles use event-order labels without inferring cycle identity.",
+      "functions": [],
+      "classes": {
+        "FreezeEventComboBox": {
+          "summary": "Captures the selection context when an event dropdown or keyboard action begins.",
+          "details": "Internal `QComboBox` subclass owned by `FreezeEventSelector`. It refreshes available events before interaction and retains the context used to reject an activation after the cell, frame source, event records, or cycle assignments change.",
+          "methods": []
+        },
+        "FreezeEventSelector": {
+          "summary": "Tracks the chosen freeze event and cooling cycle and performs explicit event navigation.",
+          "details": "`refresh()` reads the current single-cell selection, valid event frames, and imported cycle assignments without changing the displayed frame. A chosen cycle persists across cells; a missing event in that cycle leaves no navigation target while other events remain accessible. The exact chosen event is retained for the same cell after manual browsing. Cycle IDs are zero-based internally and displayed from one; unknown cycles use one-based event ordinals. Arrows stop at the ends. Button and dropdown actions compare captured context with current state before navigating, and navigation respects the main window's editing guards. Source or cycle-assignment changes reset the remembered choice.",
+          "methods": [
+            "__init__",
+            "refresh",
+            "selected_frame",
+            "remember_target",
+            "action_context",
+            "step_from_button",
+            "activate_from_combo",
+            "activate_event",
+            "step_event",
+            "navigate"
+          ]
+        }
+      }
+    },
     "icescopy_freeze_count_timeseries": {
       "summary": "Build sample-group freeze counts matched to temperature records.",
       "details": "The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and correction helpers. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.",
@@ -386,8 +414,9 @@
       "classes": {
         "FreezeCountTimeseriesMixin": {
           "summary": "Adds temperature/count result construction methods to the main window.",
-          "details": "The class is used as a mixin: its methods run on `IceScopy` and expect its records, preferences, and frame helpers. Reimport temperature data after changing event annotations when recomputed counts are needed.",
+          "details": "The class is used as a mixin: its methods run on `IceScopy` and expect its records, preferences, and frame helpers. Import builders also retain their actual frame-to-cycle assignments for event review when a reset temperature is configured. `freeze_review_cycle_ids()` returns verified zero-based assignments in frame order, separately from counts. These assignments can survive event corrections; reimport temperature data when recomputed counts are needed.",
           "methods": [
+            "freeze_review_cycle_ids",
             "build_freeze_count_timeseries_sample_groups",
             "build_freeze_count_timeseries_image_counts",
             "build_standard_freeze_count_timeseries_results",
@@ -397,6 +426,20 @@
           ]
         }
       }
+    },
+    "icescopy_freeze_cycles": {
+      "summary": "Preserve and validate imported cooling-cycle assignments for freeze-event review.",
+      "details": "Cycle metadata stores ordered frame identities, zero-based cycle IDs or unknown values, and the configured reset temperature. It records the temperature importer's assignments rather than redetecting cycles from event order. Frame identities must match the current source exactly before assignments are returned. Metadata is separate from frozen counts and annotations so event corrections need not remove known cycle labels. Legacy recovery accepts only explicit cycle columns with a configured reset threshold and unambiguous frame matching; uncertain assignments remain unknown.",
+      "functions": [
+        "finite_reset_temperature",
+        "normalize_cycle_metadata",
+        "capture_cycle_metadata",
+        "cycle_metadata_from_legacy_results",
+        "set_cycle_metadata",
+        "restore_cycle_metadata",
+        "cycle_ids_for_window"
+      ],
+      "classes": {}
     },
     "icescopy_freezfinder": {
       "summary": "Numerical freeze-event detection and a separate CSV-oriented dialog.",
@@ -700,7 +743,7 @@
     },
     "icescopy_session_io": {
       "summary": "Serialize session bundles and prepare validated restore state.",
-      "details": "A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.",
+      "details": "A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. Imported frame-to-cycle assignments for event review are stored separately from result tables in `freeze_review_cycle_metadata`. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.",
       "functions": [
         "build_session_payload",
         "migrate_session_payload",

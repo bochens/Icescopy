@@ -153,6 +153,281 @@ class ComparisonViewerTests(unittest.TestCase):
         QTest.mouseClick(checkbox, Qt.LeftButton, pos=QPoint(10, checkbox.height() // 2))
         self.process_events()
 
+    def install_freeze_review_cycles(self, cycle_ids=(0, 0, 1, 1, 2)):
+        self.window.freeze_review_cycle_metadata = {
+            "frame_keys": [self.window.frame_key(index) for index in range(self.window.frame_count())],
+            "cycle_ids": list(cycle_ids),
+            "reset_temperature": 0.0,
+        }
+
+    def choose_freeze_event(self, label):
+        combo = self.window.cells_freeze_event_selector.combo
+        index = combo.findText(label)
+        self.assertGreaterEqual(index, 0, label)
+        combo.showPopup()
+        self.process_events()
+        view = combo.view()
+        position = view.visualRect(combo.model().index(index, 0)).center()
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=position)
+        self.process_events()
+
+    def test_event_selector_orders_valid_events_and_navigates_with_arrows_and_dropdown(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([4, 0, 2, 2, -1, 5], [], []))
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        selector = self.window.cells_freeze_event_selector
+        selector.refresh()
+        self.assertEqual([selector.combo.itemText(index) for index in range(selector.combo.count())], [
+            "Event 1 · Frame 0", "Event 2 · Frame 2", "Event 3 · Frame 4",
+        ])
+        self.assertFalse(self.window.cells_show_first_freeze_checkbox.isChecked())
+        self.assertFalse(selector.previous_button.isEnabled())
+        self.assertTrue(selector.next_button.isEnabled())
+        self.assertEqual(self.window.image_index, 2)
+        for expected in (2, 4):
+            QTest.mouseClick(selector.next_button, Qt.LeftButton)
+            self.assertEqual(self.window.image_index, expected)
+            self.assertEqual(selector.selected_frame(), expected)
+        self.assertFalse(selector.next_button.isEnabled())
+        QTest.mouseClick(selector.previous_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 2)
+        self.choose_freeze_event("Event 1 · Frame 0")
+        self.assertEqual(self.window.image_index, 0)
+        self.assertFalse(selector.previous_button.isEnabled())
+        history_count = self.window.undo_stack.count()
+        self.window.undo_stack.undo()
+        self.assertEqual(self.window.image_index, 2)
+        self.window.undo_stack.redo()
+        self.assertEqual(self.window.image_index, 0)
+        self.assertEqual(self.window.undo_stack.count(), history_count)
+
+    def test_explicit_event_navigation_centers_destination_geometry_only_when_enabled(self):
+        cell_id = self.install_moving_cell()
+        self.window.apply_cursor_tool_ui()
+        self.set_freeze_frames([cell_id], ([1, 3],))
+        crop = {"center_x": 280.0, "center_y": 240.0, "width": 400.0, "height": 300.0, "angle": 15.0}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(crop=crop))
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_id])
+        self.set_camera(scale=1.5, center=QPointF(320, 260))
+        original_center = self.center(self.window.view)
+        selector = self.window.cells_freeze_event_selector
+        selector.refresh()
+        QTest.mouseClick(selector.next_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 3)
+        self.assert_linked(expected_scale=1.5, expected_center=original_center)
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        QTest.mouseClick(selector.previous_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 1)
+        self.assertEqual(self.selected_cell_ids(), {cell_id})
+        self.assertEqual(self.window.get_selected_cell_items()[0].circle_pixel_positions, (150, 140))
+        expected = QPointF(*self.window.image_pixel_to_scene_coordinates(150, 140, index=1))
+        self.assert_linked(expected_scale=1.5, expected_center=expected)
+        self.assertFalse(self.window.cells_show_first_freeze_checkbox.isChecked())
+
+    def test_cycle_choice_survives_cell_changes_and_missing_cycle_does_not_seek(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 3, 4], [0, 4], [1, 2, 4]))
+        self.install_freeze_review_cycles()
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        selector = self.window.cells_freeze_event_selector
+        selector.refresh()
+        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.assertEqual(self.window.image_index, 3)
+
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(1)).center())
+        self.assertEqual(self.window.image_index, 3)
+        self.assertEqual(selector.combo.currentText(), "Cycle 2 · No freeze event")
+        self.assertIsNone(selector.selected_frame())
+        self.assertGreaterEqual(selector.combo.findText("Cycle 1 · Frame 0"), 0)
+        self.assertGreaterEqual(selector.combo.findText("Cycle 3 · Frame 4"), 0)
+        self.assertTrue(selector.previous_button.isEnabled())
+        self.assertTrue(selector.next_button.isEnabled())
+
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(2)).center())
+        self.assertEqual(self.window.image_index, 2)
+        self.assertEqual(selector.combo.currentText(), "Cycle 2 · Frame 2")
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(1)).center())
+        self.assertEqual(self.window.image_index, 2)
+        QTest.mouseClick(selector.next_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 4)
+        self.assertEqual(selector.combo.currentText(), "Cycle 3 · Frame 4")
+
+    def test_same_cell_retains_exact_event_within_a_cycle_after_manual_frame_navigation(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 1, 3, 4], [], []))
+        self.install_freeze_review_cycles()
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.choose_freeze_event("Cycle 1 · Frame 1")
+        self.window.navigate_to_image(4)
+        self.assertEqual(self.window.cells_freeze_event_selector.selected_frame(), 1)
+        point = tree.visualItemRect(tree.topLevelItem(0)).center()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+        self.assertEqual(self.window.image_index, 1)
+        self.assertEqual(self.window.cells_freeze_event_selector.combo.currentText(), "Cycle 1 · Frame 1")
+
+    def test_event_selector_is_disabled_without_one_cell_with_valid_events(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], [-1, 5, 100]))
+        self.show_cells_list()
+        selector = self.window.cells_freeze_event_selector
+        for selected in ([], cell_ids[:2], [cell_ids[1]], [cell_ids[2]]):
+            with self.subTest(selected=selected):
+                self.window.reselect_cell_ids(selected)
+                selector.refresh()
+                self.assertIsNone(selector.selected_frame())
+                self.assertFalse(selector.combo.isEnabled())
+                self.assertFalse(selector.previous_button.isEnabled())
+                self.assertFalse(selector.next_button.isEnabled())
+                selector.activate_event(0)
+                selector.step_event(1)
+                self.assertEqual(self.window.image_index, 2)
+
+    def test_canvas_selection_and_programmatic_event_refresh_do_not_navigate(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [1, 3], []))
+        self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        original_center = self.center(self.window.view)
+        view = self.window.view
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.mapFromScene(QPointF(250, 220)))
+        selector = self.window.cells_freeze_event_selector
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        self.assertTrue(selector.combo.isEnabled())
+        selector.combo.setCurrentIndex(1)
+        selector.refresh()
+        self.window.reselect_cell_ids([cell_ids[1]])
+        selector.refresh()
+        self.assertEqual(self.window.image_index, 2)
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_event_choice_clears_after_metadata_or_frame_source_changes_without_seeking(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 3, 4], [], []))
+        self.install_freeze_review_cycles()
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        selector = self.window.cells_freeze_event_selector
+        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.install_freeze_review_cycles((0, 0, 0, 1, 1))
+        selector.refresh()
+        self.assertEqual(self.window.image_index, 3)
+        self.assertEqual(selector.selected_frame(), 0)
+        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.window.set_frame_source(ImageSequenceFrameSource(self.paths))
+        self.window.updateImage(2)
+        self.window.reselect_cell_ids([cell_ids[0]])
+        selector.refresh()
+        self.assertEqual(self.window.image_index, 2)
+        self.assertEqual(selector.selected_frame(), 0)
+
+    def test_event_actions_recheck_space_edit_and_analysis_guards_and_allow_normal_pan(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], []))
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        selector = self.window.cells_freeze_event_selector
+        selector.refresh()
+        QTest.keyPress(self.window, Qt.Key_Space)
+        selector.activate_event(1)
+        selector.step_event(1)
+        self.assertEqual(self.window.image_index, 2)
+        QTest.keyRelease(self.window, Qt.Key_Space)
+        self.window.imageEditTool(True)
+        selector.activate_event(1)
+        self.assertEqual(self.window.image_index, 2)
+        self.window.reset_cursor_tool(True)
+        self.window.reselect_cell_ids([cell_ids[0]])
+        with patch.object(self.window, "output_state", True):
+            selector.activate_event(1)
+            selector.step_event(1)
+            self.assertEqual(self.window.image_index, 2)
+        self.window.panTool(True)
+        selector.refresh()
+        QTest.mouseClick(selector.next_button, Qt.LeftButton)
+        self.assertEqual(self.window.image_index, 4)
+        self.assertEqual(self.window.tool_mode, "pan")
+
+    def test_event_arrow_release_does_not_navigate_after_its_context_changes(self):
+        cell_ids = self.install_selection_cells()
+        self.show_cells_list()
+        selector = self.window.cells_freeze_event_selector
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        interruptions = (
+            ("frame", lambda: self.window.navigate_to_image(3), 3),
+            ("selection", lambda: self.window.reselect_cell_ids([cell_ids[1]]), 2),
+            ("events", lambda: self.set_freeze_frames(cell_ids[:1], ([0, 3],)), 2),
+            ("cycles", self.install_freeze_review_cycles, 2),
+            ("source", lambda: self.window.set_frame_source(ImageSequenceFrameSource(self.paths)), 2),
+        )
+        for name, interrupt, expected_frame in interruptions:
+            with self.subTest(interruption=name):
+                self.window.freeze_review_cycle_metadata = {}
+                self.set_freeze_frames(cell_ids, ([0, 4], [1, 3], []))
+                self.window.reselect_cell_ids([cell_ids[0]])
+                self.window.navigate_to_image(2)
+                self.set_camera(scale=1.0, center=QPointF(500, 420))
+                original_center = self.center(self.window.view)
+                selector.refresh()
+                self.assertTrue(selector.next_button.isEnabled())
+                with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+                    QTest.mousePress(selector.next_button, Qt.LeftButton)
+                    interrupt()
+                    selector.refresh()
+                    QTest.mouseRelease(selector.next_button, Qt.LeftButton)
+                    self.assertEqual(center.call_count, 0)
+                self.assertEqual(self.window.image_index, expected_frame)
+                self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_rejected_event_popup_action_restores_the_displayed_retained_event(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], []))
+        tree = self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        selector = self.window.cells_freeze_event_selector
+        selector.combo.showPopup()
+        self.process_events()
+        self.window.navigate_to_image(3)
+        view = selector.combo.view()
+        position = view.visualRect(selector.combo.model().index(1, 0)).center()
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=position)
+        self.process_events()
+        self.assertEqual(self.window.image_index, 3)
+        self.assertEqual(selector.selected_frame(), 0)
+        self.assertEqual(selector.combo.currentText(), "Event 1 · Frame 0")
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(0)).center())
+        self.assertEqual(self.window.image_index, 0)
+
+    def test_event_combo_wheel_uses_a_fresh_context_after_popup_navigation(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0, 4], [], []))
+        self.show_cells_list()
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.choose_freeze_event("Event 2 · Frame 4")
+        selector = self.window.cells_freeze_event_selector
+        combo = selector.combo
+        combo.setFocus()
+        point = combo.rect().center()
+        for delta, expected_frame in ((120, 0), (-120, 4)):
+            with self.subTest(delta=delta):
+                wheel = QWheelEvent(
+                    QPointF(point), QPointF(combo.mapToGlobal(point)), QPoint(), QPoint(0, delta),
+                    Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False,
+                )
+                self.app.sendEvent(combo, wheel)
+                self.process_events()
+                self.assertEqual(self.window.image_index, expected_frame)
+                self.assertEqual(selector.selected_frame(), expected_frame)
+                self.assertTrue(combo.currentText().endswith(f"Frame {expected_frame}"))
+
     def test_first_freeze_and_auto_center_are_independent_and_wait_for_list_release(self):
         cell_ids = self.install_selection_cells()
         self.set_freeze_frames(cell_ids, ([4, 0, 3], [1], [4]))
@@ -360,6 +635,8 @@ class ComparisonViewerTests(unittest.TestCase):
                     self.click_checkbox(self.window.cells_show_first_freeze_checkbox)
                     point = tree.visualItemRect(tree.topLevelItem(2)).center()
                     QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+                    self.window.cells_freeze_event_selector.activate_event(0)
+                    self.window.cells_freeze_event_selector.step_event(1)
                     self.assertEqual(center.call_count, 0)
                 self.assertEqual(self.window.image_index, 2)
                 self.assertEqual(self.window.tool_mode, "pan")

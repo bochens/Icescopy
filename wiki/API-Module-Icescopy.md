@@ -18,7 +18,7 @@ The `IceScopy` window connects frame sources, cell records, graphics, result tab
 
 ### `main`
 
-[Source](../src/Icescopy.py#L11253)
+[Source](../src/Icescopy.py#L11288)
 
 ```python
 def main(argv=None):
