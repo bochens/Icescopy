@@ -100,7 +100,9 @@ Ambiguous day/month slash dates can be rejected. Year-first text avoids that amb
 
 ### Required records and matching
 
-Use the original tab-separated CSU IS or cold-stage export. It must contain `Picture` and either `Avg_Temp` or `Sample_Temp`. The first two columns supply date and time, even if the second header is blank. `Sample_...` count columns are optional when using Icescopy detections. A simplified cold-stage layout is:
+Use the original tab-separated CSU IS or cold-stage export. It must contain `Picture`. The first two columns supply date and time, even if the second header is blank. `Sample_...` count columns are optional when using Icescopy detections.
+
+**Temperature column:** the importer accepts either `Sample_Temp` or `Avg_Temp`, in °C. A simplified cold-stage layout is:
 
 ```text
 Time<TAB><TAB>Sample_Temp<TAB>Sample_0<TAB>Picture

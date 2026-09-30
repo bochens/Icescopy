@@ -3,7 +3,7 @@
 
 Lets the user choose among the result exports currently available.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L1345) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L1346) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L1346)
+[Source](../src/icescopy_dialogs.py#L1347)
 
 ```python
 def __init__(self, parent=None, *, include_grayscale=False, include_freeze=False, include_freeze_count_timeseries=False):
@@ -21,7 +21,7 @@ def __init__(self, parent=None, *, include_grayscale=False, include_freeze=False
 
 ### `selected_exports`
 
-[Source](../src/icescopy_dialogs.py#L1403)
+[Source](../src/icescopy_dialogs.py#L1404)
 
 ```python
 def selected_exports(self):
@@ -29,7 +29,7 @@ def selected_exports(self):
 
 ### `sync_select_all_checkbox`
 
-[Source](../src/icescopy_dialogs.py#L1430)
+[Source](../src/icescopy_dialogs.py#L1431)
 
 ```python
 def sync_select_all_checkbox(self):

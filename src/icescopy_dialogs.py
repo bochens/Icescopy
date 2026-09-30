@@ -244,6 +244,7 @@ class CSUTemperatureImportDialog(QDialog):
 
         intro_label = QLabel(
             "Import temperatures and freezing counts from CSU IS or cold-stage .dat files. "
+            "Temperature column: Sample_Temp or Avg_Temp (°C). "
             "Each Picture entry links a data row to its image.",
             self,
         )

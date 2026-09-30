@@ -3,7 +3,7 @@
 
 Collects UTK temperature data and video timing options.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L403) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L404) · [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L404)
+[Source](../src/icescopy_dialogs.py#L405)
 
 ```python
 def __init__(self, main_window, initial_path, sample_names, initial_reset_temperature=None, initial_blank_sample_names=None, video_mode=False, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, sample_names, initial_reset_temper
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L520)
+[Source](../src/icescopy_dialogs.py#L521)
 
 ```python
 def accept(self):
@@ -29,7 +29,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L538)
+[Source](../src/icescopy_dialogs.py#L539)
 
 ```python
 def get_values(self):
