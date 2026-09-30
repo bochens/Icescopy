@@ -52,9 +52,37 @@ def validate_examples(image, examples):
 
 
 def same_object(a, b):
-    # Center containment also catches a second, larger circle on the same well.
-    # Mere edge overlap does not merge adjacent droplets.
-    return math.hypot(a.x-b.x, a.y-b.y) < .9 * max(a.radius, b.radius)
+    # Suppress shifted circles inside one well, not just coincident centers.
+    # Touching circles remain separate. This assumes examples mark the interior
+    # of a droplet/well, rather than a large region enclosing several objects.
+    return math.hypot(a.x-b.x, a.y-b.y) < .9 * (a.radius + b.radius)
+
+
+def radial_support(gray, radius):
+    """Agreement of edge directions with a circular rim, for either polarity.
+
+    Normalize each gradient before averaging around the ring. A faint complete
+    rim can then outrank a strong straight edge. The denominator floor prevents
+    nearly flat pixels from contributing arbitrary directions.
+    """
+    smooth = cv2.GaussianBlur(gray, (0, 0), .8)
+    dx = cv2.Sobel(smooth, cv2.CV_32F, 1, 0, ksize=3)
+    dy = cv2.Sobel(smooth, cv2.CV_32F, 0, 1, ksize=3)
+    magnitude = np.sqrt(dx*dx + dy*dy)
+    floor = max(.005, float(np.median(magnitude)))
+    dx, dy = dx/(magnitude+floor), dy/(magnitude+floor)
+    support = np.zeros_like(gray)
+    for factor in (.85, 1.1, 1.4, 1.75):
+        r = max(2., radius*factor)
+        extent = int(np.ceil(r+3))
+        yy, xx = np.mgrid[-extent:extent+1, -extent:extent+1].astype(np.float32)
+        distance = np.sqrt(xx*xx+yy*yy)
+        ring = np.exp(-.5*((distance-r)/1.2)**2)
+        ring /= ring.sum()
+        kx, ky = ring*xx/np.maximum(distance,1), ring*yy/np.maximum(distance,1)
+        response = np.abs(cv2.filter2D(dx,-1,kx)+cv2.filter2D(dy,-1,ky))
+        support = np.maximum(support,response)
+    return support
 
 
 def exclude_existing(circles, existing):
@@ -71,7 +99,12 @@ def propose(image, radius, limit=1600):
     rgb = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     r = radius * scale
+    support = radial_support(gray,r)
     peaks = []
+    size = max(3, int(round(r * 1.6)) | 1)
+    mask = (support == maximum_filter(support,size=size)) & (support > .12)
+    ys,xs = np.nonzero(mask)
+    peaks.extend((float(support[y,x]),float(x),float(y)) for y,x in zip(ys,xs))
     for factor in (.65, .9, 1.2, 1.6):
         sigma = max(1., r * factor / 1.414)
         response = np.abs(cv2.GaussianBlur(gray, (0, 0), sigma) -
@@ -79,25 +112,27 @@ def propose(image, radius, limit=1600):
         size = max(3, int(round(r * 1.6)) | 1)
         mask = (response == maximum_filter(response, size=size)) & (response > .0015)
         ys, xs = np.nonzero(mask)
-        peaks.extend((float(response[y, x]), float(x), float(y)) for y, x in zip(ys, xs))
+        peaks.extend((float(support[y,x]),float(x),float(y)) for y,x in zip(ys,xs))
     enhanced = cv2.createCLAHE(clipLimit=2., tileGridSize=(16, 16)).apply(np.uint8(gray * 255))
     circles = cv2.HoughCircles(enhanced, cv2.HOUGH_GRADIENT, dp=1, minDist=max(5, 1.6*r),
                                param1=90, param2=12, minRadius=max(3, round(.7*r)),
                                maxRadius=max(4, round(1.8*r)))
     if circles is not None:
-        # Give closed circular edges priority over weaker background spots.
-        peaks.extend((.2, float(x), float(y)) for x, y, _ in circles[0])
+        peaks.extend((float(support[min(round(y),gray.shape[0]-1),min(round(x),gray.shape[1]-1)]),
+                      float(x),float(y)) for x,y,_ in circles[0])
     selected = []
     for strength, x, y in sorted(peaks, reverse=True):
         candidate = Circle(x/scale, y/scale, radius)
-        if not any(same_object(candidate, old) for old in selected):
+        # Keep alternative nearby centers for scoring; only the final detections
+        # and protected user circles use the stricter overlap exclusion above.
+        if not any(math.hypot(candidate.x-old.x,candidate.y-old.y)<.9*radius for old in selected):
             selected.append(candidate)
             if len(selected) == limit:
                 break
     return selected
 
 
-def patches(image, circles, size=96, extent=3.):
+def patches(image, circles, size=96, extent=2.25):
     result = []
     for c in circles:
         side = max(5, int(round(2*c.radius*extent)) | 1)

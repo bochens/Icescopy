@@ -22,6 +22,10 @@ class DetectorContractTests(unittest.TestCase):
 
     def test_touching_droplets_are_separate(self):
         self.assertFalse(same_object(Circle(20,20,10),Circle(40,20,10)))
+        self.assertFalse(same_object(Circle(20,20,4),Circle(36,20,12)))
+
+    def test_shifted_rim_does_not_create_second_circle_in_same_well(self):
+        self.assertTrue(same_object(Circle(20,20,8),Circle(30,20,8)))
 
     def test_invalid_geometry_and_outside_examples(self):
         for radius in [0,-1,float('nan')]:
