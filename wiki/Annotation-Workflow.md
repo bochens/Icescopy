@@ -99,7 +99,7 @@ Use Grid Tool for a regular array of wells or droplets. A grid uses the layout y
 6. Inspect circles at the edges and center. Click **Apply** or press **Enter** only when the layout fits.
 7. Press **A** and check the resulting numbered cells.
 
-![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-29/grid-annotation-native.png)
+![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-30/grid-annotation.png)
 
 Pitch and radius use image pixels; tilt uses degrees. Changing **Rows** or **Cols** changes how many cells will be created. A grid with 4 rows and 6 columns creates 24 cells when applied.
 
@@ -212,7 +212,7 @@ After analysis:
 3. Go to its freeze frame and use **Show Two Images** for the previous/current pair, or **Show Three Images** for previous/current/next.
 4. Compare the solid brightness line and the images. The dashed line emphasizes brightness changes; it is not a second raw brightness measurement.
 
-![Frame comparison with cell inspection and the grayscale plot](../resources/readme/2026-09-29/droplet-frame-comparison-native.png)
+![Three linked frame views with cell inspection and the grayscale plot](../resources/readme/2026-09-30/linked-frame-review.png)
 
 Use **Show One Image** to return to a single frame. Selection and editing stay on the current image. For navigation and the **Freeze frame only** list filter, see [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md).
 
