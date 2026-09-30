@@ -198,18 +198,22 @@ class Encoder:
         self.torch = torch
         self.model = mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1).eval()
 
+    def input_tensor(self, batch):
+        """Exact shared network input for original inference and fine-tuning."""
+        t=self.torch
+        values=np.asarray(batch,dtype=np.float32).copy()
+        lo=np.percentile(values,1,axis=(1,2,3),keepdims=True)
+        hi=np.percentile(values,99,axis=(1,2,3),keepdims=True)
+        values=np.clip((values-lo)/np.maximum(hi-lo,1e-5),0,1).astype(np.float32)
+        x=t.from_numpy(values.transpose(0,3,1,2)).contiguous()
+        return (x-t.tensor([.485,.456,.406])[None,:,None,None])/t.tensor([.229,.224,.225])[None,:,None,None]
+
     def encode(self, batch):
         outputs=[]
         t=self.torch
         with t.inference_mode():
             for start in range(0,len(batch),64):
-                values=batch[start:start+64].copy()
-                # Global patch scaling preserves color relationships and polarity.
-                lo=np.percentile(values,1,axis=(1,2,3),keepdims=True)
-                hi=np.percentile(values,99,axis=(1,2,3),keepdims=True)
-                values=np.clip((values-lo)/np.maximum(hi-lo,1e-5),0,1).astype(np.float32)
-                x=t.from_numpy(values.transpose(0,3,1,2)).contiguous()
-                x=(x-t.tensor([.485,.456,.406])[None,:,None,None])/t.tensor([.229,.224,.225])[None,:,None,None]
+                x=self.input_tensor(batch[start:start+64])
                 y=self.model.features(x)
                 y=self.model.avgpool(y).flatten(1)
                 outputs.append(y.numpy())
