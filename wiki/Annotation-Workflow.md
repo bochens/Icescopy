@@ -99,7 +99,7 @@ Use Grid Tool for a regular array of wells or droplets. A grid uses the layout y
 6. Inspect circles at the edges and center. Click **Apply** or press **Enter** only when the layout fits.
 7. Press **A** and check the resulting numbered cells.
 
-![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-30/grid-annotation.png)
+![Pinned grid preview with placement controls and Apply button](../resources/readme/2026-09-30/grid-annotation-full-plate.png)
 
 Pitch and radius use image pixels; tilt uses degrees. Changing **Rows** or **Cols** changes how many cells will be created. A grid with 4 rows and 6 columns creates 24 cells when applied.
 

@@ -43,7 +43,7 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 Draw individual cells with **Add Cell**, or place a row-and-column array with **Grid Tool**. Adjust the size, spacing, and angle to fit the image. Click **Apply** to create the cells.
 
-![Grid Tool preview beside numbered cells](resources/readme/2026-09-30/grid-annotation.png)
+![Grid Tool preview beside numbered cells](resources/readme/2026-09-30/grid-annotation-full-plate.png)
 
 A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
 
@@ -51,7 +51,7 @@ A **cell** is the circle whose brightness Icescopy measures. If the image moves,
 
 Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
 
-![Cells with sample-colored labels and editable sample information](resources/readme/2026-09-30/sample-assignment.png)
+![Cells with sample-colored labels and editable sample information](resources/readme/2026-09-30/sample-assignment-full-plate.png)
 
 ### 3. Automatically detect freeze frames
 
