@@ -22,7 +22,7 @@ The dialog can select water blank samples and a reset temperature for repeated c
 
 ## Before importing
 
-1. Finish automatic detection and manual corrections. Importing temperatures uses the event list as it currently stands, including manual events outside analysis intervals.
+1. For image-derived counts, finish automatic detection and manual corrections. Importing uses the current event list, including manual events outside analysis intervals. CSU recorded counts do not require image freeze detection.
 2. Assign cells to samples and give each sample a nonempty name. Use distinct names for easier checking; CSU matching requires names it can distinguish.
 3. Check recording order. Sorting the temperature record does not fix an incorrectly ordered image sequence.
 4. Confirm that the frame clock and temperature logger use the same time basis. A successful import does not prove that the clocks agree.
