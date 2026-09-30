@@ -44,7 +44,7 @@ class CSUImportDialogTests(unittest.TestCase):
         for source, help_text in (
             (CSU_COUNT_SOURCE_IMAGES, "CSU count columns are not required"),
             (CSU_COUNT_SOURCE_INSTRUMENT, "including any decreases"),
-            (CSU_COUNT_SOURCE_COMBINED, "CSU counts between pictures"),
+            (CSU_COUNT_SOURCE_COMBINED, "CSU counts between images"),
         ):
             with self.subTest(source=source):
                 dialog.count_source_combo.setCurrentIndex(dialog.count_source_combo.findData(source))

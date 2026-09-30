@@ -243,9 +243,8 @@ class CSUTemperatureImportDialog(QDialog):
         )
 
         intro_label = QLabel(
-            "Import temperatures and freezing counts from CSU IS or cold-stage .dat files. "
-            "Temperature column: Sample_Temp or Avg_Temp (°C). "
-            "Each Picture entry links a data row to its image.",
+            "Choose the CSU .dat file for the loaded images. "
+            "The Picture column matches image filenames to their recorded times.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -293,7 +292,7 @@ class CSUTemperatureImportDialog(QDialog):
 
         self.blank_sample_list = QListWidget(self)
         self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
+        self.blank_sample_list.setFixedHeight(132)
         _populate_blank_sample_list(self.blank_sample_list, sample_names, set())
         form.addRow("Water blank samples", self.blank_sample_list)
 
@@ -318,7 +317,10 @@ class CSUTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            f"Water blank correction is applied within each cycle. {WATER_BLANK_CORRECTION_DESCRIPTION} {TEMPERATURE_RESET_DESCRIPTION}",
+            "Water blanks are water-only controls. Their frozen counts are subtracted from "
+            "each other sample's total and frozen counts. For repeated cooling cycles, set a "
+            "reset temperature; warming to this value marks a new cycle. "
+            "Otherwise leave reset Off.",
             self,
         )
         hint_label.setWordWrap(True)
@@ -333,21 +335,24 @@ class CSUTemperatureImportDialog(QDialog):
     def update_count_source_help(self):
         descriptions = {
             CSU_COUNT_SOURCE_IMAGES: (
-                "Use freeze events found or edited in Icescopy. Choose this when the stage did not "
-                "record counts. App sample names can be anything; CSU count columns are not required."
+                "Use freeze events found or edited in Icescopy. You can use any sample names; "
+                "CSU count columns are not required."
             ),
             CSU_COUNT_SOURCE_INSTRUMENT: (
-                "Use each sample's frozen count as recorded, including any decreases. Draw all cells and name "
-                "each app sample to match its CSU column (for example, Sample_0). These totals "
-                "do not identify individual frozen cells."
+                "Use CSU's recorded counts, including any decreases. They do not identify individual "
+                "frozen cells. Draw all cells and assign them to samples in Icescopy, using the "
+                ".dat column names, such as Sample_0."
             ),
             CSU_COUNT_SOURCE_COMBINED: (
-                "Use Icescopy counts at matching pictures and CSU counts between pictures. Run "
-                "image analysis first, and name app samples to match the Sample_N columns. "
-                "Counts are limited to the assigned cell total."
+                "Use Icescopy counts at image times and CSU counts between images. Run image "
+                "analysis first. Name the samples in Icescopy to match the .dat columns, "
+                "such as Sample_0."
             ),
         }
-        self.count_source_help.setText(descriptions[self.count_source_combo.currentData()])
+        self.count_source_help.setText(
+            descriptions[self.count_source_combo.currentData()]
+            + " Temperatures (°C) come from Sample_Temp or Avg_Temp."
+        )
 
     def browse_file(self):
         initial_dir = ""

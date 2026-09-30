@@ -125,13 +125,13 @@ Use unique image names and keep the loaded images in the same order as the pictu
 
 | Count source | Use it when | How counts are built |
 | --- | --- | --- |
-| **Icescopy detections** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All app sample groups are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
-| **CSU recorded counts** | You want the instrument's existing sample counts. | Name app samples to match the `Sample_...` columns and assign the full set of cells to each sample. These assignments supply the total droplet count. Recorded values, including decreases, are retained before any selected blank correction. |
+| **Icescopy detections** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All sample groups in Icescopy are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
+| **CSU recorded counts** | You want the instrument's recorded sample counts. | Assign all cells to samples in Icescopy. Name each sample to match its `.dat` column, such as `Sample_0`. These assignments supply the total droplet count. Recorded values, including decreases, are retained before any selected blank correction. |
 | **Icescopy + CSU** | You want image counts to correct the instrument counts. | Image-derived counts set reference values at matched pictures. CSU counts fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
 
 CSU output has one row per instrument record, so many rows can have an empty `picture` field. The import does **not** create or change individual cells' freeze events: instrument sample totals do not identify which droplets froze.
 
-For recorded and combined counts, sample-name matching ignores case and repeated whitespace. Rename duplicate app sample names before importing. Unmatched named samples are omitted and reported. Combined mode can also include unassigned cells using image counts; recorded mode cannot assign instrument counts to unassigned cells.
+Samples in Icescopy are groups of cells assigned to the same sample. For recorded and combined counts, their names must match the `.dat` columns; matching ignores case and repeated whitespace. Rename duplicate sample names before importing. Unmatched named samples are omitted and reported. Combined mode can also include unassigned cells using image counts; recorded mode cannot assign instrument counts to unassigned cells.
 
 Missing or invalid counts stop recorded and combined imports for the affected matched samples; choose **Icescopy detections** to ignore those columns. Recorded mode also stops if a count exceeds the sample's assigned cell total, rather than clipping the value. All-zero counts do not establish whether the instrument detector was enabled.
 

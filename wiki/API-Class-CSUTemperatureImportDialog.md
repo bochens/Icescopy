@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, sample_names, initial_reset_temper
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L374)
+[Source](../src/icescopy_dialogs.py#L379)
 
 ```python
 def accept(self):
@@ -29,7 +29,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L392)
+[Source](../src/icescopy_dialogs.py#L397)
 
 ```python
 def get_values(self):
