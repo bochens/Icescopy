@@ -278,7 +278,7 @@ class CSUTemperatureImportDialog(QDialog):
         self.count_source_combo = QComboBox(self)
         self.count_source_combo.addItem("Icescopy detections", CSU_COUNT_SOURCE_IMAGES)
         self.count_source_combo.addItem("CSU recorded counts", CSU_COUNT_SOURCE_INSTRUMENT)
-        self.count_source_combo.addItem("Icescopy + CSU (existing method)", CSU_COUNT_SOURCE_COMBINED)
+        self.count_source_combo.addItem("Icescopy + CSU", CSU_COUNT_SOURCE_COMBINED)
         source_index = self.count_source_combo.findData(initial_count_source)
         if source_index < 0:
             source_index = self.count_source_combo.findData(CSU_COUNT_SOURCE_COMBINED)
@@ -343,7 +343,7 @@ class CSUTemperatureImportDialog(QDialog):
             CSU_COUNT_SOURCE_COMBINED: (
                 "Use Icescopy counts at matching pictures and CSU counts between pictures. Run "
                 "image analysis first, and name app samples to match the Sample_N columns. "
-                "This is the existing import method."
+                "Counts are limited to the assigned cell total."
             ),
         }
         self.count_source_help.setText(descriptions[self.count_source_combo.currentData()])

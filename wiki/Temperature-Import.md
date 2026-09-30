@@ -125,7 +125,7 @@ Use unique image names and keep the loaded images in the same order as the pictu
 | --- | --- | --- |
 | **Icescopy detections** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All app sample groups are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
 | **CSU recorded counts** | You want the instrument's existing sample counts. | Name app samples to match the `Sample_...` columns and assign the full set of cells to each sample. These assignments supply the total droplet count. Recorded values, including decreases, are retained before any selected blank correction. |
-| **Icescopy + CSU (existing method)** | You want the previous CSU reconciliation method. | Image-derived counts set reference values at matched pictures. CSU counts fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
+| **Icescopy + CSU** | You want image counts to correct the instrument counts. | Image-derived counts set reference values at matched pictures. CSU counts fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
 
 CSU output has one row per instrument record, so many rows can have an empty `picture` field. The import does **not** create or change individual cells' freeze events: instrument sample totals do not identify which droplets froze.
 
