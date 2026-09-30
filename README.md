@@ -53,7 +53,7 @@ Assign selected cells to a **Sample ID** in **Tool Options**, then enter details
 
 ![Numbered wells and their sample information](resources/readme/2026-09-29/well-plate-sample-review-native.png)
 
-### 3. Choose the frames to analyze
+### 3. Automatically detect freeze frames
 
 Use the timeline's **analysis start and end markers** to skip setup, warming, or other unwanted parts of a recording. You can include several separate intervals. Both marked frames are included; without markers, the whole recording is analyzed.
 
