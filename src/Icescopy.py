@@ -4469,6 +4469,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         layout.setSpacing(6)
 
         navigation_controls = QHBoxLayout()
+        navigation_controls.setSpacing(12)
         self.cells_auto_center_checkbox = QCheckBox("Auto-center", panel)
         self.cells_auto_center_checkbox.setChecked(False)
         self.cells_auto_center_checkbox.setToolTip(
