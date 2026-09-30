@@ -26,6 +26,16 @@ LOCAL_NAMES = PROFILE_NAMES + TEXTURE_NAMES
 FEATURE_NAMES = ['gray_correlation', 'edge_correlation', 'quarter_turn_gray_correlation',
                  'quarter_turn_edge_correlation', 'edge_at_best_gray_rotation']
 FEATURE_NAMES += [f'{kind}_{name}' for kind in ('candidate', 'example', 'difference') for name in LOCAL_NAMES]
+RELATIVE_FEATURE_NAMES = FEATURE_NAMES[:5] + [f'difference_{name}' for name in LOCAL_NAMES]
+RELATIVE_FEATURE_MASK = list(range(5)) + list(range(5+2*len(LOCAL_NAMES), len(FEATURE_NAMES)))
+
+
+def feature_names(mode='all'):
+    if mode == 'all':
+        return FEATURE_NAMES
+    if mode == 'relative':
+        return RELATIVE_FEATURE_NAMES
+    raise ValueError('Fast feature mode must be all or relative.')
 
 _yy, _xx = np.mgrid[-1:1:32j, -1:1:32j]
 _distance = np.hypot(_xx, _yy)
@@ -68,7 +78,7 @@ def feature_bank(image, circles):
             'local': np.asarray(local, np.float32).reshape(-1, len(LOCAL_NAMES))}
 
 
-def pair_features(candidates, examples):
+def pair_features(candidates, examples, mode='all'):
     """Quarter-turn tolerance plus signed and absolute local structure."""
     gray, edges = [], []
     with threadpool_limits(limits=THREADS):
@@ -82,10 +92,16 @@ def pair_features(candidates, examples):
     correlation = np.stack([gray[:, :, 0], edges[:, :, 0], gray.max(axis=-1),
                             edges.max(axis=-1), np.take_along_axis(edges, best[..., None], axis=-1)[:, :, 0]], axis=-1)
     a, b = candidates['local'], examples['local']
+    difference = np.abs(a[:, None, :]-b[None, :, :])
+    if mode == 'relative':
+        # This controlled comparison removes absolute candidate/example
+        # appearance. Every retained feature depends on the chosen example.
+        return np.concatenate([correlation, difference], axis=-1).astype(np.float32)
+    feature_names(mode)
     shape = (len(a), len(b), a.shape[1])
     return np.concatenate([correlation, np.broadcast_to(a[:, None, :], shape),
                            np.broadcast_to(b[None, :, :], shape),
-                           np.abs(a[:, None, :]-b[None, :, :])], axis=-1).astype(np.float32)
+                           difference], axis=-1).astype(np.float32)
 
 
 def validate_model(bundle):
@@ -93,15 +109,16 @@ def validate_model(bundle):
     from sklearn.ensemble import HistGradientBoostingClassifier
     required = {'model_version', 'descriptor_version', 'feature_names', 'sklearn_version',
                 'classifier', 'threshold', 'metadata'}
-    if not isinstance(bundle, dict) or set(bundle) != required:
+    if not isinstance(bundle, dict) or set(bundle) not in (required, required | {'feature_mode'}):
         raise ValueError('Malformed fast model bundle.')
     if bundle['model_version'] != MODEL_VERSION or bundle['descriptor_version'] != DESCRIPTOR_VERSION:
         raise ValueError('Incompatible fast model or image descriptor version.')
-    if bundle['feature_names'] != FEATURE_NAMES or bundle['sklearn_version'] != sklearn.__version__:
+    names = feature_names(bundle.get('feature_mode', 'all'))
+    if bundle['feature_names'] != names or bundle['sklearn_version'] != sklearn.__version__:
         raise ValueError('Fast model requires its recorded features and scikit-learn version.')
     model = bundle['classifier']
     if (not isinstance(model, HistGradientBoostingClassifier) or
-            getattr(model, 'n_features_in_', None) != len(FEATURE_NAMES) or
+            getattr(model, 'n_features_in_', None) != len(names) or
             not np.array_equal(getattr(model, 'classes_', None), [0, 1])):
         raise ValueError('Fast model must be a fitted two-class image classifier.')
     threshold = bundle['threshold']
@@ -118,11 +135,11 @@ def load_model(path):
 
 def scores(candidates, examples, bundle):
     validate_model(bundle)
-    pair = pair_features(candidates, examples)
+    pair = pair_features(candidates, examples, bundle.get('feature_mode', 'all'))
     if not len(pair):
         return np.empty(0, np.float32)
     with threadpool_limits(limits=THREADS):
-        values = bundle['classifier'].predict_proba(pair.reshape(-1, len(FEATURE_NAMES)))[:, 1]
+        values = bundle['classifier'].predict_proba(pair.reshape(-1, pair.shape[-1]))[:, 1]
     return values.reshape(pair.shape[:2]).max(axis=1)
 
 

@@ -19,7 +19,7 @@ from threadpoolctl import threadpool_limits
 
 from benchmark import evaluate, example_trials, subset
 from detector import Circle, preprocess_image, propose, read_image
-from fast_model import DESCRIPTOR_VERSION, FEATURE_NAMES, MODEL_VERSION, THREADS, detect, feature_bank, pair_features, scores
+from fast_model import DESCRIPTOR_VERSION, MODEL_VERSION, THREADS, detect, feature_bank, feature_names, pair_features, scores
 from structured_scenes import render
 
 
@@ -82,7 +82,30 @@ def prepare(scene, folder):
             'distance': distance, 'seconds': elapsed, 'preview_scale': scale}
 
 
-def fit(prepared):
+def cached_prepare(scene, cache_folder, preview_folder):
+    """Reuse the fixed proposal/patch measurements of the first tree run."""
+    source = Path(scene['source'])
+    if hashlib.sha256(source.read_bytes()).hexdigest() != scene['sha256']:
+        raise ValueError('Input changed since cached labels were recorded: '+scene['id'])
+    path = cache_folder/(scene['id']+'-features.npz')
+    with np.load(path) as archive:
+        bank = {key: archive['candidate_'+key].copy() for key in ('gray', 'edges', 'local')}
+        examples = {key: archive['example_'+key].copy() for key in ('gray', 'edges', 'local')}
+        circles = [Circle(*row) for row in archive['circles']]
+    radius = float(scene['targets'][0]['radius'])
+    truth = [Circle(float(t['x']), float(t['y']), radius) for t in scene['targets']]
+    distance = np.linalg.norm(np.array([[c.x, c.y] for c in circles])[:, None, :]-
+                              np.array([[c.x, c.y] for c in truth])[None, :, :], axis=2)
+    if len(examples['local']) != len(truth) or len(bank['local']) != len(circles):
+        raise ValueError('Cached features do not match scene references or proposals.')
+    preview = cache_folder/(scene['id']+'.jpg')
+    (preview_folder/preview.name).write_bytes(preview.read_bytes())
+    return {'scene': scene, 'truth': truth, 'circles': circles, 'bank': bank, 'examples': examples,
+            'distance': distance, 'seconds': 0., 'preview_scale': min(1., 1400/scene['width']),
+            'cache_path': str(path.resolve()), 'cache_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def fit(prepared, mode='all'):
     import sklearn
     from sklearn.ensemble import HistGradientBoostingClassifier
     rows, labels, groups = [], [], []
@@ -103,7 +126,7 @@ def fit(prepared):
             negative = np.sort(rng.choice(negative, 512, replace=False))
         ids = np.unique(np.linspace(0, len(item['truth'])-1, min(8, len(item['truth']))).astype(int))
         indices = np.r_[positive, negative]
-        pair = pair_features(subset(item['bank'], indices), subset(item['examples'], ids))
+        pair = pair_features(subset(item['bank'], indices), subset(item['examples'], ids), mode)
         for j, seed in enumerate(ids):
             keep = item['distance'][indices, seed] >= 1.8*radius
             rows.append(pair[keep, j])
@@ -125,13 +148,14 @@ def fit(prepared):
     with threadpool_limits(limits=THREADS):
         classifier.fit(x, y, sample_weight=weights)
     metadata = {'parameters': PARAMETERS, 'threads': THREADS, 'fit_seconds': time.perf_counter()-start,
+                'feature_mode': mode,
                 'training_pairs': len(y), 'positive_pairs': int(y.sum()), 'negative_pairs': int((1-y).sum()),
                 'training_groups': unique_groups.tolist(),
                 'training_scene_ids': [p['scene']['id'] for p in prepared if p['scene']['split'] == 'fit'],
                 'sampling': 'Up to eight reference examples, all positive proposals, and at most 512 negative proposals per training scene; groups and classes receive equal total weight.'}
     print('Fit', len(y), 'pairs;', round(metadata['fit_seconds'], 2), 's', flush=True)
     return {'model_version': MODEL_VERSION, 'descriptor_version': DESCRIPTOR_VERSION,
-            'feature_names': FEATURE_NAMES, 'sklearn_version': sklearn.__version__,
+            'feature_names': feature_names(mode), 'feature_mode': mode, 'sklearn_version': sklearn.__version__,
             'classifier': classifier, 'threshold': .5, 'metadata': metadata}
 
 
@@ -217,9 +241,19 @@ def main():
     parser.add_argument('--real-labels', type=Path, required=True)
     parser.add_argument('--structured-labels', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--feature-mode', choices=['all', 'relative'], default='all')
+    parser.add_argument('--reuse', type=Path, help='Reuse this completed fast-tree experiment\'s proposals and patch measurements')
     args = parser.parse_args()
     if args.output.exists():
         parser.error('Output folder already exists; choose a new name.')
+    if args.feature_mode == 'relative' and args.reuse is None:
+        parser.error('The controlled relative-feature comparison requires --reuse of the first fast-tree run.')
+    if args.reuse is not None:
+        prior_report = json.loads((args.reuse/'evaluation/report.json').read_text())
+        current_hashes = sorted(hashlib.sha256(p.read_bytes()).hexdigest()
+                                for p in [args.real_labels, args.structured_labels])
+        if current_hashes != sorted(prior_report['input_hashes'].values()):
+            parser.error('Reused feature banks require unchanged real and structured label manifests, including target coordinates.')
     real = json.loads(args.real_labels.read_text())['scenes']
     structured = json.loads(args.structured_labels.read_text())['scenes']
     # The supplied manifest is the boundary: every original is read only.
@@ -237,9 +271,21 @@ def main():
     training = args.output/'training'; training.mkdir()
     evaluation = args.output/'evaluation'; evaluation.mkdir()
     cv2.setNumThreads(THREADS)
-    generated = generated_training(training)
-    prepared = [prepare(s, training) for s in real_fit+generated]
-    bundle = fit(prepared)
+    if args.reuse is None:
+        generated = generated_training(training)
+        prepared = [prepare(s, training) for s in real_fit+generated]
+    else:
+        prior_metadata = json.loads((args.reuse/'model-metadata.json').read_text())
+        if (prior_metadata['descriptor_version'] != DESCRIPTOR_VERSION or
+                prior_metadata['metadata']['parameters'] != PARAMETERS):
+            parser.error('Reused measurements require the original descriptor and fixed tree settings.')
+        generated = json.loads((args.reuse/'training/labels.json').read_text())['scenes']
+        expected = prior_metadata['metadata']['training_scene_hashes']
+        if {s['id']: s['sha256'] for s in real_fit+generated} != expected:
+            parser.error('Reused training/calibration inputs do not match the first run.')
+        (training/'labels.json').write_text(json.dumps({'scenes': generated}, indent=2)+'\n')
+        prepared = [cached_prepare(s, args.reuse/'training', training) for s in real_fit+generated]
+    bundle = fit(prepared, args.feature_mode)
     calibrate(prepared, bundle)
     bundle['metadata']['training_scene_hashes'] = {p['scene']['id']: p['scene']['sha256'] for p in prepared}
     import joblib
@@ -247,7 +293,8 @@ def main():
     metadata = {k: v for k, v in bundle.items() if k != 'classifier'}
     (args.output/'model-metadata.json').write_text(json.dumps(metadata, indent=2)+'\n')
     # Do not prepare evaluation scenes until classifier and threshold are fixed.
-    held_out = [prepare(s, evaluation) for s in real_eval+structured]
+    held_out = ([prepare(s, evaluation) for s in real_eval+structured] if args.reuse is None else
+                [cached_prepare(s, args.reuse/'evaluation', evaluation) for s in real_eval+structured])
     development = [dict(p, scene=dict(p['scene'], split='development')) for p in prepared if p['scene']['group'] == 'real-A']
     for p in development:
         source = training/(p['scene']['id']+'.jpg')
@@ -256,12 +303,17 @@ def main():
               'input_hashes': {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                               for p in [args.real_labels, args.structured_labels]},
               'scenes': report_scenes(development+held_out, bundle),
+              'reused_experiment': str(args.reuse.resolve()) if args.reuse else None,
+              'reused_report_sha256': hashlib.sha256((args.reuse/'evaluation/report.json').read_bytes()).hexdigest() if args.reuse else None,
+              'reused_feature_hashes': {p['cache_path']: p['cache_sha256'] for p in prepared+held_out} if args.reuse else {},
               'limitations': ['All real recordings were inspected during experiment development; results are exploratory.',
                               'Rendered optics are approximations; synthetic success does not establish real occupancy accuracy.',
                               'Missing positive annotations do not mean empty; incomplete-label precision is not reported.',
                               'Only recording A and independent rendered groups fit the tree. Separate rendered groups calibrate the threshold.',
                               'Preparation timing caches features for every reference circle. single_frame_timings measure actual one/two-example calls.',
+                              'When feature banks are reused, preparation seconds=0 records that no new feature preparation was performed; it is not a measured zero-time detection.',
                               'Scores are experimental rankings, not calibrated real occupancy probabilities.',
+                              'Relative mode retains only correlations and candidate/example differences. It removes the absolute candidate/example feature blocks as one controlled comparison, with fixed architecture, groups and sampling.',
                               'No motion estimation, other-image scanning, application integration, or changes to freezing detection.']}
     (evaluation/'report.json').write_text(json.dumps(report)+'\n')
     print('Report', evaluation/'report.json', flush=True)

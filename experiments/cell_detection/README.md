@@ -100,6 +100,24 @@ reported separately. Use the original baseline report alongside this report
 to assess speed and accuracy; a faster alternative is not automatically a
 better cell selector.
 
+One controlled follow-up uses `--feature-mode relative --reuse path/to/fast-tree-v1`.
+It retains the five matching correlations and 38 candidate/example differences,
+and removes the separate absolute candidate and example profiles. This tests
+whether the first tree relied on holder appearance instead of example matching.
+It uses exactly the first run's cached proposals, patches, labels, grouping,
+sampling and tree settings. Both label manifests must have unchanged content.
+The first model bundle remains usable; the new bundle records its feature mode.
+Reused preparation time is recorded as zero because features are not recalculated;
+actual current-frame calls are still measured separately.
+
+```sh
+python experiments/cell_detection/fast_benchmark.py \
+  --real-labels path/to/private-real-labels.json \
+  --structured-labels path/to/structured-scenes-v3/labels.json \
+  --feature-mode relative --reuse output/first-fast-tree-experiment \
+  --output output/new-relative-tree-experiment
+```
+
 The first fixed tree run (`fast-tree-v1`) measured roughly 0.58–1.16 seconds
 per current-frame call on this Mac. It improved the rendered PCR clear case
 from a mean 43.4 of 68 remaining targets with 20.8 extra circles to 68 of 68
@@ -111,6 +129,18 @@ also added 13 false circles. These exploratory results support keeping the
 tree as an alternative, not replacing the original learned model. Synthetic
 calibration precision was 99.12% overall but only 96.33% for small pockets;
 the aggregate number does not describe every holder or any real recording.
+
+The relative-feature comparison (`fast-relative-v1`) reduced the TAMU-A frame
+0 mean extra circles from 13.6 to 0.6 with two examples, but it missed the target
+at (424, 230) again with examples 0 and 8. It improved recording B frame 50
+to 35.2 of 48 remaining targets with 2.6 extras, still below the original
+learned model's 39.8 with 0.4 extras. Two-example IS reference recovery fell
+from 181.6 to 170.0 in frame 0 and from 180.8 to 164.4 in frame 295; unmatched
+IS circles remain unclassified because those annotations are incomplete.
+Both tree variants take roughly 0.6–1.2 seconds per current-frame call on this
+Mac. These differences include separately calibrated thresholds and do not
+prove that absolute candidate appearance alone caused the regression. Neither
+tree variant is a reliable replacement for the original learned model.
 
 ## Evaluate
 
@@ -138,6 +168,17 @@ Variants add blur, uneven lighting, color, and dark interiors. Evaluate the
 generated `labels.json` with `--reference-report`; these variants are not used
 for training by default. They share one layout and must stay together in any
 training/evaluation split. They cannot validate real filled-versus-empty accuracy.
+
+`structured_scenes.py` generates PCR tube trays, rectangular grids, perforated
+holders, and broad pockets containing small droplets. Filled and empty positions
+are explicitly labeled before rendering. Clear, glare and blurred views test
+occupancy errors, including completely empty tray rows; they use approximate
+optics and do not validate real liquid occupancy.
+
+```sh
+python experiments/cell_detection/structured_scenes.py \
+  --output output/new-structured-scenes
+```
 
 ## Interpretation and limits
 
