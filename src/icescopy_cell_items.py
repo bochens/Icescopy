@@ -25,8 +25,9 @@ class CellCircle(QGraphicsEllipseItem):
     Z_VALUE = 1_000
 
     # This class should be shallow copy friendly. At no point should the attributes gets changed, always create a new one instead of making changes
-    def __init__(self, main_window, circle_positions, circle_sizes, circle_pixel_positions, cell_id):
+    def __init__(self, main_window, circle_positions, circle_sizes, circle_pixel_positions, cell_id, *, read_only=False):
         self.main_window = main_window
+        self.read_only = bool(read_only)
 
         super().__init__(circle_positions[0] - circle_sizes, circle_positions[1] - circle_sizes, 2*circle_sizes, 2*circle_sizes)
 
@@ -38,7 +39,9 @@ class CellCircle(QGraphicsEllipseItem):
         self.setZValue(self.Z_VALUE)
 
         self.update_selectable_state()     # enable selection
-        self.setAcceptHoverEvents(True)                         # enable hover event
+        self.setAcceptHoverEvents(not self.read_only)
+        if self.read_only:
+            self.setAcceptedMouseButtons(Qt.NoButton)
 
         # state attributes
         self.hover = False
@@ -82,7 +85,13 @@ class CellCircle(QGraphicsEllipseItem):
     #   4. when the view is refreshed
     #   5. manual update by triggering the pain function
     def paint(self, painter, option, widget):
-        sample_color = self.main_window.sample_visual_color_for_cell(self.cell_id)
+        if self.read_only:
+            # Reference rendering must not create records for cells that only
+            # occur in a neighboring frame's stored layout.
+            record = self.main_window.cell_records_by_id.get(self.cell_id)
+            sample_color = self.main_window.sample_visual_color(getattr(record, "sample_id", None))
+        else:
+            sample_color = self.main_window.sample_visual_color_for_cell(self.cell_id)
         # Check if the item is selected
         if self.pressed:
             pen = QPen(self.main_window.get_qcolor(self.main_window.circle_pressed_color))
@@ -166,9 +175,9 @@ class CellCircle(QGraphicsEllipseItem):
                 event.ignore()
         
     def update_selectable_state(self):
-        # Restrict Qt's built-in item selection to Cursor mode so group/edit
-        # state stays stable when switching tools.
-        if self.main_window.tool_mode in {"cursor", "edit-choose", "image-edit"}:
+        # Pan ignores circle mouse events, but the Cells list must still be
+        # able to select circles and preserve that selection while panning.
+        if not self.read_only and self.main_window.tool_mode in {"cursor", "pan", "edit-choose", "image-edit"}:
             self.setFlag(QGraphicsEllipseItem.ItemIsSelectable, True)
         else:
             self.setFlag(QGraphicsEllipseItem.ItemIsSelectable, False)
@@ -179,7 +188,8 @@ class CellCircle(QGraphicsEllipseItem):
                                     copy.deepcopy(self.circle_positions, memo), 
                                     copy.deepcopy(self.circle_sizes, memo), 
                                     copy.deepcopy(self.circle_pixel_positions, memo),
-                                    copy.deepcopy(self.cell_id, memo))
+                                    copy.deepcopy(self.cell_id, memo),
+                                    read_only=self.read_only)
         new_circle._label_text = QStaticText(str(new_circle.cell_id))
 
         # Set state variables

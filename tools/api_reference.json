@@ -18,7 +18,7 @@
         },
         "IceScopy": {
           "summary": "Owns the active desktop session and coordinates helper modules.",
-          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens the event chosen by `FreezeEventSelector`, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Explicit Cells event selection works independently of Show freeze frame and honors Auto-center. Timeline event arrows instead choose the nearest earlier or later event relative to the current frame across selected cells, or all cells when none are selected; they preserve the camera and remembered cycle without applying Auto-center. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger navigation. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending navigation so an interrupted gesture cannot move the view later.",
           "methods": [
             "active_frame_source",
             "set_frame_source",
@@ -29,6 +29,20 @@
             "apply_image_edit_state",
             "capture_session_state",
             "restore_session_state",
+            "cell_selection_bounds",
+            "center_on_cell_selection",
+            "cell_list_navigation_state",
+            "cancel_cell_list_navigation",
+            "apply_cell_list_navigation",
+            "handle_cell_list_navigation_option_clicked",
+            "navigate_after_cell_list_selection",
+            "freeze_event_navigation_context",
+            "freeze_event_navigation_target",
+            "update_freeze_event_navigation_controls",
+            "remember_freeze_event_button_context",
+            "navigate_from_freeze_event_button",
+            "navigate_to_freeze_event",
+            "update_freeze_event_button_appearance",
             "open_session_file_path",
             "persist_session_to_path",
             "push_cell_history",
@@ -64,7 +78,7 @@
         },
         "CustomGraphicsView": {
           "summary": "Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.",
-          "details": "",
+          "details": "This is the current-frame view. It inherits synchronized pan and zoom support from `LinkedGraphicsView`; neighboring panes use `ReferenceGraphicsView` so their mouse events cannot modify current-frame cells.",
           "methods": [
             "mousePressEvent",
             "mouseMoveEvent",
@@ -179,7 +193,7 @@
         },
         "CellCircle": {
           "summary": "Draws a cell outline and ID, with selection, hover, and edit feedback.",
-          "details": "Rendered items can be synchronized or rebuilt while navigating. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.",
+          "details": "Rendered items can be synchronized or rebuilt while navigating. `read_only=True` draws neighboring-frame circles without mouse, hover, or selection interactions; painting these copies only reads existing cell records. Keep long-lived analysis data in `CellRecord` and use IDs when restoring selections.",
           "methods": [
             "__init__",
             "sync_from_data",
@@ -372,6 +386,42 @@
         }
       }
     },
+    "icescopy_event_navigation": {
+      "summary": "Provide shared freeze-event buttons and a Cells selector that retains the chosen cooling cycle.",
+      "details": "`FreezeEventButton` gives the Cells selector and timeline matching arrow-and-dot icons and button styling. The selector below the Cells checkboxes provides previous/next arrows and a dropdown. Its explicit actions navigate even when Show freeze frame is off, and Auto-center independently controls centering at the destination. Controls refresh without navigating. Known cooling cycles come from imported frame assignments; unknown cycles use event-order labels without inferring cycle identity. Timeline event targets and camera-preserving navigation are coordinated by the main window.",
+      "functions": [],
+      "classes": {
+        "FreezeEventButton": {
+          "summary": "Render the existing timeline arrowhead with a freeze-event dot in a shared button style.",
+          "details": "Used by both the Cells selector and the timeline. `update_appearance()` receives the existing directional arrow icon and active theme, adds the red event dot, and supplies a gray disabled version. It retains the timeline's button geometry and interaction styling while keeping a fixed compact width. Set `timeline=False` for a selector beside a native combo box; this removes the timeline's top margin so their visible centers align. The button owns appearance only; its caller supplies event-navigation behavior.",
+          "methods": [
+            "__init__",
+            "update_appearance"
+          ]
+        },
+        "FreezeEventComboBox": {
+          "summary": "Captures the selection context when an event dropdown or keyboard action begins.",
+          "details": "Internal `QComboBox` subclass owned by `FreezeEventSelector`. It refreshes available events before interaction and retains the context used to reject an activation after the cell, frame source, event records, or cycle assignments change.",
+          "methods": []
+        },
+        "FreezeEventSelector": {
+          "summary": "Tracks the chosen freeze event and cooling cycle and performs explicit event navigation.",
+          "details": "`refresh()` reads the current single-cell selection, valid event frames, and imported cycle assignments without changing the displayed frame. A chosen cycle persists across cells; a missing event in that cycle leaves no navigation target while other events remain accessible. The exact chosen event is retained for the same cell after manual browsing. Cycle IDs are zero-based internally and displayed from one; unknown cycles use one-based event ordinals. Arrows stop at the ends. Button and dropdown actions compare captured context with current state before navigating, and navigation respects the main window's editing guards. Source or cycle-assignment changes reset the remembered choice.",
+          "methods": [
+            "__init__",
+            "refresh",
+            "selected_frame",
+            "remember_target",
+            "action_context",
+            "step_from_button",
+            "activate_from_combo",
+            "activate_event",
+            "step_event",
+            "navigate"
+          ]
+        }
+      }
+    },
     "icescopy_freeze_count_timeseries": {
       "summary": "Build sample-group freeze counts matched to temperature records.",
       "details": "The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and correction helpers. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.",
@@ -379,8 +429,9 @@
       "classes": {
         "FreezeCountTimeseriesMixin": {
           "summary": "Adds temperature/count result construction methods to the main window.",
-          "details": "The class is used as a mixin: its methods run on `IceScopy` and expect its records, preferences, and frame helpers. Reimport temperature data after changing event annotations when recomputed counts are needed.",
+          "details": "The class is used as a mixin: its methods run on `IceScopy` and expect its records, preferences, and frame helpers. Import builders also retain their actual frame-to-cycle assignments for event review when a reset temperature is configured. `freeze_review_cycle_ids()` returns verified zero-based assignments in frame order, separately from counts. These assignments can survive event corrections; reimport temperature data when recomputed counts are needed.",
           "methods": [
+            "freeze_review_cycle_ids",
             "build_freeze_count_timeseries_sample_groups",
             "build_freeze_count_timeseries_image_counts",
             "build_standard_freeze_count_timeseries_results",
@@ -390,6 +441,20 @@
           ]
         }
       }
+    },
+    "icescopy_freeze_cycles": {
+      "summary": "Preserve and validate imported cooling-cycle assignments for freeze-event review.",
+      "details": "Cycle metadata stores ordered frame identities, zero-based cycle IDs or unknown values, and the configured reset temperature. It records the temperature importer's assignments rather than redetecting cycles from event order. Frame identities must match the current source exactly before assignments are returned. Metadata is separate from frozen counts and annotations so event corrections need not remove known cycle labels. Legacy recovery accepts only explicit cycle columns with a configured reset threshold and unambiguous frame matching; uncertain assignments remain unknown.",
+      "functions": [
+        "finite_reset_temperature",
+        "normalize_cycle_metadata",
+        "capture_cycle_metadata",
+        "cycle_metadata_from_legacy_results",
+        "set_cycle_metadata",
+        "restore_cycle_metadata",
+        "cycle_ids_for_window"
+      ],
+      "classes": {}
     },
     "icescopy_freezfinder": {
       "summary": "Numerical freeze-event detection and a separate CSV-oriented dialog.",
@@ -693,7 +758,7 @@
     },
     "icescopy_session_io": {
       "summary": "Serialize session bundles and prepare validated restore state.",
-      "details": "A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.",
+      "details": "A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. Imported frame-to-cycle assignments for event review are stored separately from result tables in `freeze_review_cycle_metadata`. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.",
       "functions": [
         "build_session_payload",
         "migrate_session_payload",
@@ -808,6 +873,73 @@
       "details": "`__version__` supplies Python package metadata and macOS bundle metadata. The Windows installer receives its version as a separate build parameter. Keep those values aligned deliberately when preparing a release.",
       "functions": [],
       "classes": {}
+    },
+    "icescopy_viewer": {
+      "summary": "Separate previous, current, and next frame panes with synchronized pan and zoom.",
+      "details": "The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The Cells list also reports completed user selections so optional frame navigation and centering wait until the interaction ends. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.",
+      "functions": [],
+      "classes": {
+        "CellSelectionTreeWidget": {
+          "summary": "Reports completed Cells-list mouse and keyboard selections for optional frame navigation and centering.",
+          "details": "Captures selection state before a left-mouse gesture or keyboard action in the Cells list and reports the completed interaction afterward. A click on a top-level Cell row can reapply navigation even when the selection is unchanged; expanders, detail rows, blank space, and right-clicks do not. Up/Down navigation visits Cell rows and skips expanded details. The main window checks the active tool and interaction state before applying the independent Show freeze frame and Auto-center options. Image selections and programmatic selection refreshes do not pass through these event handlers.",
+          "methods": [
+            "__init__",
+            "cancel_pending_selection_center",
+            "moveCursor",
+            "mousePressEvent",
+            "mouseReleaseEvent",
+            "keyPressEvent",
+            "focusOutEvent"
+          ]
+        },
+        "LinkedGraphicsView": {
+          "summary": "Reports changes to image position and zoom so the other panes can follow them.",
+          "details": "`content_rect` stores the actual image bounds. The scrollable scene has extra space so each pane can center the same image point near an edge. Pass `content_rect`, rather than the expanded scene rectangle, when fitting the image. `cameraChanged` and `viewportResized` identify the view whose transform or size changed.",
+          "methods": [
+            "__init__",
+            "scene_center",
+            "setSceneRect",
+            "setTransform",
+            "centerOn",
+            "fitInView"
+          ]
+        },
+        "ReferenceGraphicsView": {
+          "summary": "Handles pan, zoom, and image-edit controls in a neighboring-frame pane.",
+          "details": "Frame navigation and crop Apply/Cancel reach the main window. Cell selection and drawing remain in the current pane; Delete and Backspace in a neighboring pane do not delete a current-frame selection.",
+          "methods": [
+            "__init__",
+            "wheelEvent",
+            "keyPressEvent",
+            "keyReleaseEvent"
+          ]
+        },
+        "FramePanel": {
+          "summary": "Combines one frame's label, view, image, cell outlines, and image-edit overlays.",
+          "details": "`refresh_cells()` reads the pane's own frame layout, copies geometry into read-only circle items, and applies that frame's crop transform without moving or changing stored cells. A missing pixmap clears the neighboring image and cells and hides its image-edit overlays. The compact label uses a slightly smaller native font, medium weight for the current pane, and a palette-colored bottom separator. It distinguishes unavailable edge frames from neighbors awaiting a completed video seek. `clear()` owns reference-scene cleanup; current-scene contents remain the main window's responsibility.",
+          "methods": [
+            "__init__",
+            "show_reference",
+            "refresh_cells",
+            "clear_cells",
+            "clear"
+          ]
+        },
+        "ComparisonViewer": {
+          "summary": "Arranges one, two, or three panes and keeps their image position and zoom synchronized.",
+          "details": "Two panes show previous/current frames; three show previous/current/next. `show_frames()` consumes already-rendered pixmaps without reading the frame source. `refresh_reference_cells()` updates neighboring-frame circles after layout, keyframe, or sample changes. `suspend_sync()` batches changes; the caller then chooses the view to synchronize from. Interaction modes follow the current view, while image-edit overlay state is maintained by the main window.",
+          "methods": [
+            "__init__",
+            "suspend_sync",
+            "sync_from",
+            "set_layout",
+            "show_frames",
+            "refresh_reference_cells",
+            "sync_interaction",
+            "clear"
+          ]
+        }
+      }
     },
     "icescopy_video_preview": {
       "summary": "Decode video previews outside the GUI thread.",

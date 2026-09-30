@@ -70,6 +70,7 @@ from icescopy_session_io import SORT_MODE_LABELS
 from icescopy_paths import user_preferences_path, write_preferences_tree_atomic
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
+from icescopy_viewer import LinkedGraphicsView
 from icescopy_sample_metadata import (
     CUSTOM_SAMPLE_METADATA_FIELD_TYPES,
     FIXED_SAMPLE_METADATA_KEYS,
@@ -207,7 +208,7 @@ def create_circular_mask(h, w, center, radius):
     mask = ((X - center[0]) ** 2 + (Y - center[1]) ** 2) <= (radius ** 2)
     return mask
 
-class CustomGraphicsView(QGraphicsView):
+class CustomGraphicsView(LinkedGraphicsView):
     def __init__(self, scene, main_window):
         super().__init__(scene)
         self.main_window = main_window

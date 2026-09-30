@@ -3,9 +3,11 @@
 
 Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L210) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L211) · [API index](API-Reference.md)
 
-**Bases:** `QGraphicsView`.
+**Bases:** `LinkedGraphicsView`.
+
+This is the current-frame view. It inherits synchronized pan and zoom support from `LinkedGraphicsView`; neighboring panes use `ReferenceGraphicsView` so their mouse events cannot modify current-frame cells.
 
 ## Selected methods
 
@@ -13,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_aux.py#L274)
+[Source](../src/icescopy_aux.py#L275)
 
 ```python
 def mousePressEvent(self, event):
@@ -21,7 +23,7 @@ def mousePressEvent(self, event):
 
 ### `mouseMoveEvent`
 
-[Source](../src/icescopy_aux.py#L308)
+[Source](../src/icescopy_aux.py#L309)
 
 ```python
 def mouseMoveEvent(self, event):
@@ -29,7 +31,7 @@ def mouseMoveEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_aux.py#L340)
+[Source](../src/icescopy_aux.py#L341)
 
 ```python
 def mouseReleaseEvent(self, event):
@@ -37,7 +39,7 @@ def mouseReleaseEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_aux.py#L377)
+[Source](../src/icescopy_aux.py#L378)
 
 ```python
 def keyPressEvent(self, event):

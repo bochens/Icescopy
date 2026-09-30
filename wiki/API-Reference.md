@@ -17,9 +17,11 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_cell_items`](API-Module-icescopy-cell-items.md) | Geometry snapshots and interactive graphics items for cell circles. |
 | [`icescopy_dialogs`](API-Module-icescopy-dialogs.md) | Input dialogs for session metadata, temperature import, and export selection. |
 | [`icescopy_dock`](API-Module-icescopy-dock.md) | Custom title bar for movable and floating dock panels. |
+| [`icescopy_event_navigation`](API-Module-icescopy-event-navigation.md) | Provide shared freeze-event buttons and a Cells selector that retains the chosen cooling cycle. |
 | [`icescopy_frame_source`](API-Module-icescopy-frame-source.md) | A shared frame interface for images, video, and ordered video clips. |
 | [`icescopy_frameslider`](API-Module-icescopy-frameslider.md) | Timeline navigation, zoom, and marker drawing. |
 | [`icescopy_freeze_count_timeseries`](API-Module-icescopy-freeze-count-timeseries.md) | Build sample-group freeze counts matched to temperature records. |
+| [`icescopy_freeze_cycles`](API-Module-icescopy-freeze-cycles.md) | Preserve and validate imported cooling-cycle assignments for freeze-event review. |
 | [`icescopy_freezfinder`](API-Module-icescopy-freezfinder.md) | Numerical freeze-event detection and a separate CSV-oriented dialog. |
 | [`icescopy_image_edit`](API-Module-icescopy-image-edit.md) | Shared image adjustments, rotated-crop geometry, and editing overlays. |
 | [`icescopy_paths`](API-Module-icescopy-paths.md) | Find and atomically save per-user preference files. |
@@ -35,6 +37,7 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_validate`](API-Module-icescopy-validate.md) | Command-line checks for the installed package, dependencies, and required resources. |
 | [`icescopy_version`](API-Module-icescopy-version.md) | The version value used by the application and Python package. |
 | [`icescopy_video_preview`](API-Module-icescopy-video-preview.md) | Decode video previews outside the GUI thread. |
+| [`icescopy_viewer`](API-Module-icescopy-viewer.md) | Separate previous, current, and next frame panes with synchronized pan and zoom. |
 
 ## Keeping this reference current
 

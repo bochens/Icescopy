@@ -45,6 +45,34 @@ The Cells panel and image selection stay in sync. Expand a Cell row to read its 
 
 If clicking draws a preview instead of selecting, you are in Add Cell or Grid Tool; press **A**. Use **E** to move existing circles. Dragging a selection box does not move or resize cells.
 
+### Center the selection
+
+Select one or more cells in the image or Cells list, then click **Center on selection** under **Cell Info** in the Cursor Tool Options. The button centers the selection once. It is disabled when there is no selected cell with a position on the current image, or no current image is loaded.
+
+Centering moves the view without changing zoom. For a group, it centers the smallest rectangle enclosing the complete selected circles at the **current frame**. A widely spread group may still extend beyond the view; zoom out if needed. In two- or three-image view, the neighboring panes follow the Current pane's center.
+
+To center automatically from the **Cells list**, enable **Auto-center** at the top of Cells. It responds after you finish a mouse selection in the list or change the selected rows with keys such as **Up/Down**. Clicking an already selected Cell row centers it again, for example after you pan or zoom. Clicking circles or dragging a selection box in the image does not trigger Auto-center.
+
+Manual frame changes, editing, drawing, deletion, cropping, panning, and Undo/Redo do not trigger Auto-center. Use **Center on selection** whenever you want to center the current selection again.
+
+<a name="show-a-selected-cells-first-freeze-frame"></a>
+
+### Review a selected cell's freeze events
+
+Select one Cell row in **Cells**. **Auto-center** and **Show freeze frame** share the top row. The next row holds a **previous arrow**, **event dropdown**, and **next arrow**; the arrows have a red dot marking freeze-event navigation. These controls open the selected cell's recorded events even when **Show freeze frame** is unchecked. The arrows stop at the first and last available events; they do not wrap around. With no cell or several cells selected, the event controls are disabled.
+
+Enable **Show freeze frame** to open the chosen event whenever you select a Cell row by clicking it or pressing **Up/Down** in the list. The arrow keys move between Cell rows and skip their expanded details. The first available event is chosen initially. After you choose another event, clicking the same Cell row returns to that event even if you have browsed other frames. Selecting circles in the image never triggers this frame jump.
+
+When cooling-cycle information is available, the dropdown shows labels such as **Cycle 2 · Frame 150**. A cooling cycle is one temperature-defined part of a repeated cooling experiment; see [Repeated cooling cycles](Temperature-Import.md#repeated-cooling-cycles). The selector displays cycle numbers starting at **1**; stored and exported cycle numbers start at **0**. Frame numbers remain unchanged and start at **0**. Without known cycle information, labels such as **Event 2 · Frame 150** count that cell's events in frame order; an event number does not establish a cooling cycle.
+
+The chosen cycle stays selected when you move to another cell, using that cell's first event in the cycle. If the cell has no event in that cycle, the dropdown shows **Cycle N · No event** and the frame stays unchanged. Other recorded events remain available through the dropdown and arrows. Selecting a group, or a cell with no recorded events, also leaves the frame unchanged. Known cycle assignments come from temperature import with a configured reset temperature; they remain available after freeze-frame corrections and are saved with the session.
+
+**Show freeze frame** and **Auto-center** are independent options, and both start unchecked when you open the app. Checking either option, by clicking it or pressing **Space** while it has focus, immediately applies all enabled options to the current selection. Unchecking an option does not move the view or change the frame. When Auto-center is enabled, opening an event from the dropdown, arrows, or list centers the cell at the destination frame without changing zoom. Groups can still be centered with Auto-center.
+
+These controls work with either **Cursor** or **Pan and Zoom** active and leave your chosen tool unchanged. Finish or cancel cell drawing, cell edits, or image-edit controls before using them; temporarily panning by holding Space also prevents list navigation. Clicking an expander, a detail row, empty list space, or the right mouse button does not reapply either option. Image selections, frame browsing, and Undo/Redo do not trigger them.
+
+The timeline also has red-dot event arrows. They move to an event before or after the **current frame**, using the selected cells or all cells when none are selected. They keep the image position, zoom, and the Cells selector's chosen cycle unchanged, regardless of Auto-center. See [Navigate and compare frames](Loading-and-Reviewing-Frames.md#navigate-and-compare-frames).
+
 ## Add one cell
 
 1. Press **S** and move the circle preview over the desired droplet or well.

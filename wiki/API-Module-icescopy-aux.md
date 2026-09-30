@@ -22,7 +22,7 @@ Viewer input handling, analysis worker, and preference dialogs.
 
 ### `create_circular_mask`
 
-[Source](../src/icescopy_aux.py#L205)
+[Source](../src/icescopy_aux.py#L206)
 
 ```python
 def create_circular_mask(h, w, center, radius):

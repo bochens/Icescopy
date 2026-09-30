@@ -52,7 +52,8 @@ You cannot append another video or images to a loaded video source. To change th
 
 | Task | Control |
 | --- | --- |
-| Step one frame | Click previous/next, or press **Left/Right** with the image viewer focused. **Comma/period** also step backward/forward. |
+| Step one frame | Click the plain previous/next arrows, or press **Left/Right** with the image viewer focused. **Comma/period** also step backward/forward. |
+| Jump to a freeze event | Click a timeline arrow marked with a **red dot**. |
 | Jump to a frame | Enter its number in **Frame Number** in the status bar and press **Enter**. |
 | Scan the recording | Drag the timeline slider. Release it at the frame you want to inspect. |
 | Jump from the file list | Click a row in **Images**. |
@@ -61,6 +62,8 @@ You cannot append another video or images to a loaded video source. To change th
 | Pan temporarily while placing cells | Hold **Space**, pan or zoom, then release it to return to the previous tool. |
 
 Image zoom and timeline zoom have different jobs. Image zoom changes the displayed size of the recording. Timeline zoom changes the range visible on the slider. Neither changes analysis values or removes frames.
+
+The timeline's **red-dot arrows** jump to the nearest freeze event strictly before or after the current frame. With one cell selected, they use that cell's events; with several selected, they use any event from those cells; with no selection, they use all cells. An arrow is disabled when there is no event in its direction, and navigation does not wrap around. These jumps preserve image position, zoom, and the Cells selector's chosen cycle; they do not apply Auto-center.
 
 ### Compare neighboring images
 
@@ -72,7 +75,15 @@ Use the toolbar controls or their entries in the **Window** menu:
 | **Show Two Images** | Previous frame and current frame |
 | **Show Three Images** | Previous, current, and next frame |
 
-Choose **Stack Top to Bottom** or **Stack Left to Right** to fit the comparison to your window. A neighboring frame is unavailable at the beginning or end of the recording. Cell selection and editing use the **current** image; the other images provide context.
+Each frame has its own labeled pane. Choose **Stack Top to Bottom** or **Stack Left to Right** to fit the comparison to your window. In Pan mode (**Z**), pan or zoom in any pane; all panes follow the same image position and zoom, so you can inspect the same cell across neighboring frames. Holding **Space** also lets you pan or zoom temporarily.
+
+Each pane shows the cell positions and sizes for its own frame. If you use [keyframes](Annotation-Workflow.md#follow-movement-with-keyframes), neighboring panes show the corresponding stored or interpolated layout. Without keyframes, all frames use the same cell layout.
+
+Use the **Current** pane to select, add, or edit cells; neighboring panes show their cell outlines and labels for comparison. [Image Edit](Image-Editing.md) adjustments apply across the recording and update every pane. You can move or resize a crop box or Uniform Exposure control area in any available pane; the same area appears in the others.
+
+To bring selected cells to the middle of the view, use **Center on selection** under **Cell Info** in the Cursor Tool Options. All panes follow the Current pane's center without changing zoom. For automatic centering from the **Cells list**, enable **Auto-center**. It also responds when you click the same Cell row again after panning or zooming. Selecting circles in the image or changing frames does not trigger it. See [Center the selection](Annotation-Workflow.md#center-the-selection) for group behavior and controls.
+
+At the beginning or end of the recording, the unavailable pane stays blank and its label says **no earlier frame** or **no later frame**. While dragging the video timeline, neighboring panes may be blank with **updates after seeking** labels; they reload when you finish seeking. Each pane always represents the previous, current, or next frame, rather than a separately chosen frame.
 
 After analysis, select a cell and open **Window → Grayscale Plot** to compare its brightness changes with these images. If the plot has been panned or zoomed into an unhelpful range, selecting a different cell and then returning to the original cell fits its data again.
 
@@ -84,6 +95,8 @@ After analysis, select a cell and open **Window → Grayscale Plot** to compare 
 4. Click the listed frames and compare the images around each event.
 
 The list contains freeze frames for the **current cell selection**, including manual corrections. With no cells selected, it shows events from all cells. It keeps the original frame numbers. If the list is empty, check whether the selected cells have recorded events. Turn the filter off to return to all frames. Filtering the list does not limit analysis.
+
+To review one cell's events, select its row in **Cells** and use the event dropdown or previous/next arrows below the checkboxes. These controls work even with **Show freeze frame** unchecked. Enable that checkbox to open the chosen event as you move between Cell rows with **Up/Down** or a click. A chosen cooling cycle stays selected across cells; if a cell has no event in that cycle, the frame stays unchanged. **Auto-center** independently centers the cell at the destination frame without changing zoom. See [Review a selected cell's freeze events](Annotation-Workflow.md#review-a-selected-cells-freeze-events) for cycle labels, repeated clicks, and missing events.
 
 ## Decide which frames to analyze
 

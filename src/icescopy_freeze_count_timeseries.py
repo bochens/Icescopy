@@ -6,6 +6,7 @@ from datetime import timedelta
 import numpy as np
 
 from icescopy_sample_metadata import export_sample_metadata_field_keys
+from icescopy_freeze_cycles import capture_cycle_metadata, cycle_ids_for_window
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_GENERATED,
@@ -27,6 +28,10 @@ from icescopy_temperature_import import (
 
 
 class FreezeCountTimeseriesMixin:
+    def freeze_review_cycle_ids(self):
+        """Imported zero-based cycles in frame order, or empty when unavailable."""
+        return cycle_ids_for_window(self)
+
     def freeze_count_timeseries_sample_metadata_field_names(self):
         schema = getattr(self, "sample_metadata_schema", None)
         return export_sample_metadata_field_keys(schema)
@@ -716,6 +721,7 @@ class FreezeCountTimeseriesMixin:
             ),
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
             "cycle_count": int(len(timing_context["cycle_start_seconds"])),
+            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
             "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
@@ -962,6 +968,9 @@ class FreezeCountTimeseriesMixin:
             "matched_sample_count": int(len(output_samples)),
             "total_picture_rows": int(sum(1 for row in parsed_rows if getattr(row, "picture_name", ""))),
             "cycle_count": int(max(row_cycle_ids) + 1) if row_cycle_ids else 1,
+            "freeze_review_cycle_metadata": capture_cycle_metadata(
+                self, image_cycle_ids, reset_temperature, require_unique_names=True,
+            ),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
         }
         return headers, rows, summary
@@ -1093,6 +1102,7 @@ class FreezeCountTimeseriesMixin:
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
             "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
             "cycle_count": int(len(cycle_start_seconds)),
+            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
             "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),
@@ -1207,6 +1217,7 @@ class FreezeCountTimeseriesMixin:
             "image_record_count": int(timing_context.get("image_record_count", 0)),
             "linksys32_version": str(getattr(parsed_timeseries, "version", "") or ""),
             "cycle_count": int(len(cycle_start_seconds)),
+            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
             "total_images": int(self.frame_count()),
             "parsed_image_count": int(timing_context["parsed_image_count"]),

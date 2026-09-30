@@ -3,7 +3,7 @@
 
 Edits a color preference through a native color picker.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L155) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L156) · [API index](API-Reference.md)
 
 **Bases:** `QPushButton`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `choose_color`
 
-[Source](../src/icescopy_aux.py#L191)
+[Source](../src/icescopy_aux.py#L192)
 
 ```python
 def choose_color(self):
@@ -21,7 +21,7 @@ def choose_color(self):
 
 ### `set_color_value`
 
-[Source](../src/icescopy_aux.py#L197)
+[Source](../src/icescopy_aux.py#L198)
 
 ```python
 def set_color_value(self, color_value):
@@ -29,7 +29,7 @@ def set_color_value(self, color_value):
 
 ### `color_value`
 
-[Source](../src/icescopy_aux.py#L201)
+[Source](../src/icescopy_aux.py#L202)
 
 ```python
 def color_value(self):

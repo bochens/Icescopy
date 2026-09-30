@@ -6,6 +6,8 @@ Use **Edit → Image Edit** to adjust exposure, contrast, cropping, or frame-to-
 
 **These adjustments affect the images used for analysis as well as the display.** They are stored in the session; the original image and video files are not rewritten. Image zoom, panning, and showing neighboring frames only change the view.
 
+In the two- or three-image view, all panes share the same image-edit settings. Exposure and contrast update every pane; crop and Uniform Exposure control areas can be adjusted in any available pane. Pan and zoom stay synchronized. Each pane shows its own frame’s cell positions and sizes, including any movement defined by keyframes, and keeps the circles aligned after cropping. Use the **Current** pane for cell selection and editing; the histogram also describes the current frame.
+
 ## Before you adjust an image
 
 1. Load and check the [recording order](Loading-and-Reviewing-Frames.md).
@@ -54,8 +56,8 @@ An empty histogram can mean no readable frame is loaded. If the red overlay is a
 
 A crop uses one rectangular area, optionally rotated, throughout the recording. It changes the displayed image and the area available for brightness measurement. It does not remove frames.
 
-1. In Image Edit, click **Crop**. The full image and an adjustable crop box appear.
-2. Drag inside the box to move it. Drag its resize handles to change its size, or its rotation handle to turn it.
+1. In Image Edit, click **Crop**. The full image and an adjustable crop box appear in each available pane.
+2. In any pane, drag inside the box to move it. Drag its resize handles to change its size, or its rotation handle to turn it. The crop boxes move together.
 3. Keep every cell needed for analysis inside the box. Allow for movement later in the recording.
 4. Click **Apply**. With the image viewer focused, Enter also applies the crop.
 5. Inspect the first, middle, and last analyzed frames and check their cell outlines.
@@ -81,11 +83,11 @@ Check the area across the full recording, including frames outside your analysis
 ### Calculate and inspect the correction
 
 1. Set the global **Exposure** and **Contrast**.
-2. Go to a frame whose brightness you want to use as the reference.
+2. Go to a frame whose brightness you want to use as the reference. This is the frame shown in the **Current** pane.
 3. Under **Uniform Exposure**, click **Set Area**.
-4. Move and resize the rectangle over the control area.
+4. Move and resize the rectangle over the control area in any available pane. The same area appears in the other panes.
 5. Click **Done**.
-6. Confirm that the displayed frame is still the intended reference, then click **Run**.
+6. Confirm that the **Current** frame is still the intended reference, then click **Run**. Adjusting the area in a neighboring pane does not change the reference frame.
 7. Wait for the calculation. The app visits frames during processing and returns to the reference frame afterward.
 8. Inspect several frames, then run analysis and compare the cell brightness traces with the visible freeze events.
 

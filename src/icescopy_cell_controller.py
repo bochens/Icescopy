@@ -430,7 +430,14 @@ class CellEditController:
         self.main_window.cell_items = list(tracked_scene_items)
         return True
 
+    def _refresh_reference_cells(self):
+        viewer = getattr(self.main_window, "comparison_viewer", None)
+        if viewer is not None:
+            viewer.refresh_reference_cells()
+
     def redraw_current_cells(self, preserve_selection=True, force_scene_scan=False):
+        if hasattr(self.main_window, "cancel_cell_list_navigation"):
+            self.main_window.cancel_cell_list_navigation()
         selected_cell_ids = self.selected_scene_cell_ids() if preserve_selection else []
         self.main_window.view.setUpdatesEnabled(False)
         try:
@@ -443,7 +450,11 @@ class CellEditController:
         finally:
             self.main_window.view.setUpdatesEnabled(True)
 
+        self._refresh_reference_cells()
+
     def redraw_interpolated_cells(self, frame_index, preview=False):
+        if hasattr(self.main_window, "cancel_cell_list_navigation"):
+            self.main_window.cancel_cell_list_navigation()
         selected_cell_ids = [] if preview else self.selected_scene_cell_ids()
         edit_target_numbers = [item.cell_id for item in self.main_window.cell_items if item.edit_chosen]
         if self.group_cell_ids:
@@ -454,6 +465,7 @@ class CellEditController:
             interpolated_items,
             forced_edit_cell_ids=forced_edit_ids,
         ):
+            self._refresh_reference_cells()
             return
         self.main_window.view.setUpdatesEnabled(False)
         try:
@@ -464,6 +476,8 @@ class CellEditController:
             )
         finally:
             self.main_window.view.setUpdatesEnabled(True)
+
+        self._refresh_reference_cells()
 
     def rebase_edit_preview_to_current_frame(self):
         """Keep pinned edit previews attached to the same edit targets after frame changes."""

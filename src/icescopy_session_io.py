@@ -6,6 +6,7 @@ import tempfile
 import zipfile
 
 from icescopy_cell_items import CellCircle
+from icescopy_freeze_cycles import normalize_cycle_metadata
 from icescopy_sample_metadata import (
     ALLOWED_SAMPLE_TYPES,
     default_sample_metadata_schema,
@@ -203,6 +204,9 @@ def build_session_payload(main_window):
         "last_standard_temperature_frame_interval_seconds": main_window.last_standard_temperature_frame_interval_seconds,
         "last_standard_temperature_temperature_unit": main_window.last_standard_temperature_temperature_unit,
         "freeze_count_timeseries_summary": dict(main_window.freeze_count_timeseries_summary),
+        "freeze_review_cycle_metadata": normalize_cycle_metadata(
+            getattr(main_window, "freeze_review_cycle_metadata", None)
+        ),
         "console_history": main_window.terminal.toPlainText(),
     }
     return payload
@@ -273,6 +277,7 @@ def migrate_session_payload(payload):
         "freeze_count_timeseries_summary": dict(
             migrated.get("temperature_sync_summary") or {}
         ),
+        "freeze_review_cycle_metadata": None,
         "console_history": "",
     }
     for key, default_value in defaults.items():
@@ -352,6 +357,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
         "freeze_count_timeseries_headers": freeze_count_timeseries_headers,
         "freeze_count_timeseries_rows": freeze_count_timeseries_rows,
         "freeze_count_timeseries_summary": dict(payload["freeze_count_timeseries_summary"]),
+        "freeze_review_cycle_metadata": payload["freeze_review_cycle_metadata"],
         "tool_mode": payload["tool_mode"],
         "tool_settings": payload.get("tool_settings", default_tool_settings),
         "console_history": payload["console_history"],

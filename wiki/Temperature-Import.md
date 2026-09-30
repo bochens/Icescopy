@@ -216,7 +216,7 @@ This correction can change both the numerator and denominator over time. Check t
 
 Leave **Reset After Warmed To (°C)** **Off** for a single cycle. For repeated cycles, select a threshold reached during the warming stage and inspect the resulting cycle boundaries.
 
-The first cycle is numbered **0**. A later cycle begins at a temperature reading that crosses from below the threshold to at least the threshold, provided the warm-up is large enough. The additional **Cycle Warm-Up Hysteresis (°C)** setting is in **Preferences → Analysis → Freeze Finding**, with bundled default **0.02 °C** and allowed range **0.00–10.00 °C**.
+The first cycle is numbered **0** in stored and exported data. The [Cells event selector](Annotation-Workflow.md#review-a-selected-cells-freeze-events) displays it as **Cycle 1**. A later cycle begins at a temperature reading that crosses from below the threshold to at least the threshold, provided the warm-up is large enough. The additional **Cycle Warm-Up Hysteresis (°C)** setting is in **Preferences → Analysis → Freeze Finding**, with bundled default **0.02 °C** and allowed range **0.00–10.00 °C**.
 
 The implemented warm-up check compares the crossing temperature with the minimum reached during the preceding below-threshold segment. The rise must be at least the hysteresis value. It does not require reaching `threshold + hysteresis`.
 
