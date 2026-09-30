@@ -8,41 +8,59 @@ import time
 import cv2
 import numpy as np
 
-from detector import Circle, Encoder, detect, read_image
+from detector import Circle, Encoder, preprocess_image
+from single_frame import detect_current_frame
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image',type=Path)
-    parser.add_argument('examples',type=Path,help='JSON containing examples and optional existing circles')
+    parser.add_argument('examples',type=Path,help='JSON containing examples or saved example_ids, plus optional existing circles/current_positions')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--method',choices=['template','embedding','learned'],default='template')
     parser.add_argument('--threshold',type=float,default=.75)
     parser.add_argument('--model',type=Path)
+    parser.add_argument('--state-in',type=Path,help='Previously saved state.json; IDs and all known cells are retained')
     args=parser.parse_args()
     if args.output.exists():
         parser.error('Output folder already exists; choose a new name.')
     if not 0<=args.threshold<=1:
         parser.error('Threshold must be between zero and one.')
-    payload=json.loads(args.examples.read_text())
-    examples=[Circle(**row) for row in payload['examples']]
-    existing=[Circle(**row) for row in payload.get('existing',[])]
-    head=json.loads(args.model.read_text()) if args.model else None
-    if args.method=='learned' and head is None:
-        parser.error('--model is required for the learned method.')
-    image=read_image(args.image)
-    encoder=Encoder() if args.method!='template' else None
-    start=time.perf_counter()
-    results=detect(image,examples,existing,args.method,args.threshold,encoder,head)
-    elapsed=time.perf_counter()-start
+    try:
+        payload=json.loads(args.examples.read_text())
+        examples=[Circle(**row) for row in payload.get('examples',[])]
+        existing=[Circle(**row) for row in payload.get('existing',[])]
+        state=json.loads(args.state_in.read_text()) if args.state_in else None
+        head=json.loads(args.model.read_text()) if args.model else None
+        if args.method=='learned' and head is None:
+            raise ValueError('--model is required for the learned method.')
+        raw=cv2.imread(str(args.image),cv2.IMREAD_UNCHANGED)
+        if raw is None:raise ValueError(f'Cannot read image: {args.image}')
+        image=preprocess_image(raw,color_order='BGR')
+        encoder=Encoder() if args.method!='template' else None
+        start=time.perf_counter()
+        selected=detect_current_frame(raw,examples,state=state,existing=existing,
+                                     example_ids=payload.get('example_ids',[]),
+                                     current_positions=payload.get('current_positions'),
+                                     remove_ids=payload.get('remove_ids',[]),color_order='BGR',
+                                     method=args.method,threshold=args.threshold,encoder=encoder,head=head)
+        elapsed=time.perf_counter()-start
+    except (ValueError,TypeError,KeyError,OSError) as error:
+        parser.error(str(error))
+    results=selected['suggestions']
     args.output.mkdir(parents=True,exist_ok=False)
     result={'image_sha256':hashlib.sha256(args.image.read_bytes()).hexdigest(),
             'method':args.method,'threshold':args.threshold,'seconds':elapsed,
-            'examples':payload['examples'],'existing':payload.get('existing',[]),
+            'examples':payload.get('examples',[]),'existing':payload.get('existing',[]),
+            'example_ids':selected['example_ids'],'state_in':str(args.state_in) if args.state_in else None,
             'suggestions':results,'note':'Experimental suggestions only. Scores are not occupancy probabilities.'}
     (args.output/'suggestions.json').write_text(json.dumps(result,indent=2)+'\n')
+    (args.output/'state.json').write_text(json.dumps(selected['state'],indent=2)+'\n')
     overlay=cv2.cvtColor(np.uint8(image*255),cv2.COLOR_RGB2BGR)
-    for circle,color in [(c,(180,180,180)) for c in existing]+[(Circle(**r['circle']),(0,200,240)) for r in results]+[(c,(60,230,80)) for c in examples]:
+    new_ids={r['id'] for r in results}
+    for row in selected['state']['cells']:
+        circle=Circle(**row['circle'])
+        color=(60,230,80) if row['id'] in selected['example_ids'] else (0,200,240) if row['id'] in new_ids else (180,180,180)
         cv2.circle(overlay,(round(circle.x),round(circle.y)),round(circle.radius),color,2,cv2.LINE_AA)
     cv2.imwrite(str(args.output/'suggestions.png'),overlay)
     print(json.dumps({'suggestions':len(results),'seconds':round(elapsed,3),'output':str(args.output)}))

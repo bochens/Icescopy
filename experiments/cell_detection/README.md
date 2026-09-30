@@ -1,6 +1,6 @@
 # Example-guided cell detection experiment
 
-This is a separate research prototype. Icescopy does not import it or package its dependencies. It operates on one original picture and requires at least one marked example. It writes proposed circles to a new directory; it never edits a session or adds cells to the application.
+This is a separate research prototype. Icescopy does not import it or package its dependencies. It selects cells on one current frame, supplied as an image file or a decoded video array, and requires at least one marked example. Freezing detection remains a separate downstream brightness-convolution calculation. No other image, tracking, or automatic keyframe enters cell selection. The prototype writes a new directory and never edits an application session.
 
 The experiment compares image matching, a fixed MobileNetV3-Small image model, and a small trained classifier that combines neural similarity with image-matching measurements. The pretrained model recognizes general visual patterns; it was not originally trained to distinguish filled and empty experimental wells. Scores are rankings, not calibrated occupancy probabilities.
 
@@ -26,7 +26,29 @@ python experiments/cell_detection/run_detection.py picture.png examples.json \
 
 For the neural methods, use `--method embedding` or `--method learned --model path/to/pair-model.json`. Use the threshold recorded by the benchmark for that method. The example threshold above is not a validated default for every setup.
 
-The output directory must not exist. Results include `suggestions.json` and a colored overlay. Green circles are input examples, gray circles are other existing cells, and yellow circles are suggestions.
+The output directory must not exist. Results include `suggestions.json`, `state.json`, and a colored overlay. Green circles are input examples, gray circles are other known cells, and yellow circles are newly selected cells. The saved state automatically includes all input and new cells with stable nonnegative integer IDs. There is no mandatory review step. Explicit manual additions and deletions are supported; the review page is an optional developer diagnostic.
+
+Pass the preceding `state.json` with `--state-in` on the next run. The example
+JSON can then select saved cells with `{"example_ids": [0, 2]}` instead of
+repeating their coordinates. All earlier cells remain protected, including
+ones not chosen as examples. `remove_ids` explicitly deletes user-rejected
+circles, and their IDs are never reused.
+
+`single_frame.detect_current_frame(raw, example_ids=[0], state=state)` is the
+equivalent pure Python interface for one decoded video frame. `raw` can be
+uint8/uint16 grayscale or RGB; BGR arrays require `color_order='BGR'`. Both file
+and array paths use `preprocess_image`. Coordinates and radii are original
+frame pixels, independent of display zoom. Input state is never modified.
+
+For a moving frame, the caller can supply `current_positions`, a complete list
+of `{"id": 0, "circle": {"x": 200, "y": 150, "radius": 10}}` records for all
+retained IDs. Later application integration should resolve those positions
+using its existing keyframes. The prototype does not estimate movement.
+Without updates it assumes saved positions are valid for the current frame.
+Offscreen known cells retain their IDs, but examples must be visible. A changed
+frame size requires explicit complete position updates; it never rescales
+coordinates silently. Bad or incompatible state fails before a new output is
+created, and the input state file remains unchanged.
 
 ## Evaluate
 

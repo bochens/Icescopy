@@ -26,14 +26,25 @@ class Circle:
             raise ValueError('Circle coordinates must be finite and radius positive.')
 
 
-def read_image(path):
-    raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-    if raw is None:
-        raise ValueError(f'Cannot read image: {path}')
+def preprocess_image(raw, color_order='RGB'):
+    """Normalize exactly one decoded frame; channel order must be explicit.
+
+    Accept uint8/uint16 or finite floating-point grayscale, RGB/BGR and
+    RGBA/BGRA arrays. Alpha is ignored, as with read_image. The same percentile
+    scaling is used for image files and video arrays. No earlier frames enter
+    this calculation.
+    """
+    if color_order not in ('RGB', 'BGR'):
+        raise ValueError('color_order must be RGB or BGR.')
+    raw = np.asarray(raw)
+    if raw.dtype not in (np.uint8, np.uint16, np.float32, np.float64):
+        raise ValueError('Expected uint8, uint16, float32 or float64 frame values.')
+    if not raw.size or not np.isfinite(raw).all():
+        raise ValueError('Frame values must be nonempty and finite.')
     if raw.ndim == 2:
         rgb = np.repeat(raw[..., None], 3, axis=2)
     elif raw.ndim == 3 and raw.shape[2] in (3, 4):
-        rgb = cv2.cvtColor(raw[..., :3], cv2.COLOR_BGR2RGB)
+        rgb = raw[..., :3] if color_order == 'RGB' else raw[..., 2::-1]
     else:
         raise ValueError('Expected a grayscale, RGB, or RGBA image.')
     rgb = rgb.astype(np.float32)
@@ -41,6 +52,13 @@ def read_image(path):
     if hi <= lo:
         lo, hi = float(rgb.min()), float(rgb.max())
     return np.clip((rgb - lo) / max(hi - lo, 1e-6), 0, 1).astype(np.float32)
+
+
+def read_image(path):
+    raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if raw is None:
+        raise ValueError(f'Cannot read image: {path}')
+    return preprocess_image(raw, color_order='BGR')
 
 
 def validate_examples(image, examples):
@@ -237,7 +255,9 @@ def detect(image, examples, existing=(), method='template', threshold=.75, encod
     validate_examples(image,examples)
     protected=list(existing)+list(examples)
     radius=float(np.median([c.radius for c in examples]))
-    candidates=propose(image,radius)
+    # Known cells do not need image features or classification. This also
+    # protects every prior/manual cell, independently of example selection.
+    candidates=exclude_existing(propose(image,radius),protected)
     if not candidates:
         return []
     bank=feature_bank(image,candidates,encoder)
