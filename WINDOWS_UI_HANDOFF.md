@@ -19,6 +19,7 @@ Windows appearance has **not** been verified by the Mac work.
 - Keep the previous-event button, event dropdown, and next-event button together on one line below the checkboxes.
 - Align the visible button centers with the dropdown's visible center, not just their outer widget rectangles.
 - Keep timeline event buttons in the existing timeline row, aligned with the ordinary frame arrows. Do not add another row.
+- Check the Previous/Current/Next panel captions too: text is two points smaller where the system's minimum readable size allows it, with medium weight for Current, reduced padding, and a palette-colored bottom separator instead of black boxes. Preserve the quieter appearance while ensuring Windows text remains legible and unclipped in one-, two-, and three-panel views.
 - Check narrow and wide Cells docks, both themes, enabled and disabled buttons, keyboard focus, and an open event dropdown.
 - Check Windows display scaling at 100%, 125%, 150%, and 200% where available, plus the user's normal font/text scaling. Record any settings that could not be checked.
 - Use several events, a long frame number, a cell without an event, and a multiple-cell selection to expose clipping and unwanted row-height changes.

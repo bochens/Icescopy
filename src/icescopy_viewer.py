@@ -8,11 +8,10 @@ from contextlib import contextmanager
 
 import shiboken6
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QPainter, QPixmap, QTransform
+from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QBoxLayout,
-    QFrame,
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
@@ -292,12 +291,15 @@ class FramePanel(QWidget):
         self.cell_items = []
         self.header = QLabel(role)
         self.header.setAlignment(Qt.AlignCenter)
-        self.header.setMargin(5)
+        self.header.setMargin(2)
         self.header.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         font = self.header.font()
-        font.setBold(current)
+        minimum_font = QFontDatabase.systemFont(QFontDatabase.SmallestReadableFont)
+        if font.pointSizeF() > 0 and minimum_font.pointSizeF() > 0:
+            font.setPointSizeF(max(minimum_font.pointSizeF(), font.pointSizeF() - 2))
+        font.setWeight(QFont.Medium if current else QFont.Normal)
         self.header.setFont(font)
-        self.header.setFrameStyle(QFrame.Panel | QFrame.Plain)
+        self.header.setStyleSheet("QLabel { border: none; border-bottom: 1px solid palette(mid); }")
         self.setMinimumSize(0, 0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         layout = QVBoxLayout(self)

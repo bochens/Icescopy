@@ -3,7 +3,7 @@
 
 Reports completed Cells-list mouse and keyboard selections for optional frame navigation and centering.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L28) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L27) · [API index](API-Reference.md)
 
 **Bases:** `QTreeWidget`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L31)
+[Source](../src/icescopy_viewer.py#L30)
 
 ```python
 def __init__(self, main_window, parent=None):
@@ -23,7 +23,7 @@ def __init__(self, main_window, parent=None):
 
 ### `cancel_pending_selection_center`
 
-[Source](../src/icescopy_viewer.py#L42)
+[Source](../src/icescopy_viewer.py#L41)
 
 ```python
 def cancel_pending_selection_center(self):
@@ -31,7 +31,7 @@ def cancel_pending_selection_center(self):
 
 ### `moveCursor`
 
-[Source](../src/icescopy_viewer.py#L45)
+[Source](../src/icescopy_viewer.py#L44)
 
 ```python
 def moveCursor(self, action, modifiers):
@@ -39,7 +39,7 @@ def moveCursor(self, action, modifiers):
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_viewer.py#L58)
+[Source](../src/icescopy_viewer.py#L57)
 
 ```python
 def mousePressEvent(self, event):
@@ -47,7 +47,7 @@ def mousePressEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_viewer.py#L65)
+[Source](../src/icescopy_viewer.py#L64)
 
 ```python
 def mouseReleaseEvent(self, event):
@@ -55,7 +55,7 @@ def mouseReleaseEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_viewer.py#L75)
+[Source](../src/icescopy_viewer.py#L74)
 
 ```python
 def keyPressEvent(self, event):
@@ -63,7 +63,7 @@ def keyPressEvent(self, event):
 
 ### `focusOutEvent`
 
-[Source](../src/icescopy_viewer.py#L83)
+[Source](../src/icescopy_viewer.py#L82)
 
 ```python
 def focusOutEvent(self, event):
