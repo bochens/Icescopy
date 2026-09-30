@@ -1460,10 +1460,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def update_cell_center_controls(self):
         enabled = self.cell_selection_bounds() is not None
-        for name in ("cells_center_button", "cursor_center_button"):
-            button = getattr(self, name, None)
-            if button is not None:
-                button.setEnabled(enabled)
+        button = getattr(self, "cursor_center_button", None)
+        if button is not None:
+            button.setEnabled(enabled)
 
     def center_on_cell_selection(self):
         """Pan all linked views once; leave zoom, frames, and annotations intact."""
@@ -1476,8 +1475,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def cell_list_navigation_state(self):
         """Capture a Cells-list gesture, never image selection or editing."""
         if (
-            self.tool_mode != "cursor"
-            or self.is_pan_interaction_active()
+            self.tool_mode not in {"cursor", "pan"}
+            or self.space_held
+            or self.temporary_event_data.get("previous_edit_mode") in {"edit-choose", "edit-new", "edit-group"}
+            or self.grid_preview_origin_pixels is not None
             or self.is_image_edit_crop_active()
             or self.is_image_edit_uniform_exposure_area_active()
             or getattr(self, "history_restoring", False)
@@ -1498,20 +1499,32 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if tree is not None:
             tree.cancel_pending_selection_center()
 
-    def navigate_after_cell_list_selection(self, before):
+    def navigate_after_cell_list_selection(self, before, *, reapply=False):
         """Apply opt-in list navigation only after a direct list interaction."""
         if before is None:
             return
         after = self.cell_list_navigation_state()
-        if after is None or before[:-1] != after[:-1] or not after[-1] or before[-1] == after[-1]:
+        if after is None or before[:-1] != after[:-1] or not after[-1]:
+            return
+        if reapply or before[-1] != after[-1]:
+            self.apply_cell_list_navigation()
+
+    def handle_cell_list_navigation_option_clicked(self, checked):
+        if checked:
+            self.apply_cell_list_navigation()
+
+    def apply_cell_list_navigation(self):
+        """Apply checked options after an explicit row or checkbox action."""
+        state = self.cell_list_navigation_state()
+        if state is None or not state[-1]:
             return
         freeze_checkbox = getattr(self, "cells_show_first_freeze_checkbox", None)
-        if freeze_checkbox is not None and freeze_checkbox.isChecked() and len(after[-1]) == 1:
+        if freeze_checkbox is not None and freeze_checkbox.isChecked() and len(state[-1]) == 1:
             frames = self.selected_cell_freeze_frames(self.get_selected_cell_items())
             if frames:
                 self.navigate_to_image(frames[0], history_text="Show Cell Freeze Frame")
         # The deliberate frame jump above redraws circles and cancels pending
-        # gestures. Center its new geometry directly, without reusing `before`.
+        # gestures. Center its new geometry directly after the requested seek.
         checkbox = getattr(self, "cells_auto_center_checkbox", None)
         if checkbox is not None and checkbox.isChecked():
             self.center_on_cell_selection()
@@ -4381,27 +4394,19 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        center_controls = QHBoxLayout()
-        self.cells_center_button = QPushButton("Center on selection", panel)
-        self.cells_center_button.setEnabled(False)
-        self.cells_center_button.setToolTip(
-            "Center the current frame on the selected cell or group without changing zoom."
-        )
-        self.cells_center_button.clicked.connect(self.center_on_cell_selection)
         self.cells_auto_center_checkbox = QCheckBox("Auto-center", panel)
         self.cells_auto_center_checkbox.setChecked(False)
         self.cells_auto_center_checkbox.setToolTip(
-            "In Cursor mode, center after selecting cells in this list. Groups use their combined bounds; zoom stays unchanged. Selecting circles in the image never centers automatically."
+            "Center the selected cell or group when checked or when a cell row is selected or clicked again. Keep the current zoom. Image selections never center automatically."
         )
-        center_controls.addWidget(self.cells_center_button)
-        center_controls.addWidget(self.cells_auto_center_checkbox)
-        center_controls.addStretch(1)
-        layout.addLayout(center_controls)
-        self.cells_show_first_freeze_checkbox = QCheckBox("Show first freeze frame", panel)
+        self.cells_auto_center_checkbox.clicked.connect(self.handle_cell_list_navigation_option_clicked)
+        layout.addWidget(self.cells_auto_center_checkbox)
+        self.cells_show_first_freeze_checkbox = QCheckBox("Show freeze frame", panel)
         self.cells_show_first_freeze_checkbox.setChecked(False)
         self.cells_show_first_freeze_checkbox.setToolTip(
-            "In Cursor mode, selecting one cell in this list shows its earliest recorded freeze frame. Groups and cells without events leave the frame unchanged."
+            "Show the selected cell's first recorded freeze frame when checked or when its row is selected or clicked again. Groups and cells without events leave the frame unchanged."
         )
+        self.cells_show_first_freeze_checkbox.clicked.connect(self.handle_cell_list_navigation_option_clicked)
         layout.addWidget(self.cells_show_first_freeze_checkbox)
 
         self.cells_tree_widget = CellSelectionTreeWidget(self, panel)

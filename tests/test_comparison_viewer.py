@@ -149,6 +149,10 @@ class ComparisonViewerTests(unittest.TestCase):
         for cell_id, frames in zip(cell_ids, events):
             self.window.ensure_cell_record(cell_id).freeze_event_indices = list(frames)
 
+    def click_checkbox(self, checkbox):
+        QTest.mouseClick(checkbox, Qt.LeftButton, pos=QPoint(10, checkbox.height() // 2))
+        self.process_events()
+
     def test_first_freeze_and_auto_center_are_independent_and_wait_for_list_release(self):
         cell_ids = self.install_selection_cells()
         self.set_freeze_frames(cell_ids, ([4, 0, 3], [1], [4]))
@@ -177,6 +181,190 @@ class ComparisonViewerTests(unittest.TestCase):
                 self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
                 expected_center = QPointF(250, 220) if auto_center else original_center
                 self.assert_linked(expected_scale=1.1, expected_center=expected_center)
+
+    def test_enabling_either_checkbox_applies_all_enabled_options_and_unchecking_does_not_move(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        self.show_cells_list()
+        auto = self.window.cells_auto_center_checkbox
+        freeze = self.window.cells_show_first_freeze_checkbox
+        for target, other_enabled in ((auto, False), (freeze, False), (auto, True), (freeze, True)):
+            with self.subTest(target=target.text(), other_enabled=other_enabled):
+                auto.setChecked(False)
+                freeze.setChecked(False)
+                other = freeze if target is auto else auto
+                other.setChecked(other_enabled)
+                self.window.navigate_to_image(2)
+                self.window.reselect_cell_ids([cell_ids[0]])
+                self.set_camera(scale=1.25, center=QPointF(500, 420))
+                original_center = self.center(self.window.view)
+                self.click_checkbox(target)
+                self.assertTrue(target.isChecked())
+                self.assertEqual(self.window.image_index, 0 if freeze.isChecked() else 2)
+                expected = QPointF(250, 220) if auto.isChecked() else original_center
+                self.assert_linked(expected_scale=1.25, expected_center=expected)
+
+                self.window.navigate_to_image(2)
+                self.set_camera(scale=1.25, center=QPointF(500, 420))
+                original_center = self.center(self.window.view)
+                self.click_checkbox(target)
+                self.assertFalse(target.isChecked())
+                self.assertEqual(self.window.image_index, 2)
+                self.assert_linked(expected_scale=1.25, expected_center=original_center)
+
+    def test_checkbox_keyboard_activation_handles_groups_and_empty_selection(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        self.show_cells_list()
+        self.window.reselect_cell_ids(cell_ids[:2])
+        self.set_camera(scale=1.0, center=QPointF(500, 420))
+        original_center = self.center(self.window.view)
+        # Restoring checkbox state programmatically does not execute navigation.
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.assert_linked(expected_scale=1.0, expected_center=original_center)
+        self.assertEqual(self.window.image_index, 2)
+        self.window.cells_auto_center_checkbox.setChecked(False)
+        self.window.cells_auto_center_checkbox.setFocus()
+        QTest.keyClick(self.window.cells_auto_center_checkbox, Qt.Key_Space)
+        self.assertTrue(self.window.cells_auto_center_checkbox.isChecked())
+        self.assertEqual(self.selected_cell_ids(), set(cell_ids[:2]))
+        self.assertEqual(self.window.image_index, 2)
+        self.assertEqual(self.window.tool_mode, "cursor")
+        self.assert_linked(expected_scale=1.0, expected_center=QPointF(345, 280))
+
+        self.window.reselect_cell_ids([])
+        self.set_camera(scale=1.0, center=QPointF(500, 420))
+        original_center = self.center(self.window.view)
+        for checkbox in (self.window.cells_auto_center_checkbox, self.window.cells_show_first_freeze_checkbox):
+            checkbox.setChecked(False)
+            self.click_checkbox(checkbox)
+            self.assertTrue(checkbox.isChecked())
+            self.assertEqual(self.window.image_index, 2)
+            self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_same_cell_row_click_reapplies_enabled_options_after_manual_navigation(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        tree = self.show_cells_list()
+        tree.setCurrentItem(tree.topLevelItem(0))
+        self.window.reselect_cell_ids([cell_ids[0]])
+        for auto_center, show_freeze in ((False, False), (True, False), (False, True), (True, True)):
+            for scale in (1.4, 0.9):
+                with self.subTest(auto_center=auto_center, show_freeze=show_freeze, scale=scale):
+                    self.window.cells_auto_center_checkbox.setChecked(auto_center)
+                    self.window.cells_show_first_freeze_checkbox.setChecked(show_freeze)
+                    self.window.navigate_to_image(2)
+                    self.set_camera(scale=scale, center=QPointF(500, 420))
+                    original_center = self.center(self.window.view)
+                    self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+                    position = tree.visualItemRect(tree.topLevelItem(0)).center()
+                    QTest.mousePress(tree.viewport(), Qt.LeftButton, pos=position)
+                    self.assertEqual(self.window.image_index, 2)
+                    self.assert_linked(expected_scale=scale, expected_center=original_center)
+                    QTest.mouseRelease(tree.viewport(), Qt.LeftButton, pos=position)
+                    self.assertEqual(self.window.image_index, 0 if show_freeze else 2)
+                    self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+                    expected = QPointF(250, 220) if auto_center else original_center
+                    self.assert_linked(expected_scale=scale, expected_center=expected)
+
+    def test_expanders_details_blank_space_and_right_clicks_do_not_reapply_cell_navigation(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        tree = self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        self.window.reselect_cell_ids([cell_ids[0]])
+        self.set_camera(scale=1.0, center=QPointF(500, 420))
+        original_center = self.center(self.window.view)
+        first = tree.topLevelItem(0)
+        rect = tree.visualItemRect(first)
+        arrow = QPoint(rect.left() - tree.indentation() // 2, rect.center().y())
+        with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+            QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=arrow)
+            self.assertTrue(first.isExpanded())
+            self.assertEqual(center.call_count, 0)
+            self.assertEqual(self.window.image_index, 2)
+            detail = tree.visualItemRect(first.child(0)).center()
+            blank = QPoint(tree.viewport().width() // 2, tree.viewport().height() - 5)
+            self.assertIsNone(tree.itemAt(blank))
+            second = tree.visualItemRect(tree.topLevelItem(1)).center()
+            for button, position in ((Qt.LeftButton, detail), (Qt.LeftButton, blank), (Qt.RightButton, second)):
+                with self.subTest(button=button, position=position):
+                    self.window.reselect_cell_ids([cell_ids[0]])
+                    QTest.mouseClick(tree.viewport(), button, pos=position)
+                    self.assertEqual(center.call_count, 0)
+                    self.assertEqual(self.window.image_index, 2)
+                    self.assert_linked(expected_scale=1.0, expected_center=original_center)
+
+    def test_same_cell_row_click_after_pan_and_wheel_zoom_preserves_pan_mode_and_zoom(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [4], [1]))
+        tree = self.show_cells_list()
+        self.window.cells_auto_center_checkbox.setChecked(True)
+        self.window.cells_show_first_freeze_checkbox.setChecked(True)
+        point = tree.visualItemRect(tree.topLevelItem(0)).center()
+        QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+        self.assertEqual(self.window.image_index, 0)
+        self.window.panTool(True)
+        self.window.navigate_to_image(2)
+        self.set_camera(scale=1.0, center=QPointF(350, 270))
+        view = self.window.view
+        start = view.viewport().rect().center()
+        wheel = QWheelEvent(
+            QPointF(start), QPointF(view.viewport().mapToGlobal(start)),
+            QPoint(), QPoint(0, 120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False,
+        )
+        self.app.sendEvent(view.viewport(), wheel)
+        before_drag = self.center(view)
+        QTest.mousePress(view.viewport(), Qt.LeftButton, pos=start)
+        QTest.mouseMove(view.viewport(), start + QPoint(35, 24), delay=10)
+        QTest.mouseRelease(view.viewport(), Qt.LeftButton, pos=start + QPoint(35, 24))
+        scale = view.transform().m11()
+        self.assertGreater(scale, 1.0)
+        self.assertGreater((self.center(view) - before_drag).manhattanLength(), 5)
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        before_click = self.center(view)
+        point = tree.visualItemRect(tree.topLevelItem(0)).center()
+        QTest.mousePress(tree.viewport(), Qt.LeftButton, pos=point)
+        self.assertEqual(self.window.image_index, 2)
+        self.assert_linked(expected_scale=scale, expected_center=before_click)
+        QTest.mouseRelease(tree.viewport(), Qt.LeftButton, pos=point)
+        self.assertEqual(self.window.tool_mode, "pan")
+        self.assertEqual(self.window.image_index, 0)
+        self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
+        self.assert_linked(expected_scale=scale, expected_center=QPointF(250, 220))
+
+    def test_checkbox_and_list_click_do_not_navigate_while_pan_suspends_drawing_or_editing(self):
+        cell_ids = self.install_selection_cells()
+        self.set_freeze_frames(cell_ids, ([0], [0], [0]))
+        tree = self.show_cells_list()
+        for workflow in ("draw", "single edit", "group edit"):
+            with self.subTest(workflow=workflow):
+                self.window.reset_cursor_tool(True)
+                self.window.cells_auto_center_checkbox.setChecked(False)
+                self.window.cells_show_first_freeze_checkbox.setChecked(False)
+                if workflow == "draw":
+                    self.window.selectTool(True)
+                    self.window.update_grid_preview_from_scene_pos(QPointF(320, 350), pin=True)
+                else:
+                    self.window.reselect_cell_ids(cell_ids[:1] if workflow == "single edit" else cell_ids[:2])
+                    self.window.editTool(True)
+                preview_origin = self.window.grid_preview_origin_pixels
+                self.assertIsNotNone(preview_origin)
+                self.window.panTool(True)
+                self.set_camera(scale=1.0, center=QPointF(500, 420))
+                original_center = self.center(self.window.view)
+                with patch.object(self.window, "center_on_cell_selection", wraps=self.window.center_on_cell_selection) as center:
+                    self.click_checkbox(self.window.cells_auto_center_checkbox)
+                    self.click_checkbox(self.window.cells_show_first_freeze_checkbox)
+                    point = tree.visualItemRect(tree.topLevelItem(2)).center()
+                    QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
+                    self.assertEqual(center.call_count, 0)
+                self.assertEqual(self.window.image_index, 2)
+                self.assertEqual(self.window.tool_mode, "pan")
+                self.assertEqual(self.window.grid_preview_origin_pixels, preview_origin)
+                self.assert_linked(expected_scale=1.0, expected_center=original_center)
 
     def test_cells_list_up_down_skips_expanded_details_and_preserves_focus_after_freeze_seek(self):
         cell_ids = self.install_selection_cells()
@@ -305,33 +493,28 @@ class ComparisonViewerTests(unittest.TestCase):
         self.assertEqual(self.window.serialize_cell_records(), before_records)
         self.assertEqual(self.window.undo_stack.count(), before_history)
 
-    def test_center_controls_share_behavior_and_empty_selection_is_a_noop(self):
+    def test_cursor_center_button_remains_explicit_and_empty_selection_is_a_noop(self):
         self.assertFalse(self.window.cells_auto_center_checkbox.isChecked())
+        self.assertFalse(hasattr(self.window, "cells_center_button"))
+        self.assertEqual(self.window.cells_show_first_freeze_checkbox.text(), "Show freeze frame")
         self.window.apply_cursor_tool_ui()
         self.set_camera(scale=1.3, center=QPointF(510, 410))
         original_center = self.center(self.window.view)
         self.assertFalse(self.window.center_on_cell_selection())
-        for button in (self.window.cells_center_button, self.window.cursor_center_button):
-            self.assertFalse(button.isEnabled())
+        self.assertFalse(self.window.cursor_center_button.isEnabled())
         self.assert_linked(expected_scale=1.3, expected_center=original_center)
 
         cell_ids = self.install_selection_cells()
         self.window.reselect_cell_ids([cell_ids[0]])
-        self.window.cells_auto_center_checkbox.setChecked(True)
-        self.process_events()
         self.assert_linked(expected_scale=1.3, expected_center=original_center)
-        for button in (self.window.cells_center_button, self.window.cursor_center_button):
-            with self.subTest(button=button):
-                self.set_camera(scale=1.3, center=QPointF(510, 410))
-                self.assertTrue(button.isEnabled())
-                button.click()
-                self.process_events()
-                self.assert_linked(expected_scale=1.3, expected_center=QPointF(250, 220))
+        self.assertTrue(self.window.cursor_center_button.isEnabled())
+        self.window.cursor_center_button.click()
+        self.process_events()
+        self.assert_linked(expected_scale=1.3, expected_center=QPointF(250, 220))
 
         self.window.reselect_cell_ids([])
         before_empty = self.center(self.window.view)
         self.assertFalse(self.window.center_on_cell_selection())
-        self.assertFalse(self.window.cells_center_button.isEnabled())
         self.assertFalse(self.window.cursor_center_button.isEnabled())
         self.assert_linked(expected_scale=1.3, expected_center=before_empty)
 

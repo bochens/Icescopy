@@ -47,19 +47,21 @@ If clicking draws a preview instead of selecting, you are in Add Cell or Grid To
 
 ### Center the selection
 
-Select one or more cells in the image or Cells list, then click **Center on selection** at the top of **Cells**, or under **Cell Info** in the Cursor Tool Options. Both buttons center the same selection once. They are disabled when there is no selected cell with a position on the current image, or no current image is loaded.
+Select one or more cells in the image or Cells list, then click **Center on selection** under **Cell Info** in the Cursor Tool Options. The button centers the selection once. It is disabled when there is no selected cell with a position on the current image, or no current image is loaded.
 
 Centering moves the view without changing zoom. For a group, it centers the smallest rectangle enclosing the complete selected circles at the **current frame**. A widely spread group may still extend beyond the view; zoom out if needed. In two- or three-image view, the neighboring panes follow the Current pane's center.
 
-To center automatically when selecting rows in the **Cells list**, enable **Auto-center** at the top of Cells. It starts unchecked each time you open the app. With the Cursor tool active, it responds after you finish a mouse selection in the list or change the selected rows with keys such as **Up/Down**. Clicking circles or dragging a selection box in the image does not trigger Auto-center. Turning it on does not move the view until you change the selection in the list.
+To center automatically from the **Cells list**, enable **Auto-center** at the top of Cells. It responds after you finish a mouse selection in the list or change the selected rows with keys such as **Up/Down**. Clicking an already selected Cell row centers it again, for example after you pan or zoom. Clicking circles or dragging a selection box in the image does not trigger Auto-center.
 
 Manual frame changes, editing, drawing, deletion, cropping, panning, and Undo/Redo do not trigger Auto-center. Use **Center on selection** whenever you want to center the current selection again.
 
 ### Show a selected cell's first freeze frame
 
-Enable **Show first freeze frame** at the top of **Cells**, then use Cursor mode and select one Cell row by clicking it or pressing **Up/Down** in the list. The arrow keys move between Cell rows and skip their expanded details. Icescopy opens that cell's earliest recorded freeze frame that is available in the loaded recording. Selecting a group, or a cell with no available freeze frame, leaves the current frame unchanged. Selecting circles in the image never triggers this frame jump.
+Enable **Show freeze frame** at the top of **Cells**, then select one Cell row by clicking it or pressing **Up/Down** in the list. The arrow keys move between Cell rows and skip their expanded details. Icescopy opens that cell's earliest recorded freeze frame that is available in the loaded recording. Clicking the same Cell row again returns to that frame after you browse elsewhere. Selecting a group, or a cell with no available freeze frame, leaves the current frame unchanged. Selecting circles in the image never triggers this frame jump.
 
-**Show first freeze frame** and **Auto-center** are independent options that respond only to selections made in the **Cells list**. Both start unchecked when you open the app. With both enabled, selecting one cell in the list first opens its freeze frame, then centers its circle at that frame without changing zoom. Groups selected in the list can still be centered with Auto-center. Turning either checkbox on does not move the view or change the frame until you change the selection in the list.
+**Show freeze frame** and **Auto-center** are independent options, and both start unchecked when you open the app. Checking either option, by clicking it or pressing **Space** while it has focus, immediately applies all enabled options to the current selection. Unchecking an option does not move the view or change the frame. With both enabled, Icescopy opens a single selected cell's freeze frame first, then centers its circle at that frame without changing zoom. Groups can still be centered with Auto-center.
+
+These controls work with either **Cursor** or **Pan and Zoom** active and leave your chosen tool unchanged. Finish or cancel cell drawing, cell edits, or image-edit controls before using them; temporarily panning by holding Space also prevents list navigation. Clicking an expander, a detail row, empty list space, or the right mouse button does not reapply either option. Image selections, frame browsing, and Undo/Redo do not trigger them.
 
 ## Add one cell
 

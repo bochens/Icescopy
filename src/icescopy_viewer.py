@@ -32,6 +32,12 @@ class CellSelectionTreeWidget(QTreeWidget):
         super().__init__(parent)
         self.main_window = main_window
         self._selection_navigation_start = None
+        self._clicked_cell_id = None
+        self.itemClicked.connect(self._record_cell_row_click)
+
+    def _record_cell_row_click(self, item, _column):
+        if item.parent() is None:
+            self._clicked_cell_id = item.data(0, Qt.UserRole)
 
     def cancel_pending_selection_center(self):
         self._selection_navigation_start = None
@@ -59,9 +65,12 @@ class CellSelectionTreeWidget(QTreeWidget):
     def mouseReleaseEvent(self, event):
         before = self._selection_navigation_start
         self._selection_navigation_start = None
+        self._clicked_cell_id = None
         super().mouseReleaseEvent(event)
         if event.button() == Qt.LeftButton:
-            self.main_window.navigate_after_cell_list_selection(before)
+            self.main_window.navigate_after_cell_list_selection(
+                before, reapply=self._clicked_cell_id is not None,
+            )
 
     def keyPressEvent(self, event):
         before = (

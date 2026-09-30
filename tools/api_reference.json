@@ -18,7 +18,7 @@
         },
         "IceScopy": {
           "summary": "Owns the active desktop session and coordinates helper modules.",
-          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Automatic navigation responds only to completed selections in the Cells list while the Cursor tool is active. It compares selection IDs before and after the gesture and can optionally open one cell's earliest available recorded freeze frame, then center circle bounds at the displayed frame without changing zoom. Image selections and selection refresh signals do not trigger either automatic action. Manual centering remains available for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.",
+          "details": "Prefer focused helper modules for numerical work and parsing. Use the existing capture/restore and command methods for undoable changes; direct mutation can leave records, results, selection, and graphics inconsistent. Cells-list navigation optionally opens one cell's earliest available recorded freeze frame, then centers circle bounds at the displayed frame without changing zoom. Completed list selections, repeated clicks on Cell rows, and user activation of either checkbox apply all enabled options. Cursor and permanent Pan mode are supported; unfinished drawing or editing and temporary Space panning block navigation. Image selections and selection refresh signals do not trigger either automatic action. The Cursor Tool Options button provides manual centering for cells selected in the image or list. Redraws, history restoration, and interaction changes cancel pending list navigation so an interrupted gesture cannot move the view later.",
           "methods": [
             "active_frame_source",
             "set_frame_source",
@@ -33,6 +33,8 @@
             "center_on_cell_selection",
             "cell_list_navigation_state",
             "cancel_cell_list_navigation",
+            "apply_cell_list_navigation",
+            "handle_cell_list_navigation_option_clicked",
             "navigate_after_cell_list_selection",
             "open_session_file_path",
             "persist_session_to_path",
@@ -821,7 +823,7 @@
       "classes": {
         "CellSelectionTreeWidget": {
           "summary": "Reports completed Cells-list mouse and keyboard selections for optional frame navigation and centering.",
-          "details": "Captures selection state before a left-mouse gesture or keyboard action in the Cells list and reports the completed interaction afterward. Up/Down navigation visits top-level Cell rows and skips expanded detail rows. The main window decides whether Cursor mode, a changed selection, and the independent Show first freeze frame and Auto-center settings permit navigation. Image selections and programmatic selection refreshes do not pass through these event handlers.",
+          "details": "Captures selection state before a left-mouse gesture or keyboard action in the Cells list and reports the completed interaction afterward. A click on a top-level Cell row can reapply navigation even when the selection is unchanged; expanders, detail rows, blank space, and right-clicks do not. Up/Down navigation visits Cell rows and skips expanded details. The main window checks the active tool and interaction state before applying the independent Show freeze frame and Auto-center options. Image selections and programmatic selection refreshes do not pass through these event handlers.",
           "methods": [
             "__init__",
             "cancel_pending_selection_center",

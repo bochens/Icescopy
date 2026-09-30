@@ -7,7 +7,7 @@ Reports completed Cells-list mouse and keyboard selections for optional frame na
 
 **Bases:** `QTreeWidget`.
 
-Captures selection state before a left-mouse gesture or keyboard action in the Cells list and reports the completed interaction afterward. Up/Down navigation visits top-level Cell rows and skips expanded detail rows. The main window decides whether Cursor mode, a changed selection, and the independent Show first freeze frame and Auto-center settings permit navigation. Image selections and programmatic selection refreshes do not pass through these event handlers.
+Captures selection state before a left-mouse gesture or keyboard action in the Cells list and reports the completed interaction afterward. A click on a top-level Cell row can reapply navigation even when the selection is unchanged; expanders, detail rows, blank space, and right-clicks do not. Up/Down navigation visits Cell rows and skips expanded details. The main window checks the active tool and interaction state before applying the independent Show freeze frame and Auto-center options. Image selections and programmatic selection refreshes do not pass through these event handlers.
 
 ## Selected methods
 
@@ -23,7 +23,7 @@ def __init__(self, main_window, parent=None):
 
 ### `cancel_pending_selection_center`
 
-[Source](../src/icescopy_viewer.py#L36)
+[Source](../src/icescopy_viewer.py#L42)
 
 ```python
 def cancel_pending_selection_center(self):
@@ -31,7 +31,7 @@ def cancel_pending_selection_center(self):
 
 ### `moveCursor`
 
-[Source](../src/icescopy_viewer.py#L39)
+[Source](../src/icescopy_viewer.py#L45)
 
 ```python
 def moveCursor(self, action, modifiers):
@@ -39,7 +39,7 @@ def moveCursor(self, action, modifiers):
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_viewer.py#L52)
+[Source](../src/icescopy_viewer.py#L58)
 
 ```python
 def mousePressEvent(self, event):
@@ -47,7 +47,7 @@ def mousePressEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_viewer.py#L59)
+[Source](../src/icescopy_viewer.py#L65)
 
 ```python
 def mouseReleaseEvent(self, event):
@@ -55,7 +55,7 @@ def mouseReleaseEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_viewer.py#L66)
+[Source](../src/icescopy_viewer.py#L75)
 
 ```python
 def keyPressEvent(self, event):
@@ -63,7 +63,7 @@ def keyPressEvent(self, event):
 
 ### `focusOutEvent`
 
-[Source](../src/icescopy_viewer.py#L74)
+[Source](../src/icescopy_viewer.py#L83)
 
 ```python
 def focusOutEvent(self, event):

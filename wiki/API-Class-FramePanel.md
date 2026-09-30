@@ -3,7 +3,7 @@
 
 Combines one frame's label, view, image, cell outlines, and image-edit overlays.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L270) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L279) · [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_viewer.py#L273)
+[Source](../src/icescopy_viewer.py#L282)
 
 ```python
 def __init__(self, role, view, *, current=False):
@@ -23,7 +23,7 @@ def __init__(self, role, view, *, current=False):
 
 ### `show_reference`
 
-[Source](../src/icescopy_viewer.py#L300)
+[Source](../src/icescopy_viewer.py#L309)
 
 ```python
 def show_reference(self, frame_index, pixmap, bounds, *, preview=False):
@@ -31,7 +31,7 @@ def show_reference(self, frame_index, pixmap, bounds, *, preview=False):
 
 ### `refresh_cells`
 
-[Source](../src/icescopy_viewer.py#L331)
+[Source](../src/icescopy_viewer.py#L340)
 
 ```python
 def refresh_cells(self, main_window):
@@ -39,7 +39,7 @@ def refresh_cells(self, main_window):
 
 ### `clear_cells`
 
-[Source](../src/icescopy_viewer.py#L325)
+[Source](../src/icescopy_viewer.py#L334)
 
 ```python
 def clear_cells(self):
@@ -47,7 +47,7 @@ def clear_cells(self):
 
 ### `clear`
 
-[Source](../src/icescopy_viewer.py#L366)
+[Source](../src/icescopy_viewer.py#L375)
 
 ```python
 def clear(self):

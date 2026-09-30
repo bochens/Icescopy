@@ -175,9 +175,9 @@ class CellCircle(QGraphicsEllipseItem):
                 event.ignore()
         
     def update_selectable_state(self):
-        # Restrict Qt's built-in item selection to Cursor mode so group/edit
-        # state stays stable when switching tools.
-        if not self.read_only and self.main_window.tool_mode in {"cursor", "edit-choose", "image-edit"}:
+        # Pan ignores circle mouse events, but the Cells list must still be
+        # able to select circles and preserve that selection while panning.
+        if not self.read_only and self.main_window.tool_mode in {"cursor", "pan", "edit-choose", "image-edit"}:
             self.setFlag(QGraphicsEllipseItem.ItemIsSelectable, True)
         else:
             self.setFlag(QGraphicsEllipseItem.ItemIsSelectable, False)
