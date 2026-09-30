@@ -3,7 +3,7 @@
 
 Tracks the chosen freeze event and cooling cycle and performs explicit event navigation.
 
-[Module](API-Module-icescopy-event-navigation.md) · [Source](../src/icescopy_event_navigation.py#L71) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-event-navigation.md) · [Source](../src/icescopy_event_navigation.py#L78) · [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_event_navigation.py#L74)
+[Source](../src/icescopy_event_navigation.py#L81)
 
 ```python
 def __init__(self, main_window, parent=None):
@@ -23,7 +23,7 @@ def __init__(self, main_window, parent=None):
 
 ### `refresh`
 
-[Source](../src/icescopy_event_navigation.py#L117)
+[Source](../src/icescopy_event_navigation.py#L124)
 
 ```python
 def refresh(self):
@@ -31,7 +31,7 @@ def refresh(self):
 
 ### `selected_frame`
 
-[Source](../src/icescopy_event_navigation.py#L201)
+[Source](../src/icescopy_event_navigation.py#L208)
 
 ```python
 def selected_frame(self):
@@ -39,7 +39,7 @@ def selected_frame(self):
 
 ### `remember_target`
 
-[Source](../src/icescopy_event_navigation.py#L205)
+[Source](../src/icescopy_event_navigation.py#L212)
 
 ```python
 def remember_target(self):
@@ -47,7 +47,7 @@ def remember_target(self):
 
 ### `action_context`
 
-[Source](../src/icescopy_event_navigation.py#L212)
+[Source](../src/icescopy_event_navigation.py#L219)
 
 ```python
 def action_context(self):
@@ -55,7 +55,7 @@ def action_context(self):
 
 ### `step_from_button`
 
-[Source](../src/icescopy_event_navigation.py#L224)
+[Source](../src/icescopy_event_navigation.py#L231)
 
 ```python
 def step_from_button(self, direction):
@@ -63,7 +63,7 @@ def step_from_button(self, direction):
 
 ### `activate_from_combo`
 
-[Source](../src/icescopy_event_navigation.py#L229)
+[Source](../src/icescopy_event_navigation.py#L236)
 
 ```python
 def activate_from_combo(self, index):
@@ -71,7 +71,7 @@ def activate_from_combo(self, index):
 
 ### `activate_event`
 
-[Source](../src/icescopy_event_navigation.py#L236)
+[Source](../src/icescopy_event_navigation.py#L243)
 
 ```python
 def activate_event(self, index):
@@ -79,7 +79,7 @@ def activate_event(self, index):
 
 ### `step_event`
 
-[Source](../src/icescopy_event_navigation.py#L244)
+[Source](../src/icescopy_event_navigation.py#L251)
 
 ```python
 def step_event(self, direction):
@@ -87,7 +87,7 @@ def step_event(self, direction):
 
 ### `navigate`
 
-[Source](../src/icescopy_event_navigation.py#L248)
+[Source](../src/icescopy_event_navigation.py#L255)
 
 ```python
 def navigate(self, frame):

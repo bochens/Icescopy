@@ -7,7 +7,7 @@ Render the existing timeline arrowhead with a freeze-event dot in a shared butto
 
 **Bases:** `QPushButton`.
 
-Used by both the Cells selector and the timeline. `update_appearance()` receives the existing directional arrow icon and active theme, adds the red event dot, and supplies a gray disabled version. It retains the timeline's button geometry and interaction styling while keeping a fixed compact width. The button owns appearance only; its caller supplies event-navigation behavior.
+Used by both the Cells selector and the timeline. `update_appearance()` receives the existing directional arrow icon and active theme, adds the red event dot, and supplies a gray disabled version. It retains the timeline's button geometry and interaction styling while keeping a fixed compact width. Set `timeline=False` for a selector beside a native combo box; this removes the timeline's top margin so their visible centers align. The button owns appearance only; its caller supplies event-navigation behavior.
 
 ## Selected methods
 
@@ -18,12 +18,12 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 [Source](../src/icescopy_event_navigation.py#L13)
 
 ```python
-def __init__(self, direction, parent=None):
+def __init__(self, direction, parent=None, *, timeline=True):
 ```
 
 ### `update_appearance`
 
-[Source](../src/icescopy_event_navigation.py#L20)
+[Source](../src/icescopy_event_navigation.py#L21)
 
 ```python
 def update_appearance(self, caret_icon, dark):

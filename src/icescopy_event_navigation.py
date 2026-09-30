@@ -10,9 +10,10 @@ import icescopy_stylesheet
 class FreezeEventButton(QPushButton):
     """The timeline's chevron and red event dot in its existing button shape."""
 
-    def __init__(self, direction, parent=None):
+    def __init__(self, direction, parent=None, *, timeline=True):
         super().__init__(parent)
         self.direction = -1 if direction < 0 else 1
+        self._timeline = timeline
         self.setAutoDefault(False)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.setIconSize(QSize(24, 16))
@@ -24,7 +25,13 @@ class FreezeEventButton(QPushButton):
         )
         # Keep the compact width identical in both themes. All other button
         # geometry, hover and pressed styling follows the existing timeline.
-        self.setStyleSheet(stylesheet + "QPushButton { width: 40px; min-width: 40px; max-width: 40px; }")
+        # The timeline offsets its buttons downward. A selector beside a
+        # native combo box needs symmetric margins to align their centers.
+        selector_margin = "" if self._timeline else "margin-top: 0px;"
+        self.setStyleSheet(stylesheet + (
+            "QPushButton { width: 40px; min-width: 40px; max-width: 40px; "
+            + selector_margin + " }"
+        ))
         icon = QIcon()
         for mode in (QIcon.Normal, QIcon.Disabled):
             pixmap = QPixmap(96, 64)
@@ -91,7 +98,7 @@ class FreezeEventSelector(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        self.previous_button = FreezeEventButton(-1, self)
+        self.previous_button = FreezeEventButton(-1, self, timeline=False)
         self.previous_button.setAccessibleName("Previous freeze event")
         self.previous_button.setToolTip("Previous freeze event for the selected cell")
         self.combo = FreezeEventComboBox(self)
@@ -99,7 +106,7 @@ class FreezeEventSelector(QWidget):
         self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(0)
         self.combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.next_button = FreezeEventButton(1, self)
+        self.next_button = FreezeEventButton(1, self, timeline=False)
         self.next_button.setAccessibleName("Next freeze event")
         self.next_button.setToolTip("Next freeze event for the selected cell")
         layout.addWidget(self.previous_button)
