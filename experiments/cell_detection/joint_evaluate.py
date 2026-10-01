@@ -35,7 +35,8 @@ def baseline_predictions(entry, seeds, scene):
     return [banks[0]['proposals'][i] for i in row['accepted']], row['threshold']
 
 
-def preview(image, scene, metric, title, width=1000):
+def preview(image, scene, metric, title, width=1000,
+            note='Training image: this is not an independent accuracy test.'):
     scale = width/image.shape[1]
     height = round(image.shape[0]*scale)
     canvas = Image.new('RGB', (width, height+66), 'white')
@@ -44,7 +45,7 @@ def preview(image, scene, metric, title, width=1000):
     draw.text((10, 7), f"{title}: {metric['centered']}/{metric['remaining']} centered; "
               f"{metric['found']} recovered; {metric['extras']} extra", fill='black')
     draw.text((10, 27), 'Green centered | Yellow offset | Orange extra | Cyan examples | Magenta reference needing correction', fill='black')
-    draw.text((10, 45), 'Training image: this is not an independent accuracy test.', fill='black')
+    draw.text((10, 45), note, fill='black')
 
     def mark(row, color, line=2):
         c = circle(row)
