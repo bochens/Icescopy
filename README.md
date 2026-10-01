@@ -43,11 +43,15 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 A **cell** is the circle whose brightness Icescopy measures. Draw cells with **Add Cell**, or use **Grid Tool** to place a regular array.
 
-For **experimental droplet detection**, mark and select a few representative droplets, then click the **star tool** beside **Edit Cell**. **Detect Droplets (Current Frame)** finds similar droplets in the current image or video frame and adds new cells without duplicating existing ones. Review the circles, edit any mistakes, or undo the batch.
+![Grid Tool placing cells across PCR wells, with the current toolbar and grid controls](resources/readme/2026-10-01-workflow/grid-annotation.png)
 
-![Two selected examples guide droplet detection; the app adds fourteen cells and reports the model version and counts](resources/readme/2026-10-01/droplet-selection.png)
+*Colorado State University (CSU), Ice Spectrometer setup. Red circles are placed cells; the blue grid previews the next group.*
 
-*Two selected examples (cyan), fourteen new cells (green). The Console reports the model version and detection counts.*
+**Experimental droplet detection** uses a neural network built on **MobileNetV3-Small, pretrained on ImageNet**, then trained to find droplets using marked examples. Mark and select a few representative droplets, then click the **star tool** beside **Edit Cell**. **Detect Droplets (Current Frame)** finds similar droplets in the current image or video frame and adds new cells without duplicating existing ones. Review the circles, edit any mistakes, or undo the batch.
+
+![Two selected examples guide droplet detection; the app adds fourteen cells with normal red outlines and reports the model version and counts](resources/readme/2026-10-01-workflow/droplet-selection.png)
+
+*Texas A&M University (TAMU), droplet stage. The two blue circles are selected guidance examples; the fourteen red circles were added automatically. Automatic and manually drawn cells use the same red outlines. The Console reports the model version and counts.*
 
 The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
 
@@ -55,13 +59,15 @@ The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU
 
 To improve automatic selection for your instrument and lighting, you can **continue training the supplied model or train your own compatible model**. The [training notebook](auto_cell_ml/train_and_evaluate.ipynb) covers training, evaluation, and exporting weights for the app; the [machine learning module](auto_cell_ml/README.md) includes labeled examples, synthetic scenes, and trainable weights. Load the new model without updating Icescopy, and check its results before running freezing analysis.
 
-If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md) and [droplet detection](wiki/Droplet-Detection.md).
+If droplets or the image shift during a recording, cell circles may no longer line up with the droplets in later frames. Add **keyframes** at those frames and correct the cell positions; Icescopy adjusts the cells between keyframes. See [drawing and editing cells](wiki/Annotation-Workflow.md) and [droplet detection](wiki/Droplet-Detection.md).
 
 ### 2. Assign samples
 
 Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
 
-![Cells with sample-colored labels and editable sample information](resources/readme/2026-09-30/sample-assignment-full-plate.png)
+![Cells with sample-colored labels and editable sample information](resources/readme/2026-10-01-workflow/sample-assignment.png)
+
+*Colorado State University (CSU), Ice Spectrometer setup. Label colors distinguish sample groups; the sample details shown are illustrative.*
 
 ### 3. Automatically detect freeze frames
 
@@ -75,7 +81,9 @@ Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the 
 
 Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames in separate panes, with each frame’s cell positions and sizes. Pan or zoom in any pane to compare the same area across frames. Select or edit cells in the **Current** pane.
 
-![Previous, Current, and Next frames with the selected cell's brightness plot](resources/readme/2026-09-30/linked-frame-review.png)
+![Previous, Current, and Next frames with the selected cell's brightness plot](resources/readme/2026-10-01-workflow/linked-frame-review.png)
+
+*Peking University (PKU), cold stage. Linked views show the same droplet before, during, and after freezing, with its brightness plot below.*
 
 For missed or incorrect detections, open **Preferences → Analysis → Freeze Finding**:
 
