@@ -5,8 +5,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-import threading
-import time
 import unittest
 from unittest.mock import patch
 import warnings
@@ -20,10 +18,8 @@ import numpy as np
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication, QMessageBox
 
-from icescopy_droplet_detection import CancelledError, Circle, load_model
-import icescopy_droplet_trainer as trainer
+from icescopy_droplet_detection import CancelledError, Circle
 import icescopy_droplet_training_io as training_io
 from icescopy_session_io import SESSION_SCHEMA_VERSION, save_session_bundle
 
@@ -283,184 +279,6 @@ class TrainingSessionTests(unittest.TestCase):
             self.assertAlmostEqual(float(scenes[0]["image"].mean()), 130, delta=4)
             self.assertAlmostEqual(float(scenes[1]["image"].mean()), 30, delta=4)
             self.assertEqual(digest(video), original_digest)
-
-
-class DropletTrainerWindowTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-
-    def setUp(self):
-        self.windows = []
-
-    def tearDown(self):
-        for window in self.windows:
-            window.cancel_training()
-        self.wait_until(lambda: all(not window.is_training() for window in self.windows))
-        for window in self.windows:
-            window.close()
-        self.app.processEvents()
-
-    def window(self, **kwargs):
-        window = trainer.DropletTrainerWindow(**kwargs)
-        self.windows.append(window)
-        return window
-
-    def wait_until(self, predicate, timeout=6):
-        deadline = time.monotonic() + timeout
-        while not predicate() and time.monotonic() < deadline:
-            self.app.processEvents()
-            # Qt's qWait can retain the Python lock while waiting. Yield it so
-            # first-time imports and training can run in the Python worker.
-            time.sleep(0.01)
-        self.app.processEvents()
-        self.assertTrue(predicate(), "Qt worker or window did not finish in time")
-
-    def test_default_current_frame_and_user_checked_keyframes_are_the_only_examples(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = write_session(td)
-            window = self.window(initial_session_paths=[path])
-            self.assertEqual(window._selections[0].frame_indexes, {1})
-            self.assertEqual(window.frame_list.count(), 3)
-            self.assertEqual(window.frame_list.item(0).checkState(), Qt.Checked)
-            self.assertEqual(window.frame_list.item(1).checkState(), Qt.Unchecked)
-            window.frame_list.item(1).setCheckState(Qt.Checked)
-            received = []
-            main_thread = threading.get_ident()
-
-            def fitted(scenes, progress=None, cancelled=None):
-                self.assertNotEqual(threading.get_ident(), main_thread)
-                received.extend(scenes)
-                progress("Training fixture completed.")
-                return {"training_stats": {"images": 2, "circles": 2, "samples": 10}}
-
-            with patch.object(trainer, "fit_model", fitted):
-                window.start_training()
-                self.assertTrue(window.is_training())
-                self.assertFalse(window.session_table.isEnabled())
-                self.wait_until(lambda: not window.is_training())
-            self.assertEqual([scene["circles"] for scene in received], [[Circle(7, 8, 3)], [Circle(12, 13, 4)]])
-            self.assertTrue(window.save_button.isEnabled())
-            self.assertIn("Training complete", window.status_label.text())
-            window.frame_list.item(1).setCheckState(Qt.Unchecked)
-            self.assertFalse(window.save_button.isEnabled())
-
-    def test_missing_sources_disable_training_until_that_session_is_relinked(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = write_session(td, paths=["/missing/frame_0.png", "/missing/frame_1.png", "/missing/frame_2.png"])
-            Image.new("RGB", (43, 37)).save(Path(td) / "frame_1.png")
-            saved_digest = digest(path)
-            window = self.window(initial_session_paths=[path])
-            self.assertFalse(window.train_button.isEnabled())
-            self.assertIn("Missing", window.session_table.item(0, 3).text())
-            window.relink_session(0, td)
-            self.assertTrue(window.train_button.isEnabled())
-            self.assertIn("relinked", window.session_table.item(0, 3).text())
-            self.assertEqual(digest(path), saved_digest)
-
-    def test_training_error_is_visible_and_leaves_the_window_ready_to_retry(self):
-        with tempfile.TemporaryDirectory() as td:
-            window = self.window(initial_session_paths=[write_session(td)])
-            def failed(*args, **kwargs):
-                raise ValueError("Every droplet needs a complete marking.")
-            with patch.object(trainer, "fit_model", failed), patch.object(QMessageBox, "warning") as warning:
-                window.start_training()
-                self.wait_until(lambda: not window.is_training())
-                warning.assert_called_once()
-            self.assertIn("complete marking", window.status_label.text())
-            self.assertTrue(window.train_button.isEnabled())
-            self.assertFalse(window.save_button.isEnabled())
-
-    def test_close_cooperatively_cancels_and_waits_for_worker_before_hiding(self):
-        with tempfile.TemporaryDirectory() as td:
-            window = self.window(initial_session_paths=[write_session(td)])
-            window.show()
-            entered = threading.Event()
-            may_finish = threading.Event()
-            def waiting_fit(scenes, progress=None, cancelled=None):
-                entered.set()
-                deadline = time.monotonic() + 4
-                while not cancelled() and time.monotonic() < deadline:
-                    may_finish.wait(0.01)
-                # Even a late result must be discarded after cancellation.
-                may_finish.wait(0.1)
-                return {"training_stats": {"images": 1, "circles": 1, "samples": 10}}
-            with patch.object(trainer, "fit_model", waiting_fit):
-                window.start_training()
-                self.wait_until(entered.is_set)
-                window.close()
-                self.assertTrue(window.is_training())
-                self.assertTrue(window.isVisible())
-                self.assertTrue(window._worker.cancellation_requested())
-                may_finish.set()
-                self.wait_until(lambda: not window.is_training())
-            self.assertFalse(window.isVisible())
-            self.assertIsNone(window._model)
-            window.cancel_training()  # Safe when no worker exists.
-
-    def test_saved_model_signal_is_sent_only_after_success_and_existing_file_is_preserved(self):
-        with tempfile.TemporaryDirectory() as td:
-            window = self.window()
-            window._model = {"training_stats": {}}
-            received = []
-            window.model_saved.connect(received.append)
-            path = Path(td) / "new.icescopy-model.json"
-            def save_fixture(model, destination, overwrite=False):
-                self.assertFalse(overwrite)
-                with open(destination, "x") as output:
-                    output.write("fixture model")
-            with patch.object(trainer, "save_model", save_fixture), patch.object(QMessageBox, "warning"):
-                self.assertTrue(window.save_model_to(path))
-                saved_digest = digest(path)
-                self.assertFalse(window.save_model_to(path))
-            self.assertEqual(received, [str(path.resolve())])
-            self.assertEqual(digest(path), saved_digest)
-
-    @unittest.skipUnless(importlib.util.find_spec("sklearn"), "The optional training dependency is not installed")
-    def test_real_session_trains_and_saves_a_reloadable_small_model(self):
-        import cv2
-        with tempfile.TemporaryDirectory() as td:
-            image_path = Path(td) / "droplets.png"
-            image = np.full((128, 144, 3), 185, dtype=np.uint8)
-            circles = [circle_payload(35, 35, 11), circle_payload(100, 35, 11), circle_payload(65, 95, 11)]
-            for circle in circles:
-                center = tuple(circle["circle_pixel_positions"])
-                cv2.circle(image, center, 11, (70, 70, 70), 2)
-                cv2.circle(image, center, 8, (215, 215, 215), -1)
-            Image.fromarray(image).save(image_path)
-            payload = {
-                "schema_version": SESSION_SCHEMA_VERSION,
-                "frame_source": {"kind": "image_sequence", "image_paths": [str(image_path)]},
-                "image_index": 0,
-                "cell_items": circles,
-                "keyframe_cell_items_dict": {},
-            }
-            path = write_session(td, payload=payload)
-            protected = {item: digest(item) for item in (path, image_path)}
-            window = self.window(initial_session_paths=[path])
-            with patch.object(QMessageBox, "warning") as warning:
-                window.start_training()
-                self.wait_until(lambda: not window.is_training(), timeout=30)
-                self.assertIsNotNone(window._model, window.status_label.text())
-                warning.assert_not_called()
-                model_path = Path(td) / "droplets.icescopy-model.json"
-                self.assertTrue(window.save_model_to(model_path))
-            model = load_model(model_path)
-            self.assertEqual(model["training_stats"]["images"], 1)
-            self.assertEqual(model["training_stats"]["circles"], 3)
-            self.assertGreater(model["training_stats"]["positive_samples"], 0)
-            self.assertGreater(model["training_stats"]["negative_samples"], 0)
-            self.assertLess(model_path.stat().st_size, 5 * 1024 * 1024)
-            for item, original in protected.items():
-                self.assertEqual(digest(item), original)
-
-    def test_open_helper_uses_the_existing_app_and_keeps_the_window_alive(self):
-        with patch.object(QApplication, "exec", side_effect=AssertionError("Must not start another event loop")):
-            window = trainer.open_droplet_trainer()
-        self.windows.append(window)
-        self.assertIs(QApplication.instance(), self.app)
-        self.assertTrue(window.isVisible())
-        self.assertIn(window, self.app._icescopy_droplet_trainer_windows)
 
 
 if __name__ == "__main__":

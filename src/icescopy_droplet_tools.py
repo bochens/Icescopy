@@ -92,40 +92,29 @@ class DropletDetectionTools(QObject):
         self.model_path = None
         self.worker = None
         self.progress = None
-        self.trainer_window = None
         self.snapshot = None
 
     def install_menu(self, analysis_menu):
         menu = analysis_menu.addMenu("Droplet Detection (Experimental)")
-        self.train_action = QAction("Train Model...", self.window)
         self.load_action = QAction("Load Model...", self.window)
         self.detect_action = QAction("Detect Droplets (Current Frame)", self.window)
         self.detect_action.setToolTip(
             "Use original pixels and add droplets inside the current crop. "
             "Select one or two marked droplets to set the size."
         )
-        self.train_action.triggered.connect(self.open_trainer)
         self.load_action.triggered.connect(self.choose_model)
         self.detect_action.triggered.connect(self.start_detection)
-        menu.addActions([self.train_action, self.load_action, self.detect_action])
+        menu.addActions([self.load_action, self.detect_action])
         self.update_actions()
 
     def is_running(self):
         return self.worker is not None
-
-    def trainer_is_running(self):
-        return self.trainer_window is not None and self.trainer_window.is_training()
-
-    def cancel_training(self):
-        if self.trainer_window is not None:
-            self.trainer_window.cancel_training()
 
     def update_actions(self):
         if not hasattr(self, "detect_action"):
             return
         busy = self.is_running()
         analysis_busy = bool(getattr(self.window, "output_state", False))
-        self.train_action.setEnabled(not analysis_busy)
         self.load_action.setEnabled(not busy and not analysis_busy)
         self.detect_action.setEnabled(
             bool(getattr(self.window, "session_active", False))
@@ -137,22 +126,6 @@ class DropletDetectionTools(QObject):
         # snapshot. Navigation/editing remain available; stale results are dropped.
         if busy and hasattr(self.window, "run_analysis_action"):
             self.window.run_analysis_action.setEnabled(False)
-
-    def open_trainer(self):
-        try:
-            if self.trainer_window is None:
-                from icescopy_droplet_trainer import open_droplet_trainer
-                self.trainer_window = open_droplet_trainer(parent=self.window)
-                self.trainer_window.model_saved.connect(self.load_model_path)
-                self.trainer_window.destroyed.connect(self._trainer_destroyed)
-            self.trainer_window.show()
-            self.trainer_window.raise_()
-            self.trainer_window.activateWindow()
-        except Exception as error:
-            QMessageBox.warning(self.window, "Droplet Trainer", str(error))
-
-    def _trainer_destroyed(self):
-        self.trainer_window = None
 
     def choose_model(self):
         path, _filter = QFileDialog.getOpenFileName(
@@ -207,7 +180,7 @@ class DropletDetectionTools(QObject):
         selected_ids = {int(item.cell_id) for item in window.get_selected_cell_items()}
         if len(selected_ids) > 2:
             raise ValueError("Select one or two marked droplets to set the size, or deselect all cells to use the model's size.")
-        # Fast video previews can come from a JPEG cache. Training uses decoded
+        # Fast video previews can come from a JPEG cache. Detection uses decoded
         # video pixels, so discard that preview copy before reading the frame.
         window.discard_preview_raw_frame_cache(window.image_index)
         rgb = qimage_to_rgb(window.get_cached_raw_image(window.image_index))
@@ -224,7 +197,7 @@ class DropletDetectionTools(QObject):
         if self.is_running():
             return
         if self.model is None:
-            QMessageBox.information(self.window, "Droplet Detection", "Load a droplet model first, or train one from marked sessions.")
+            QMessageBox.information(self.window, "Droplet Detection", "Load a droplet model first.")
             return
         try:
             snapshot = self.snapshot_current_frame()

@@ -11327,15 +11327,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.zoom_slider_set_maximum()
 
     def closeEvent(self, event):
-        if self.droplet_tools.trainer_is_running():
-            self.droplet_tools.cancel_training()
-            QMessageBox.information(
-                self,
-                "Droplet Trainer",
-                "Cancelling model training. Close Icescopy again when it finishes.",
-            )
-            event.ignore()
-            return
         if self.droplet_tools.is_running():
             self.droplet_tools.cancel_detection()
             QMessageBox.information(

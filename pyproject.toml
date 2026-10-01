@@ -34,7 +34,6 @@ dev = [
 
 [project.scripts]
 icescopy = "Icescopy:main"
-icescopy-train = "icescopy_droplet_trainer:main"
 icescopy-validate = "icescopy_validate:main"
 
 [project.urls]
@@ -57,7 +56,6 @@ py-modules = [
   "icescopy_dock",
   "icescopy_droplet_detection",
   "icescopy_droplet_tools",
-  "icescopy_droplet_trainer",
   "icescopy_droplet_training_io",
   "icescopy_event_navigation",
   "icescopy_frame_source",

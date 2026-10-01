@@ -245,17 +245,22 @@ class DropletToolsTests(unittest.TestCase):
         self.assertEqual(self.window.cell_items, [])
         self.assertIsNone(self.tools.progress)
 
-    def test_main_close_cancels_training_and_defers_destruction(self):
-        trainer = Mock()
-        trainer.is_training.return_value = True
-        self.tools.trainer_window = trainer
+    def test_main_close_cancels_detection_and_defers_destruction(self):
+        worker = Mock()
+        self.tools.worker = worker
         event = QCloseEvent()
         with patch("Icescopy.QMessageBox.information") as information:
             self.window.closeEvent(event)
-        trainer.cancel_training.assert_called_once()
+        worker.requestInterruption.assert_called_once()
         information.assert_called_once()
         self.assertFalse(event.isAccepted())
-        self.tools.trainer_window = None
+        self.tools.worker = None
+
+    def test_detection_menu_contains_only_model_loading_and_detection(self):
+        menu = self.tools.load_action.associatedObjects()
+        actions = next(item for item in menu if hasattr(item, "actions")).actions()
+        self.assertEqual([action.text() for action in actions],
+                         ["Load Model...", "Detect Droplets (Current Frame)"])
 
     def test_failed_insertion_rolls_back_all_cells_and_keyframes(self):
         self.add_keyframed_cell()

@@ -101,7 +101,7 @@ icescopy
 
 An editable install keeps the installed program connected to the checkout so code edits take effect without reinstalling. Keep the repository's `resources/` directory with the source. See [Developer Guide](Developer-Guide.md) for an existing Python environment, the source layout, and development practices.
 
-The development environment also includes the experimental [droplet trainer](Droplet-Detection.md), launched with `icescopy-train`. For an existing environment, add training support with `python -m pip install -e ".[training]"`. Loading an already trained model does not need this extra dependency.
+The development source includes experimental [droplet detection](Droplet-Detection.md). Load an existing model to detect cells in the current image or video frame.
 
 ## Check a development installation
 
