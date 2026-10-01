@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 import json
+import ntpath
 import os
 import tempfile
 import zipfile
@@ -528,6 +529,32 @@ def save_session_bundle(
             os.unlink(temp_path)
 
 
+def _resolve_relative_session_media_paths(payload, file_path):
+    """Resolve declared media paths against the session folder, without searching."""
+    if not isinstance(payload, dict):
+        return payload
+    session_folder = os.path.dirname(os.path.abspath(os.fspath(file_path)))
+
+    def resolve_path(path):
+        if not isinstance(path, str) or not path or os.path.isabs(path) or ntpath.isabs(path):
+            return path
+        return os.path.normpath(os.path.join(session_folder, path))
+
+    resolved = dict(payload)
+    if isinstance(payload.get("image_paths"), list):
+        resolved["image_paths"] = [resolve_path(path) for path in payload["image_paths"]]
+    source = payload.get("frame_source")
+    if isinstance(source, dict):
+        source = dict(source)
+        for key in ("image_paths", "video_paths"):
+            if isinstance(source.get(key), list):
+                source[key] = [resolve_path(path) for path in source[key]]
+        if "video_path" in source:
+            source["video_path"] = resolve_path(source["video_path"])
+        resolved["frame_source"] = source
+    return resolved
+
+
 def load_session_bundle(file_path):
     with zipfile.ZipFile(file_path, "r") as archive:
         payload = json.loads(archive.read(SESSION_STATE_FILENAME).decode("utf-8"))
@@ -544,4 +571,5 @@ def load_session_bundle(file_path):
                 archive.read(FREEZE_COUNT_TIMESERIES_CSV_FILENAME).decode("utf-8")
             )
 
+    payload = _resolve_relative_session_media_paths(payload, file_path)
     return payload, grayscale_table, freeze_table, freeze_count_timeseries_table
