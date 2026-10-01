@@ -3,6 +3,7 @@ import unittest
 
 from detector import Circle
 from joint_metrics import match_centers, measure_scene
+from joint_calibrate import choose_threshold
 
 
 class JointMetricTests(unittest.TestCase):
@@ -30,6 +31,17 @@ class JointMetricTests(unittest.TestCase):
         self.assertEqual((result['remaining'], result['found'], result['centered']), (2, 1, 1))
         self.assertEqual(result['extra_indices'], [1])
         self.assertEqual(result['precision'], .5)
+
+    def test_calibration_penalizes_extra_selections(self):
+        def point(x):
+            return {'x': x, 'y': 10., 'radius': 2.}
+        trials = [{'references': [point(10.), point(30.)],
+                   'suggestions': [{'circle': point(10.), 'score': .9},
+                                   *[{'circle': point(x), 'score': .5}
+                                     for x in (30., 50., 70., 90.)]]}]
+        selected, curve = choose_threshold(trials, [.5, .9])
+        self.assertEqual(selected['threshold'], .9)
+        self.assertEqual(curve[0]['not_centered'], 3)
 
 
 if __name__ == '__main__':
