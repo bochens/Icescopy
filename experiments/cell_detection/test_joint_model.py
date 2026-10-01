@@ -13,6 +13,22 @@ from neural_model import batchnorm_buffers, prefix_state, tensor_hash
 
 
 class JointModelTests(unittest.TestCase):
+    def test_reviewed_negative_bce_penalizes_modest_confidence_only_where_known(self):
+        logits = torch.full((1, 1, 3, 3), float(np.log(.2/.8)), requires_grad=True)
+        heat = torch.zeros_like(logits); heat[0, 0, 0, 0] = 1
+        mask = heat.clone(); mask[0, 0, 1, 1] = 1
+        target = {'heat': heat, 'mask': mask, 'center_mask': heat,
+                  'offset': torch.zeros((1, 2, 3, 3)), 'radius': torch.zeros_like(heat),
+                  'reviewed_negative_mask': mask.clone()}
+        predicted = {'logits': logits, 'offset': torch.zeros((1, 2, 3, 3)), 'log_radius': torch.zeros_like(heat)}
+        with_bce, parts = joint_loss(predicted, target)
+        without_bce, _ = joint_loss(predicted, target, dict(CONFIG, reviewed_negative_bce_weight=0.))
+        self.assertAlmostEqual(parts['reviewed_negative_bce'], -np.log(.8), places=6)
+        (with_bce-without_bce).backward()
+        self.assertAlmostEqual(float(logits.grad[0, 0, 1, 1]), .2, places=6)
+        self.assertAlmostEqual(float(logits.grad[0, 0, 0, 0]), 0., places=7)  # Float32 subtraction cancels to rounding precision.
+        self.assertEqual(float(logits.grad[0, 0, 2, 2]), 0.)  # Unknown remains unknown.
+
     def test_content_conditioning_changes_predictions_before_and_after_update(self):
         torch.set_num_threads(2); torch.manual_seed(71)
         network = JointNetwork().train(True)
@@ -30,7 +46,8 @@ class JointModelTests(unittest.TestCase):
         heat = torch.zeros_like(first['logits']); heat[:, :, 16, 8] = 1
         center_mask = heat.clone()
         target = {'heat': heat, 'mask': torch.ones_like(heat), 'center_mask': center_mask,
-                  'offset': torch.full_like(first['offset'], .25), 'radius': torch.zeros_like(first['log_radius'])}
+                  'offset': torch.full_like(first['offset'], .25), 'radius': torch.zeros_like(first['log_radius']),
+                  'reviewed_negative_mask': torch.zeros_like(heat)}
         optimizer = optimizer_for(network, CONFIG); loss, _ = joint_loss(first, target)
         loss.backward(); optimizer.step()
         self.assertFalse(torch.equal(before, network.backbone[10].state_dict()['block.0.0.weight']))

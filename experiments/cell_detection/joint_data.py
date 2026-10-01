@@ -18,6 +18,7 @@ from joint_model import CORE, HALO, NORMALIZED_RADIUS, STRIDE, TILE
 from neural_train import check_manifest
 from water_center_data import check_center_manifest
 
+SUPERVISION_VERSION = 2
 
 def active_scenes(real_path, synthetic_path):
     real_manifest = json.loads(Path(real_path).read_text())
@@ -115,6 +116,7 @@ def targets_for(scene, matrix, valid):
     offset = np.zeros((2, size, size), np.float32)
     radius = np.zeros((1, size, size), np.float32)
     center_mask = np.zeros((size, size), np.float32)
+    reviewed_negative = np.zeros((size, size), np.float32)
     positives = transformed(scene['targets'], matrix)
     positive_ids = []
     invalid_ids = []
@@ -124,14 +126,16 @@ def targets_for(scene, matrix, valid):
             mask[(STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 < (1.3*row['radius'])**2] = 0
     old_negative_ids = []
     for row in transformed(scene.get('negatives', []), matrix):
-        disk = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= (.55*row['radius'])**2
+        disk = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= row['radius']**2
         mask[disk] = usable_pixels[disk]
+        if scene['domain'] == 'real': reviewed_negative[disk] = usable_pixels[disk]
         if (disk*usable_pixels).any():
             old_negative_ids.append(int(row.get('id', row.get('slot'))))
     for row in transformed(scene.get('center_negatives', []), matrix):
         x, y = int(math.floor(row['x']/STRIDE)), int(math.floor(row['y']/STRIDE))
         if 0 <= x < size and 0 <= y < size and usable_pixels[y, x]:
             mask[y, x] = 1
+            if scene['domain'] == 'real': reviewed_negative[y, x] = 1
             invalid_ids.append(int(row['id']))
     for row in positives:
         x, y = int(math.floor(row['x']/STRIDE)), int(math.floor(row['y']/STRIDE))
@@ -141,8 +145,13 @@ def targets_for(scene, matrix, valid):
         sigma = max(.65, row['radius']*.12/STRIDE)
         neighborhood = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= (.35*row['radius'])**2
         neighborhood[y, x] = True
+        # One labeled droplet means one center throughout its known interior.
+        # The narrow Gaussian remains unchanged; the rest is zero-center truth,
+        # not unknown space into which a rim peak can escape the penalty.
+        interior = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= row['radius']**2
         heat[neighborhood] = np.maximum(heat[neighborhood], np.exp(-distance[neighborhood]/(2*sigma*sigma)))
         heat[y, x] = 1
+        mask[interior] = usable_pixels[interior]
         mask[neighborhood] = usable_pixels[neighborhood]
         offset[:, y, x] = [row['x']/STRIDE-x, row['y']/STRIDE-y]
         radius[0, y, x] = row['radius']
@@ -153,7 +162,8 @@ def targets_for(scene, matrix, valid):
     invalid_ids = [int(row['id']) for row in transformed(scene.get('center_negatives', []), matrix)
                    if int(row['id']) in invalid_ids and heat[int(row['y']//STRIDE), int(row['x']//STRIDE)] == 0]
     return {'heat': heat[None], 'mask': (mask*usable_pixels)[None], 'offset': offset,
-            'radius': radius, 'center_mask': center_mask[None]}, positive_ids, invalid_ids, old_negative_ids
+            'radius': radius, 'center_mask': center_mask[None],
+            'reviewed_negative_mask': (reviewed_negative*usable_pixels*(heat == 0))[None]}, positive_ids, invalid_ids, old_negative_ids
 
 
 def make_tile(scene, image, focus, rng, augment=True):
@@ -187,7 +197,8 @@ def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation
     pixels = np.lib.format.open_memmap(folder/'tiles.npy', mode='w+', dtype=np.uint8, shape=(count, TILE, TILE, 3))
     arrays = {name: np.lib.format.open_memmap(folder/(name+'.npy'), mode='w+', dtype=np.float32,
               shape=(count, channels, TILE//STRIDE, TILE//STRIDE))
-              for name, channels in [('heat', 1), ('mask', 1), ('offset', 2), ('radius', 1), ('center_mask', 1)]}
+              for name, channels in [('heat', 1), ('mask', 1), ('offset', 2), ('radius', 1), ('center_mask', 1),
+                                     ('reviewed_negative_mask', 1)]}
     queries = np.lib.format.open_memmap(folder/'queries.npy', mode='w+', dtype=np.float32, shape=(count, 2, 3))
     rng = np.random.default_rng(seed); records = []; index = 0
     for scene, amount in plans:

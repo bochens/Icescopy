@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from hybrid_data import sha256
-from joint_data import TileSchedule, active_scenes, tile_bank
+from joint_data import SUPERVISION_VERSION, TileSchedule, active_scenes, tile_bank
 from joint_model import ARCHITECTURE, STRIDE, TILE, JointNetwork, input_tensor, save_joint
 from neural_model import batchnorm_buffers, changed_tensors, prefix_state, tensor_hash
 
@@ -22,6 +22,7 @@ CONFIG = {'seed': 71003, 'threads': 4, 'passes': 4, 'steps_per_pass': 60,
           'batch_tiles': 4, 'real_tiles_per_instrument': 120, 'synthetic_fit_tiles_per_scene': 30,
           'synthetic_validation_tiles_per_scene': 10, 'backbone_learning_rate': 5e-5,
           'decoder_learning_rate': 2e-4, 'weight_decay': 1e-4, 'negative_loss_weight': 2.,
+          'supervision_version': SUPERVISION_VERSION, 'reviewed_negative_bce_weight': 1.,
           'offset_loss_weight': 1., 'radius_loss_weight': .1, 'gradient_clip': 5.,
           'selection': 'Lowest separate synthetic validation loss after all421manual positives receive updates.',
           'conditioning': 'Actual shared-image features pooled at one or two supplied positive circles.',
@@ -39,13 +40,18 @@ def joint_loss(predicted, target, cfg=CONFIG):
     positive_loss = -(F.logsigmoid(logits)*(1-probability).pow(2)*positive).sum()/count
     negative_loss = -(F.logsigmoid(-logits)*probability.pow(2)*(1-heat).pow(4)*negative).sum()/count
     confidence = positive_loss+cfg['negative_loss_weight']*negative_loss
+    # Explicit real empty regions/invalid points deserve a direct penalty even
+    # at modest confidence. Focal negatives alone weaken roughly as p^3.
+    reviewed = target['reviewed_negative_mask']*mask*(heat == 0)
+    reviewed_bce = (F.softplus(logits)*reviewed).sum()/reviewed.sum().clamp_min(1)
     centers = target['center_mask']
     offset = (F.smooth_l1_loss(predicted['offset'], target['offset'], reduction='none')*centers).sum()/(2*count)
     radius = (F.smooth_l1_loss(predicted['log_radius'], target['radius'], reduction='none')*centers).sum()/count
-    total = confidence+cfg['offset_loss_weight']*offset+cfg['radius_loss_weight']*radius
+    total = confidence+cfg['reviewed_negative_bce_weight']*reviewed_bce+cfg['offset_loss_weight']*offset+cfg['radius_loss_weight']*radius
     return total, {'total': float(total.detach()), 'confidence': float(confidence.detach()),
                    'positive': float(positive_loss.detach()), 'negative': float(negative_loss.detach()),
-                   'offset': float(offset.detach()), 'radius': float(radius.detach())}
+                   'offset': float(offset.detach()), 'radius': float(radius.detach()),
+                   'reviewed_negative_bce': float(reviewed_bce.detach())}
 
 
 def cache_features(network, folder, records):
@@ -71,7 +77,7 @@ class CachedTiles:
     def __init__(self, folder):
         self.maps = [np.load(folder/f'prefix-{i}.npy', mmap_mode='r') for i in range(4)]
         self.targets = {name: np.load(folder/(name+'.npy'), mmap_mode='r')
-                        for name in ('heat', 'mask', 'offset', 'radius', 'center_mask')}
+                        for name in ('heat', 'mask', 'offset', 'radius', 'center_mask', 'reviewed_negative_mask')}
         self.queries = np.load(folder/'queries.npy', mmap_mode='r')
 
     def batch(self, indices):

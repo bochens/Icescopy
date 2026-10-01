@@ -76,7 +76,7 @@ def state_audit(model, scene, threshold):
     repeated = detect_current_frame(raw, state=first['state'], example_ids=first['example_ids'],
                                     color_order='BGR', threshold=threshold, detector=select)
     # Same dimensions, changed appearance, as with a later frame in a recording.
-    altered = np.clip(raw.astype(np.float32)*.86, 0, np.iinfo(raw.dtype).max()).astype(raw.dtype)
+    altered = np.clip(raw.astype(np.float32)*.86, 0, np.iinfo(raw.dtype).max).astype(raw.dtype)
     changed = detect_current_frame(altered, state=first['state'], example_ids=first['example_ids'],
                                    color_order='BGR', threshold=threshold, detector=select)
     known = [circle(r['circle']) for r in saved['cells']]

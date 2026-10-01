@@ -21,6 +21,14 @@ class JointGeometryTests(unittest.TestCase):
         self.assertEqual(target['heat'][0, 48, 48], 1)
         self.assertEqual(target['heat'][0, 48, 50], 0)
         self.assertEqual(target['mask'][0, 48, 50], 1)
+        # A neighbor outside the old0.35r neighborhood but inside the actual
+        # droplet must be negative supervision, not an unpenalized rim peak.
+        self.assertEqual(target['mask'][0, 46, 46], 1)
+        self.assertEqual(target['heat'][0, 46, 46], 0)
+        # Full reviewed empty radius is supervised, including its outer half.
+        self.assertEqual(target['mask'][0, 30, 31], 1)
+        self.assertEqual(target['reviewed_negative_mask'][0, 30, 31], 1)
+        self.assertEqual(target['reviewed_negative_mask'][0, 48, 48], 0)
         self.assertEqual(target['mask'][0, 40, 40], 0)
         self.assertFalse(target['mask'][:, :HALO//STRIDE].any())
         self.assertFalse(target['mask'][:, :, -HALO//STRIDE:].any())
