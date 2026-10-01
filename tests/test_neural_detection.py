@@ -83,11 +83,46 @@ class NeuralDetectionTests(unittest.TestCase):
 
     def detector(self, centers=None):
         reference, query = FakeNet(True), FakeNet(centers=centers)
-        def load(path):
-            return reference if Path(path).name == "droplet_reference.onnx" else query
+        def load(buffer):
+            return reference if bytes(buffer) == b"droplet_reference.onnx" else query
         with patch.object(cv2.dnn, "readNetFromONNX", side_effect=load):
             engine = detection.NeuralDetector(detection.load_model(self.metadata))
         return engine, reference, query
+
+    def test_actual_graphs_run_from_unicode_folder_and_bundle_extraction(self):
+        bundled = Path(__file__).resolve().parents[1] / "resources" / "models"
+        unicode_folder = self.root / "model-\u6a21\u578b"
+        unicode_folder.mkdir()
+        filenames = ("droplet_detector.json", "droplet_detector.onnx", "droplet_reference.onnx")
+        for filename in filenames:
+            (unicode_folder / filename).write_bytes((bundled / filename).read_bytes())
+        bundle = unicode_folder / "droplets.icescopy-model"
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
+            for filename in filenames:
+                archive.write(unicode_folder / filename, filename)
+        with patch.object(tempfile, "tempdir", str(unicode_folder)):
+            portable = detection.load_model(bundle)
+        self.addCleanup(portable._storage.cleanup)
+        self.assertEqual(portable.onnx_path.parent.parent, unicode_folder.resolve())
+        configs = (detection.load_model(unicode_folder / "droplet_detector.json"), portable)
+        rgb = np.zeros((128, 128, 3), np.uint8)
+        cv2.circle(rgb, (64, 64), 10, (220, 220, 220), 2)
+        example_sets = ((), (detection.Circle(64, 64, 10),))
+        baseline = detection.NeuralDetector(detection.load_model(bundled / "droplet_detector.json"))
+        expected = [baseline.predict(rgb, examples=examples) for examples in example_sets]
+        for config in configs:
+            with self.subTest(path=config.onnx_path):
+                self.assertIsNone(detection.validate_model(config))
+                engine = detection.NeuralDetector(config)
+                for examples, result in zip(example_sets, expected):
+                    self.assertEqual(engine.predict(rgb, examples=examples), result)
+
+    def test_network_read_errors_name_the_graph(self):
+        config = detection.load_model(self.metadata)
+        with patch.object(Path, "read_bytes", side_effect=PermissionError("Access denied")):
+            with self.assertRaisesRegex(ValueError, "droplet_reference.onnx: Access denied") as error:
+                detection.NeuralDetector(config)
+        self.assertIsInstance(error.exception.__cause__, PermissionError)
 
     def test_metadata_is_portable_validated_and_immutable(self):
         config = detection.load_model(self.metadata)
@@ -134,7 +169,7 @@ class NeuralDetectionTests(unittest.TestCase):
         self.assertEqual(config.onnx_path.read_bytes(), b"droplet_detector.onnx")
         self.assertEqual({file.name for file in extracted.iterdir()},
                          {"droplet_detector.json", "droplet_detector.onnx", "droplet_reference.onnx"})
-        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=lambda path: FakeNet(Path(path).name == "droplet_reference.onnx")):
+        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=lambda buffer: FakeNet(bytes(buffer) == b"droplet_reference.onnx")):
             worker_detector = detection.NeuralDetector(config)
         del config; gc.collect()
         self.assertTrue(extracted.is_dir())

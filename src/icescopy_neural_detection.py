@@ -250,13 +250,15 @@ def _tile_starts(length, size):
 
 def _cpu_network(path):
     try:
-        net = cv2.dnn.readNetFromONNX(str(path))
+        # Python handles Unicode Windows paths; OpenCV accepts the ONNX bytes.
+        model_bytes = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+        net = cv2.dnn.readNetFromONNX(model_bytes)
         if net.empty():
             raise ValueError(f"Empty droplet ONNX network: {path.name}")
         net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
         net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         return net
-    except cv2.error as exc:
+    except (OSError, cv2.error) as exc:
         raise ValueError(f"Cannot load droplet ONNX network {path.name}: {exc}") from exc
 
 
