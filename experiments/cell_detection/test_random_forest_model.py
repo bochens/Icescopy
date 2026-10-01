@@ -35,13 +35,13 @@ class ForestTests(unittest.TestCase):
         self.assertEqual(normalized.dtype,np.float32)
         np.testing.assert_array_equal(normalized[:,:,0],normalized[:,:,2])
 
-    def test_boundary_padding_and_partial_circle_are_ignored(self):
+    def test_boundary_padding_ignored_and_partial_interior_positive(self):
         valid=np.ones((64,64),bool);valid[:8]=False
         labels=rf.training_labels([rf.Circle(30,30,10),rf.Circle(2,52,8)],valid)
         self.assertEqual(labels[15,15],1)
         self.assertEqual(labels[15,20],-1)
         self.assertEqual(labels[0,20],-1)
-        self.assertEqual(labels[26,1],-1)
+        self.assertEqual(labels[26,1],1)
         self.assertEqual(labels[20,28],0)
 
     def test_affine_augmentation_keeps_isotropic_geometry(self):
@@ -91,6 +91,24 @@ class ForestTests(unittest.TestCase):
         self.assertTrue(all(min(np.hypot(row['circle']['x']-c.x,row['circle']['y']-c.y) for c in circles[1:])<3 for row in result))
         self.assertEqual(detector.predict(image,examples=[circles[0]],protected=circles),[])
         with self.assertRaises(rf.CancelledError):detector.predict(image,cancelled=lambda:True)
+
+    def test_hard_mining_covers_each_region_without_positive_or_padding(self):
+        features=np.zeros((32,32,len(rf.FEATURE_NAMES)),np.float32)
+        features[:,:,0]=np.arange(1024).reshape(32,32)
+        labels=np.zeros((32,32),np.int8);labels[:3]=-1;labels[12:20,12:20]=1
+        scores=np.zeros((32,32),np.float32)
+        scores[4:9,4:9]=.8;scores[23:27,23:27]=.9
+        scores[13:19,13:19]=1;scores[:3]=1
+        image=np.zeros((64,64,3),np.float32)
+        with patch.object(rf.cv2,'HoughCircles',return_value=None):
+            samples,focus,stats=rf._hard_negative_regions(image,features,labels,scores,12,np.random.default_rng(3))
+        indices=samples[:,0].astype(int)
+        self.assertTrue((labels.ravel()[indices]==0).all())
+        self.assertEqual(stats['false_positive_regions'],2)
+        self.assertEqual(stats['false_positive_regions_sampled'],2)
+        self.assertEqual(len(focus),2)
+        self.assertTrue((indices//32<12).any() and (indices//32>20).any())
+        self.assertIn(6*32+6,indices)  # Interior core, not just a bounding-box edge.
 
     def test_missing_training_extra_has_actionable_message(self):
         real_import=__import__

@@ -34,7 +34,9 @@ INFERENCE = {'normalized_radius':12.,'stride':2,'maximum_working_pixels':2_000_0
              'ignored_boundary_radius_fraction':1.25}
 TRAINING = {'trees':64,'maximum_depth':12,'minimum_leaf_samples':6,'threads':4,
             'seed':73001,'augmentation_tiles_per_image':32,'tile_size':160,
-            'samples_per_class_per_tile':200,'samples_per_class_original':2000}
+            'samples_per_class_per_tile':200,'samples_per_class_original':2000,
+            'hard_negative_samples_per_region':32,'hard_negative_augmentation_tiles':16,
+            'hard_negative_refit_passes':1}
 MAX_FILE_BYTES = 50*1024*1024
 MAX_TREES = 256
 MAX_NODES = 500_000
@@ -131,18 +133,18 @@ def transform_circles(circles,matrix):
 
 
 def training_labels(circles,valid):
-    """Complete keep labels; ignore boundaries, padding and truncated droplets."""
+    """Complete keep labels; visible interiors positive, boundaries/padding ignored.
+
+    A source crop can cut a known circle. Its observed interior is still water;
+    no pixels outside the source or inside its ignored boundary become negatives.
+    """
     step=INFERENCE['stride'];yy,xx=np.mgrid[:valid.shape[0]:step,:valid.shape[1]:step]
     labels=np.where(valid[::step,::step],0,-1).astype(np.int8)
     positive=[]
     for c in circles:
         distance=(xx-c.x)**2+(yy-c.y)**2
         labels[distance <= (INFERENCE['ignored_boundary_radius_fraction']*c.radius)**2]=-1
-        angles=np.linspace(0,2*np.pi,16,endpoint=False)
-        sx=np.rint(np.r_[c.x,c.x+c.radius*np.cos(angles)]).astype(int)
-        sy=np.rint(np.r_[c.y,c.y+c.radius*np.sin(angles)]).astype(int)
-        whole=(sx>=0).all() and (sy>=0).all() and (sx<valid.shape[1]).all() and (sy<valid.shape[0]).all()
-        if whole and valid[sy,sx].all():positive.append(distance <= (INFERENCE['positive_radius_fraction']*c.radius)**2)
+        positive.append(distance <= (INFERENCE['positive_radius_fraction']*c.radius)**2)
     for inside in positive:labels[inside & valid[::step,::step]]=1
     return labels
 
@@ -172,6 +174,52 @@ def _samples(features,labels,rng,limit):
             selected=rng.choice(indices,min(len(indices),limit),replace=False)
             chunks.append(features.reshape(-1,len(FEATURE_NAMES))[selected]);classes.append(np.full(len(selected),value,np.uint8))
     return (np.concatenate(chunks),np.concatenate(classes)) if chunks else (np.empty((0,len(FEATURE_NAMES)),np.float32),np.empty(0,np.uint8))
+
+
+def _hard_negative_regions(image,features,labels,scores,radius,rng,cancelled=None):
+    """Mine actual unwanted circles and false-positive source regions for fitting.
+
+    Circle finding is used only to expose hard background examples. Inference
+    still predicts the dense image. Every selected pixel must be background
+    outside all annotated droplet boundaries; supplied negative labels are not
+    accepted by this function or fit_model.
+    """
+    step=INFERENCE['stride'];flat_scores=scores.ravel();selected=[];focus=[]
+    count,components,stats,_=cv2.connectedComponentsWithStats(np.uint8((scores>=.5)&(labels==0)),8)
+    limit=TRAINING['hard_negative_samples_per_region']
+    for label in range(1,count):
+        _check_cancelled(cancelled);left,top,width,height=stats[label,:4]
+        ys,xs=np.where(components[top:top+height,left:left+width]==label);ys+=top;xs+=left
+        indices=ys*labels.shape[1]+xs
+        maximum=int(indices[np.argmax(flat_scores[indices])])
+        local=(components[top:top+height,left:left+width]==label).astype(np.uint8)
+        distance=cv2.distanceTransform(np.pad(local,1),cv2.DIST_L2,3)[1:-1,1:-1]
+        core_y,core_x=np.unravel_index(np.argmax(distance),local.shape)
+        core=int((top+core_y)*labels.shape[1]+left+core_x)
+        picked=np.unique(np.r_[maximum,core,rng.choice(indices,min(limit,len(indices)),replace=False)])
+        selected.extend(picked.tolist());focus.append((float(step*(left+core_x)),float(step*(top+core_y))))
+    gray=np.uint8(np.clip(cv2.cvtColor(image,cv2.COLOR_RGB2GRAY)*255,0,255))
+    found=cv2.HoughCircles(cv2.GaussianBlur(gray,(0,0),1),cv2.HOUGH_GRADIENT,dp=1,
+              minDist=max(3.,1.2*radius),param1=80,param2=12,
+              minRadius=max(2,round(.75*radius)),maxRadius=max(3,round(1.25*radius)))
+    circle_count=0
+    if found is not None:
+        yy,xx=np.mgrid[:image.shape[0]:step,:image.shape[1]:step]
+        for x,y,r in found[0]:
+            _check_cancelled(cancelled);ix,iy=round(float(x)/step),round(float(y)/step)
+            if not (0<=ix<labels.shape[1] and 0<=iy<labels.shape[0]) or labels[iy,ix]!=0:continue
+            indices=np.flatnonzero((((xx-x)**2+(yy-y)**2)<=(.75*r)**2).ravel()&(labels.ravel()==0))
+            if not len(indices):continue
+            selected.extend(rng.choice(indices,min(limit,len(indices)),replace=False).tolist())
+            focus.append((float(x),float(y)));circle_count+=1
+    selected=np.unique(selected)
+    sample=features.reshape(-1,len(FEATURE_NAMES))[selected] if len(selected) else np.empty((0,len(FEATURE_NAMES)),np.float32)
+    stats={'false_positive_regions':count-1,'false_positive_regions_sampled':count-1,
+           'false_positive_pixels':int(((scores>=.5)&(labels==0)).sum()),
+           'positive_pixels_excluded':int(((scores>=.5)&(labels==1)).sum()),
+           'boundary_or_padding_pixels_excluded':int(((scores>=.5)&(labels<0)).sum()),
+           'unmarked_circle_candidates_sampled':circle_count,'hard_negative_points':len(selected)}
+    return sample,focus,stats
 
 
 def fit_model(scenes,progress=None,cancelled=None):
@@ -208,7 +256,7 @@ def fit_model(scenes,progress=None,cancelled=None):
         yy,xx=np.mgrid[:working.shape[0]:2,:working.shape[1]:2]
         for c in transform_circles(circles,matrix):
             points=np.flatnonzero((((xx-c.x)**2+(yy-c.y)**2)<=(.7*c.radius)**2).ravel() & (labels.ravel()==1))
-            if not len(points):raise ValueError('A marked droplet is truncated or too small to supervise safely.')
+            if not len(points):raise ValueError('A marked droplet has no visible interior pixels to supervise safely.')
             selected=rng.choice(points,min(16,len(points)),replace=False)
             xs.append(features.reshape(-1,len(FEATURE_NAMES))[selected]);ys.append(np.ones(len(selected),np.uint8))
         x,y=_samples(features,labels,rng,TRAINING['samples_per_class_original']);xs.append(x);ys.append(y)
@@ -227,12 +275,42 @@ def fit_model(scenes,progress=None,cancelled=None):
           min_samples_leaf=TRAINING['minimum_leaf_samples'],max_features='sqrt',class_weight='balanced_subsample',
           n_jobs=TRAINING['threads'],random_state=TRAINING['seed'])
     fit_start=time.perf_counter();classifier.fit(x,y);fit_seconds=time.perf_counter()-fit_start;_check_cancelled(cancelled)
+    # One fixed refit: easy uniform background cannot stand in for empty wells
+    # or the model's own unwanted source-image regions.
+    mining_start=time.perf_counter();mining_stats=[];hard_x=[];hard_y=[]
+    report('Learning unwanted circular regions from the marked training images.')
+    for scene in scenes:
+        _check_cancelled(cancelled);image=_image(scene['image']);circles=[_circle(c) for c in scene['circles']]
+        radius=float(np.median([c.radius for c in circles]));working,valid,scale=_prepare(image,radius)
+        matrix=np.array([[scale,0,(scale-1)/2],[0,scale,(scale-1)/2]],np.float32)
+        labels=training_labels(transform_circles(circles,matrix),valid);features=feature_field(working,radius*scale)
+        flat=features.reshape(-1,len(FEATURE_NAMES));scores=np.empty(len(flat),np.float32)
+        for offset in range(0,len(flat),50_000):
+            _check_cancelled(cancelled);scores[offset:offset+50_000]=classifier.predict_proba(flat[offset:offset+50_000])[:,1]
+        mined,focus,stats=_hard_negative_regions(working,features,labels,scores.reshape(labels.shape),radius*scale,rng,cancelled)
+        hard_x.append(mined);hard_y.append(np.zeros(len(mined),np.uint8))
+        stats['hard_negative_augmentation_tiles']=0
+        if focus:
+            order=rng.permutation(len(focus))
+            for variant in range(TRAINING['hard_negative_augmentation_tiles']):
+                _check_cancelled(cancelled);fx,fy=focus[int(order[variant%len(focus)])]
+                center=Circle((fx+.5)/scale-.5,(fy+.5)/scale-.5,radius)
+                tile,tile_valid,transformed,r,_=_augment(image,circles,center,rng)
+                a,b=_samples(feature_field(tile,r),training_labels(transformed,tile_valid),rng,TRAINING['samples_per_class_per_tile'])
+                hard_x.append(a);hard_y.append(b);stats['hard_negative_augmentation_tiles']+=1
+        mining_stats.append(stats)
+    mining_seconds=time.perf_counter()-mining_start
+    x=np.concatenate([x,*hard_x]);y=np.concatenate([y,*hard_y])
+    refit_start=time.perf_counter();classifier.fit(x,y);refit_seconds=time.perf_counter()-refit_start;_check_cancelled(cancelled)
     trees=_export_trees(classifier)
     stats={'images':len(scenes),'circles':circle_count,'samples':len(y),'positive_samples':int((y==1).sum()),
-           'negative_samples':int((y==0).sum()),'augmentation_tiles':len(scenes)*TRAINING['augmentation_tiles_per_image'],
-           'feature_seconds':feature_seconds,'fit_seconds':fit_seconds,'total_seconds':time.perf_counter()-start,
+           'negative_samples':int((y==0).sum()),'original_positive_circles_sampled':circle_count,
+           'augmentation_tiles':len(scenes)*TRAINING['augmentation_tiles_per_image']+sum(s['hard_negative_augmentation_tiles'] for s in mining_stats),
+           'feature_seconds':feature_seconds,'fit_seconds':fit_seconds+refit_seconds,
+           'initial_fit_seconds':fit_seconds,'refit_seconds':refit_seconds,'mining_seconds':mining_seconds,
+           'hard_negative_mining':mining_stats,'total_seconds':time.perf_counter()-start,
            'sklearn_version':sklearn.__version__,'parameters':dict(TRAINING),
-           'negative_source':'Outside all marked circles plus ignored boundary band; complete keep annotations required.'}
+           'negative_source':'Outside all marked circles and ignored boundaries; automatic unwanted-circle and false-positive-region mining; complete keep annotations required.'}
     model={'model_version':MODEL_VERSION,'feature_version':FEATURE_VERSION,'feature_names':list(FEATURE_NAMES),
            'inference':dict(INFERENCE),'default_radius':float(np.median(radii)),'threshold':.5,'trees':trees,
            'feature_importances':classifier.feature_importances_.tolist(),'training_stats':stats}
