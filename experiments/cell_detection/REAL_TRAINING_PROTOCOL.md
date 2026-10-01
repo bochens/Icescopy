@@ -1,5 +1,8 @@
 # Real-image training experiment
 
+This plan is superseded by the smaller [water-droplet experiment](WATER_DROPLET_PLAN.md).
+It is retained as a record of the preparation; do not launch it for the new scope.
+
 Status: paused before training. The user identified poor droplet annotations
 and will correct them manually. All current labels are provisional, including
 records currently marked complete. Do not train or evaluate from these labels
