@@ -78,16 +78,19 @@ def evaluate(manifest, examples, model, output, *, device='cpu', threshold=0.5):
             report['results'].append(result)
         (output / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
     write_overview(output, report)
+    write_overview(output, report, partition='train')
     return report
 
 
-def write_overview(output, report):
+def write_overview(output, report, *, partition='independent'):
     """A compact visual result, with supplied examples distinct from new circles."""
-    rows = [row for row in report['results'] if row['partition'] == 'independent']
+    if partition not in ('train', 'independent'):
+        raise ValueError('Unknown evaluation partition')
+    rows = [row for row in report['results'] if row['partition'] == partition]
     if not rows:
         return
     output = Path(output)
-    destination = output / 'overview.jpg'
+    destination = output / ('training-overview.jpg' if partition == 'train' else 'overview.jpg')
     if destination.exists():
         raise FileExistsError(destination)
     width, height = 800, 650
@@ -95,12 +98,18 @@ def write_overview(output, report):
     draw = ImageDraw.Draw(canvas)
     for index, row in enumerate(rows):
         x, y = (index % 2) * width, (index // 2) * height
-        draw.text((x + 12, y + 10), row['dataset'], fill='black', font_size=22)
-        draw.text((x + 12, y + 42), f"{row['count']} new selections + {len(row['examples'])} examples",
-                  fill='black', font_size=18)
-        draw.text((x + 12, y + 67), 'Green: new | Cyan: supplied examples | No complete evaluation labels',
+        label = 'Training image' if partition == 'train' else 'Separate recording'
+        draw.text((x + 12, y + 10), f"{row['dataset']} | {label}", fill='black', font_size=20)
+        if partition == 'train':
+            score = row['training_diagnostic']
+            detail = f"{score['matched']}/{score['reference_count']} remaining labels found; {score['extra_or_misplaced']} extras"
+        else:
+            detail = f"{row['count']} new selections + {len(row['examples'])} examples"
+        draw.text((x + 12, y + 42), detail, fill='black', font_size=18)
+        note = 'Training diagnostic only' if partition == 'train' else 'No complete evaluation labels'
+        draw.text((x + 12, y + 67), f'Green: new | Cyan: supplied examples | {note}',
                   fill='black', font_size=16)
-        with Image.open(output / 'independent' / (row['dataset'] + '.jpg')) as preview:
+        with Image.open(output / partition / (row['dataset'] + '.jpg')) as preview:
             preview.thumbnail((width - 24, height - 108))
             canvas.paste(preview, (x + (width - preview.width) // 2, y + 100))
     canvas.save(destination, quality=93)

@@ -130,7 +130,7 @@ class ModelTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 DropletNet(broken)
 
-    def test_staged_fit_reads_only_fit_and_marked_sources_and_preserves_files(self):
+    def test_staged_and_warm_fit_preserve_sources_weights_and_epoch_history(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             rows = [_source(folder, "first", [[10, 10, 3]]), _source(folder, "second", [[10, 10, 3], [23, 23, 3]])]
@@ -150,10 +150,10 @@ class ModelTests(unittest.TestCase):
                 self.assertNotIn("heldout", path.name)
                 return original_open(path, *args, **kwargs)
             destination = folder / "model"
+            options = dict(pretrained=self.pretrained, synthetic_manifest=synthetic, all_setups=True,
+                           views=1, synthetic_views=1, size=32, batch_size=2, threads=2)
             with mock.patch.object(Path, "open", guarded), mock.patch("torch.hub.load_state_dict_from_url", side_effect=AssertionError("No download")):
-                result = fit(manifest, destination, pretrained=self.pretrained, synthetic_manifest=synthetic,
-                             all_setups=True, synthetic_epochs=1, epochs=1, views=1, synthetic_views=1,
-                             size=32, batch_size=2, threads=2)
+                result = fit(manifest, destination, synthetic_epochs=1, epochs=1, **options)
             metadata = json.loads((destination / "metadata.json").read_text())
             self.assertEqual(metadata["format"], FORMAT)
             self.assertEqual(metadata["setup"], "general")
@@ -172,6 +172,57 @@ class ModelTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 fit(manifest, destination, pretrained=self.pretrained, synthetic_manifest=synthetic, all_setups=True)
             self.assertEqual(set(destination.iterdir()), {destination / name for name in ("model.pt", "metadata.json", "training.json")})
+            # Older exports have epochs but no cumulative field. Their weights
+            # and optimizer state are deliberately treated separately.
+            payload = torch.load(result, weights_only=True)
+            payload.pop("total_real_epochs")
+            parent = folder / "parent.pt"; torch.save(payload, parent)
+            parent_sha = hashlib.sha256(parent.read_bytes()).hexdigest()
+            loaded = {}
+            real_adam = torch.optim.AdamW
+            def inspect_load(path, device):
+                net, info = load_model(path, device)
+                loaded["model"] = net
+                return net, info
+            def fresh_optimizer(groups, **kwargs):
+                for key, value in loaded["model"].state_dict().items():
+                    torch.testing.assert_close(value, payload["state_dict"][key])
+                optimizer = real_adam(groups, **kwargs)
+                self.assertEqual(len(optimizer.state), 0)
+                self.assertEqual([group["lr"] for group in optimizer.param_groups], [.0001, .0005])
+                return optimizer
+            continued = folder / "continued"
+            with mock.patch("train.data.read_synthetic_fit", side_effect=AssertionError("No synthetic reread")), \
+                    mock.patch("train.load_model", side_effect=inspect_load), \
+                    mock.patch("train.torch.optim.AdamW", side_effect=fresh_optimizer):
+                warm = fit(manifest, continued, initial_model=parent, synthetic_epochs=0, epochs=2,
+                           encoder_learning_rate=.0001, head_learning_rate=.0005, **options)
+            current = json.loads((continued / "metadata.json").read_text())
+            self.assertEqual(current["initialization"], "saved model weights with fresh optimizer")
+            self.assertEqual(current["optimizer"]["state_initialization"], "fresh")
+            self.assertEqual(current["parent_model_sha256"], parent_sha)
+            self.assertEqual(current["total_real_epochs"], 3)
+            self.assertEqual(current["parent_provenance"]["source"], payload["source"])
+            self.assertEqual(current["synthetic_manifest_sha256"], payload["synthetic_manifest_sha256"])
+            self.assertEqual([(row["stage"], row["epoch"]) for row in json.loads((continued / "training.json").read_text())],
+                             [("real", 2), ("real", 3)])
+            self.assertEqual((current["stages"][0]["first_epoch"], current["stages"][0]["last_epoch"]), (2, 3))
+            self.assertEqual(hashlib.sha256(parent.read_bytes()).hexdigest(), parent_sha)
+            self.assertFalse(all(torch.equal(value, payload["state_dict"][key]) for key, value in
+                                 torch.load(warm, weights_only=True)["state_dict"].items()))
+            for key, bad in (("setups", ["different"]), ("crop_size", 64),
+                             ("training_manifest_sha256", "wrong"), ("pretrained_sha256", "wrong"),
+                             ("synthetic_manifest_sha256", "wrong"), ("source", [])):
+                incompatible = folder / "incompatible.pt"
+                torch.save({**payload, key: bad}, incompatible)
+                rejected = folder / "rejected"
+                with self.assertRaisesRegex(ValueError, "incompatible"):
+                    fit(manifest, rejected, initial_model=incompatible, synthetic_epochs=0, epochs=1, **options)
+                self.assertFalse(rejected.exists())
+            for initial, synthetic_epochs in ((None, 0), (parent, 1)):
+                with self.assertRaisesRegex(ValueError, "synthetic_epochs"):
+                    fit(manifest, folder / "invalid-stage", initial_model=initial,
+                        synthetic_epochs=synthetic_epochs, epochs=1, **options)
 
     def test_optional_onnx_dependency_is_explicit(self):
         if importlib.util.find_spec("onnx") is not None:

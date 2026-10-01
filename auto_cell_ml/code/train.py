@@ -5,6 +5,7 @@ import argparse
 from bisect import bisect_right
 import hashlib
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -15,10 +16,10 @@ from torch.utils.data import DataLoader, Dataset
 
 if __package__:
     from . import data
-    from .model import DropletNet, FORMAT, export_onnx, loss
+    from .model import DropletNet, FORMAT, export_onnx, load_model, loss
 else:
     import data
-    from model import DropletNet, FORMAT, export_onnx, loss
+    from model import DropletNet, FORMAT, export_onnx, load_model, loss
 
 
 def _hash(path):
@@ -76,9 +77,14 @@ def _select_setups(manifest, setup, all_setups):
 
 def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_setups=False,
         synthetic_epochs=3, epochs=20, batch_size=8, seed=0, device="cpu", threads=4,
-        size=256, views=240, synthetic_views=64, onnx=False):
-    if min(synthetic_epochs, epochs, batch_size, threads, views, synthetic_views) < 1 or seed < 0 or size < 32 or size % 4:
+        size=256, views=240, synthetic_views=64, onnx=False, initial_model=None,
+        encoder_learning_rate=0.0002, head_learning_rate=0.001):
+    if min(epochs, batch_size, threads, views, synthetic_views) < 1 or seed < 0 or size < 32 or size % 4:
         raise ValueError("Counts must be positive, seed nonnegative, and size >=32 divisible by 4")
+    if (initial_model is None and synthetic_epochs < 1) or (initial_model is not None and synthetic_epochs != 0):
+        raise ValueError("Fresh training requires synthetic_epochs>=1; initial_model requires synthetic_epochs=0")
+    if any(not math.isfinite(rate) or rate <= 0 for rate in (encoder_learning_rate, head_learning_rate)):
+        raise ValueError("Learning rates must be finite and positive")
     output, manifest = Path(output).resolve(), Path(manifest).resolve()
     pretrained, synthetic_manifest = Path(pretrained).resolve(), Path(synthetic_manifest).resolve()
     if output.exists():
@@ -86,31 +92,55 @@ def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_set
     if not pretrained.is_file():
         raise FileNotFoundError(f"Required local pretrained file is missing: {pretrained}")
     selected = _select_setups(manifest, setup, all_setups)
+    hashes = {"training_manifest_sha256": _hash(manifest), "synthetic_manifest_sha256": _hash(synthetic_manifest),
+              "pretrained_sha256": _hash(pretrained)}
     torch.set_num_threads(threads)
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
     start = time.perf_counter()
-    synthetic = ViewDataset([data.TrainingViews.from_scene(scene["image"], scene["circles"], scene["source"],
-                            setup=scene["source"]["scene_id"], size=size, count=synthetic_views, seed=seed + index)
-                            for index, scene in enumerate(data.read_synthetic_fit(synthetic_manifest))])
+    parent, real_start, parent_sha = None, 0, None
+    if initial_model is not None:
+        model, parent = load_model(initial_model, device)
+        expected = {**hashes, "setups": selected, "crop_size": size}
+        for key, value in expected.items():
+            if parent.get(key) != value:
+                raise ValueError(f"Initial model is incompatible: {key} differs")
+        real_start = parent.get("total_real_epochs", parent.get("epochs"))
+        if isinstance(real_start, bool) or not isinstance(real_start, int) or real_start < 1:
+            raise ValueError("Initial model must record a positive completed real epoch count")
+        parent_sha = _hash(initial_model)
+    else:
+        model = DropletNet(pretrained).to(device)
     real = ViewDataset([data.TrainingViews(manifest, name, size=size, count=views, seed=seed + index)
                         for index, name in enumerate(selected)])
-    model = DropletNet(pretrained).to(device).train()
+    if parent is not None:
+        current_sources = [{"setup": row["setup"], "source": row["source"]} for row in real.sources]
+        parent_sources = [{"setup": row["setup"], "source": row["source"]} for row in parent.get("source", [])]
+        if current_sources != parent_sources:
+            raise ValueError("Initial model is incompatible: original source provenance differs")
+        plans = [("real", real, epochs)]
+    else:
+        synthetic = ViewDataset([data.TrainingViews.from_scene(scene["image"], scene["circles"], scene["source"],
+                                setup=scene["source"]["scene_id"], size=size, count=synthetic_views, seed=seed + index)
+                                for index, scene in enumerate(data.read_synthetic_fit(synthetic_manifest))])
+        plans = [("synthetic", synthetic, synthetic_epochs), ("real", real, epochs)]
+    model.train()
     encoder_ids = {id(parameter) for parameter in model.encoder.parameters()}
     optimizer = torch.optim.AdamW([
-        {"params": model.encoder.parameters(), "lr": 0.0002},
-        {"params": [parameter for parameter in model.parameters() if id(parameter) not in encoder_ids], "lr": 0.001},
+        {"params": model.encoder.parameters(), "lr": encoder_learning_rate},
+        {"params": [parameter for parameter in model.parameters() if id(parameter) not in encoder_ids], "lr": head_learning_rate},
     ], weight_decay=0.0001)
     output.mkdir(parents=True, exist_ok=False)
     history, stages = [], []
-    for stage_index, (name, dataset, stage_epochs) in enumerate((("synthetic", synthetic, synthetic_epochs), ("real", real, epochs))):
+    for name, dataset, stage_epochs in plans:
+        epoch_start_index = real_start if name == "real" else 0
         stage_start = time.perf_counter()
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0,
-                            generator=torch.Generator().manual_seed(seed + stage_index))
+                            generator=torch.Generator().manual_seed(seed + int(name == "real")))
         print(f"stage={name} sources={len(dataset.sources)} views={len(dataset)} epochs={stage_epochs}", flush=True)
         for epoch in range(stage_epochs):
-            dataset.set_epoch(epoch)
+            dataset.set_epoch(epoch_start_index + epoch)
             epoch_start = time.perf_counter()
             sums = {key: 0.0 for key in ("total", "center", "offsets", "radius")}
             valid_cells = positive_cells = 0
@@ -130,15 +160,16 @@ def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_set
                 for key, value in terms.items():
                     sums[key] += float(value.detach()) * len(image)
             row = {key: value / len(dataset) for key, value in sums.items()}
-            row.update(stage=name, epoch=epoch + 1, epoch_seconds=time.perf_counter() - epoch_start,
+            row.update(stage=name, epoch=epoch_start_index + epoch + 1, epoch_seconds=time.perf_counter() - epoch_start,
                        seconds=time.perf_counter() - start, positive_grid_cells=positive_cells,
                        negative_grid_cells=valid_cells - positive_cells, valid_grid_cells=valid_cells)
             history.append(row)
             (output / "training.json").write_text(json.dumps(history, indent=2, allow_nan=False) + "\n")
-            print(f"{name} epoch {epoch + 1}/{stage_epochs} loss={row['total']:.4f} center={row['center']:.4f} "
+            print(f"{name} epoch {row['epoch']}/{epoch_start_index + stage_epochs} loss={row['total']:.4f} center={row['center']:.4f} "
                   f"geometry={row['offsets'] + row['radius']:.4f} "
                   f"positive={positive_cells} negative={valid_cells - positive_cells} elapsed={row['seconds']:.1f}s", flush=True)
         stages.append({"stage": name, "epochs": stage_epochs, "sources": dataset.sources,
+                       "first_epoch": epoch_start_index + 1, "last_epoch": epoch_start_index + stage_epochs,
                        "views_per_epoch": len(dataset), "seconds": time.perf_counter() - stage_start})
     metadata = {"format": FORMAT, "architecture": "Shared MobileNetV3-Small blocks0..8, stride4 query/reference interactions, center/geometry heads",
                 "setup": "general" if all_setups or len(selected) > 1 else selected[0], "setups": selected,
@@ -146,12 +177,17 @@ def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_set
                 "batch_size": batch_size, "seed": seed, "crop_size": size, "stride": model.stride,
                 "requested_views_per_setup": views, "requested_views_per_synthetic_scene": synthetic_views,
                 "parameters": sum(parameter.numel() for parameter in model.parameters()),
-                "training_manifest_sha256": _hash(manifest), "synthetic_manifest_sha256": _hash(synthetic_manifest),
-                "pretrained": True, "pretrained_sha256": _hash(pretrained),
+                **hashes, "pretrained": True,
+                "initialization": "saved model weights with fresh optimizer" if parent is not None else "local pretrained backbone weights",
+                "parent_model_sha256": parent_sha, "parent_total_real_epochs": real_start,
+                "total_real_epochs": real_start + epochs,
+                "parent_provenance": {key: parent.get(key) for key in ("source", "stages", "synthetic_epochs", "total_real_epochs", "epochs")}
+                                     if parent is not None else None,
                 "training_seconds": time.perf_counter() - start, "device": device, "threads": threads,
-                "optimizer": {"name": "AdamW", "encoder_learning_rate": 0.0002,
-                              "head_learning_rate": 0.001, "weight_decay": 0.0001},
-                "stage_continuation": "Same model and optimizer continue from synthetic to real",
+                "optimizer": {"name": "AdamW", "encoder_learning_rate": encoder_learning_rate,
+                              "head_learning_rate": head_learning_rate, "weight_decay": 0.0001, "state_initialization": "fresh"},
+                "stage_continuation": "Saved weights continue on real data; optimizer and shuffle state restart" if parent is not None
+                                      else "Same model and optimizer continue from synthetic to real",
                 "normalization": "ImageNet RGB mean/std; encoder BatchNorm running statistics stay frozen",
                 "conditioning": {"examples": "One or two positive cells from the full same source, masked mean of 64px shared-encoder descriptors",
                                  "fusion": "query*reference, abs(query-reference), cosine similarity, log(mean active pixel radius/16); no query-only head input",
@@ -184,6 +220,9 @@ def main():
     selection.add_argument("--all-setups", action="store_true")
     parser.add_argument("--pretrained", type=Path, required=True)
     parser.add_argument("--synthetic-manifest", type=Path, required=True)
+    parser.add_argument("--initial-model", type=Path, help="Reuse saved weights with a fresh optimizer; requires --synthetic-epochs 0")
+    parser.add_argument("--encoder-learning-rate", type=float, default=0.0002)
+    parser.add_argument("--head-learning-rate", type=float, default=0.001)
     parser.add_argument("--output", type=Path, required=True)
     for name, default in (("synthetic-epochs", 3), ("epochs", 20), ("batch-size", 8), ("size", 256),
                           ("views", 240), ("synthetic-views", 64), ("seed", 0), ("threads", 4)):
