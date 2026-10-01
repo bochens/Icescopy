@@ -71,6 +71,7 @@ class SessionIoTests(unittest.TestCase):
             set_undo_status=lambda: None,
             set_redo_status=lambda: None,
             update_document_interface_state=lambda: None,
+            droplet_tools=SimpleNamespace(update_actions=lambda: None),
         )
         action_names = (
             "add_source_action",
@@ -247,7 +248,10 @@ class SessionIoTests(unittest.TestCase):
                 self.ignored = True
 
         event = DummyEvent()
-        fake_window = SimpleNamespace(output_state=True, worker=None)
+        fake_window = SimpleNamespace(
+            output_state=True, worker=None,
+            droplet_tools=SimpleNamespace(is_running=lambda: False),
+        )
 
         with patch.object(icescopy_module.QMessageBox, "information") as information:
             IceScopy.closeEvent(fake_window, event)
@@ -267,6 +271,7 @@ class SessionIoTests(unittest.TestCase):
             output_state=False,
             worker=None,
             prompt_save_before_replacing_session=lambda _label: "cancel",
+            droplet_tools=SimpleNamespace(is_running=lambda: False),
         )
 
         IceScopy.closeEvent(fake_window, event)
