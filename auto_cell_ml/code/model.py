@@ -63,21 +63,32 @@ class DropletNet(nn.Module):
     def forward(self, image, examples, example_mask, example_radii):
         """RGB inputs are in [0,1]; active reference radii use query-image pixels."""
         batch = image.shape[0]
-        if examples.shape != (batch, 2, 3, 64, 64) or example_mask.shape != (batch, 2) or example_radii.shape != (batch, 2):
-            raise ValueError("Require two 64px example slots, a mask and radii for each image")
+        if examples.ndim != 5 or examples.shape[0] != batch or examples.shape[2:] != (3, 64, 64):
+            raise ValueError("Require 64px example images for each query")
+        count = examples.shape[1]
+        if count < 1 or example_mask.shape != (batch, count) or example_radii.shape != (batch, count):
+            raise ValueError("Require example masks and radii matching the example count")
         active = example_mask.bool()
         if not active.any(dim=1).all():
-            raise ValueError("Each image requires one or two selected positive examples")
+            raise ValueError("Each image requires active examples or a separately supplied default reference")
         if not torch.isfinite(example_radii[active]).all() or not (example_radii[active] > 0).all():
             raise ValueError("Active example radii must be finite and positive")
-        query = self.encode(image)
-        encoded = self.encode(examples.reshape(batch * 2, 3, 64, 64)).mean(dim=(-2, -1)).reshape(batch, 2, 32)
-        weights = active.to(query.dtype)
+        encoded = self.encode_reference(examples.reshape(batch * count, 3, 64, 64)).reshape(batch, count, 32)
+        weights = active.to(encoded.dtype)
         denominator = weights.sum(dim=1, keepdim=True)
         reference = (encoded * weights[..., None]).sum(dim=1) / denominator
         reference = reference[:, :, None, None]
         radius = (torch.where(active, example_radii, 0).sum(dim=1, keepdim=True) / denominator)
-        radius = (radius / 16).log()[:, :, None, None].expand(-1, -1, *query.shape[-2:])
+        return self.predict_with_reference(image, reference, radius[:, :, None, None])
+
+    def encode_reference(self, examples):
+        """The same learned descriptor can be averaged over any number of examples."""
+        return self.encode(examples).mean(dim=(-2, -1), keepdim=True)
+
+    def predict_with_reference(self, image, reference, reference_radius):
+        """Use an averaged selected reference or the training-derived default."""
+        query = self.encode(image)
+        radius = (reference_radius / 16).log().expand(-1, -1, *query.shape[-2:])
         cosine = F.cosine_similarity(query, reference, dim=1, eps=1e-6)[:, None]
         interaction = torch.cat((query * reference, (query - reference).abs(), cosine, radius), dim=1)
         raw = self.head(self.decoder(self.fusion(interaction)))
@@ -140,3 +151,44 @@ def export_onnx(model, output, *, size=256):
     torch.onnx.export(wrapper, inputs, str(output), dynamo=False, opset_version=12,
                       input_names=["rgb", "examples", "example_mask", "example_radii"], output_names=["prediction"])
     return output
+
+
+def export_runtime_onnx(model, detector_path, reference_path, *, size=256):
+    """Export unchanged learned operations as two CPU-friendly graphs.
+
+    Runtime averages reference descriptors outside the graphs, avoiding a fixed
+    example-count limit. Zero-example mode supplies a training-derived default.
+    """
+    paths = [Path(detector_path), Path(reference_path)]
+    if paths[0].resolve() == paths[1].resolve() or any(path.exists() for path in paths):
+        raise FileExistsError("Export destinations must be distinct new files")
+    if size < 32 or size % 4:
+        raise ValueError("size must be at least 32 and divisible by 4")
+    if importlib.util.find_spec("onnx") is None:
+        raise RuntimeError("ONNX export requires the developer-only onnx package")
+
+    class Reference(nn.Module):
+        def __init__(self, network):
+            super().__init__()
+            self.network = network
+        def forward(self, rgb):
+            return self.network.encode_reference(rgb)
+
+    class Detector(nn.Module):
+        def __init__(self, network):
+            super().__init__()
+            self.network = network
+        def forward(self, rgb, reference, reference_radius):
+            prediction = self.network.predict_with_reference(rgb, reference, reference_radius)
+            return torch.cat([prediction[name] for name in ('center', 'offsets', 'log_radius')], dim=1)
+
+    network = copy.deepcopy(model).cpu().eval()
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(Reference(network), torch.zeros(1, 3, 64, 64), str(paths[1]),
+                      dynamo=False, opset_version=12, input_names=['rgb'], output_names=['descriptor'])
+    torch.onnx.export(Detector(network),
+                      (torch.zeros(1, 3, size, size), torch.zeros(1, 32, 1, 1), torch.full((1, 1, 1, 1), 16.)),
+                      str(paths[0]), dynamo=False, opset_version=12,
+                      input_names=['rgb', 'reference', 'reference_radius'], output_names=['prediction'])
+    return tuple(paths)

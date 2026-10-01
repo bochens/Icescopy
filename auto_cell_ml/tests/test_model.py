@@ -72,6 +72,24 @@ class ModelTests(unittest.TestCase):
         target["valid"][0, 0, 0, 0] = 0
         self.assertLess(loss(pred, target)["total"].item(), base)
 
+    def test_arbitrary_count_and_preaggregated_reference_match(self):
+        net = DropletNet(self.pretrained).eval()
+        query = torch.rand(1, 3, 64, 64)
+        refs = torch.rand(1, 5, 3, 64, 64)
+        radii = torch.tensor([[6., 7., 8., 9., 10.]])
+        with torch.inference_mode():
+            for count in (1, 2, 3, 5):
+                picked = refs[:, :count]
+                direct = net(query, picked, torch.ones(1, count, dtype=torch.bool), radii[:, :count])
+                descriptor = net.encode_reference(picked.reshape(count, 3, 64, 64)).mean(0, keepdim=True)
+                separate = net.predict_with_reference(query, descriptor, radii[:, :count].mean().reshape(1, 1, 1, 1))
+                for key in direct:
+                    torch.testing.assert_close(direct[key], separate[key])
+            repeated = net(query, refs[:, :1].expand(-1, 5, -1, -1, -1),
+                           torch.ones(1, 5, dtype=torch.bool), radii[:, :1].expand(-1, 5))
+            single = net(query, refs[:, :1], torch.ones(1, 1, dtype=torch.bool), radii[:, :1])
+            torch.testing.assert_close(repeated['center'], single['center'], atol=1e-5, rtol=1e-5)
+
     def test_appearance_radius_mask_conditioning_and_reference_gradients(self):
         torch.manual_seed(7)
         net = DropletNet(self.pretrained).train()
@@ -92,7 +110,7 @@ class ModelTests(unittest.TestCase):
         self.assertGreater(examples.grad[:, 0].abs().sum().item(), 0)
         self.assertEqual(examples.grad[:, 1].abs().sum().item(), 0)
         self.assertFalse(any(module.training for module in net.encoder.modules() if isinstance(module, torch.nn.BatchNorm2d)))
-        with self.assertRaisesRegex(ValueError, "one or two"):
+        with self.assertRaisesRegex(ValueError, "active examples"):
             net(image, examples, torch.zeros_like(mask), radii)
 
     def test_bounded_learning_and_portable_weight_roundtrip(self):

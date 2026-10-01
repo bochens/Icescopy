@@ -4,17 +4,19 @@ Developer-managed training for one general, example-guided droplet detector acro
 
 ## Example-guided selection
 
-At detection time, the user supplies one or two marked cells in the current image. The network receives their image patches and radii along with the image to search. It compares image features with the examples to locate matching droplets. This uses the saved model without retraining it. Existing cells, including the examples, are excluded from new selections.
+At detection time, the user may select any number of marked cells in the current image. The network receives their image patches and radii along with the image to search. It compares image features with the examples to locate matching droplets. This uses the saved model without retraining it. Existing cells, including the examples, are excluded from new selections.
 
 Training follows the same workflow: each view receives one or two randomly chosen labeled droplets from its source image as examples. Their appearance and size guide the predictions. Examples can come from outside the cropped training view, so background-only crops still have valid examples. All labeled centers remain positive targets, and all other valid positions are negative. Image and label transformations stay aligned; reference patches receive the same orientation and lighting changes as the search image.
 
-The model requires examples; there is no unconditioned detection fallback. Checks that predictions depend on the examples are necessary, but only results on separate recordings can demonstrate useful detection.
+With no selected cells, the app uses an average appearance descriptor and radius derived from the training labels, balanced equally across setups. This generic starting point may be less accurate. With selected cells, their learned appearance descriptors and radii are averaged. This accepts any number without retraining for each count. More examples do not guarantee better results.
 
 ## Working files
 
 - `code/model.py`: CNN and loss for centers, offsets, and radii.
 - `code/train.py`: staged synthetic and labeled-data training, shared across all selected setups.
 - `code/infer.py`: single-image detection and overlays.
+- `code/export.py`: export the two small app networks and the generic training reference.
+- `code/check_runtime.py`: compare app inference against saved evaluation predictions.
 - `code/evaluate.py`: predictions on all training images and separate evaluation recordings, using fixed example selections.
 - `code/data.py`: trusted source reader, aligned image/label transforms, and training views.
 - `code/image_samples.py`, `code/forest.py`, `code/opencv_nn.py`: inactive patch-classifier experiments.
@@ -51,28 +53,50 @@ On the same PCR training image with 160 labels, using one-to-one center matches 
 
 These runs used different training procedures. They do not establish an intrinsic ranking of model types. The ANN_MLP remains inadequate despite the longer fit. Its model is about 226 KB; fitting took 9.6 or 94.9 seconds, respectively. Baseline artifacts remain in `results/random-forest-v1/` and `results/opencv-nn-v1/`.
 
-The example-guided pretrained model has now completed two Apple-GPU runs: three synthetic passes followed by either 10 or 40 passes through newly augmented real views. The longer run took 362 seconds, has 214,332 parameters, and produces a roughly 0.93 MB model. With two fixed marked examples and a fixed 0.5 score threshold, the training-image checks were:
+The bundled model has 214,332 parameters. Apple GPU training used three passes through augmented synthetic fit scenes, followed by 60 passes through augmented real views from all five setups. The final 20 passes continued the saved 40-pass model with a fresh optimizer and lower learning rates; they took 169 seconds.
 
-| Setup | Remaining labeled cells | Found after 10 passes | Found after 40 passes | Extras after 40 passes |
-| --- | ---: | ---: | ---: | ---: |
-| CSU cold stage | 48 | 40 | 45 | 0 |
-| CSU IS PCR | 158 | 138 | 150 | 0 |
-| PKU | 88 | 49 | 81 | 0 |
-| TAMU | 14 | 12 | 13 | 0 |
-| CIF | 103 | 52 | 78 | 0 |
+With two fixed marked examples and a fixed 0.5 score threshold:
 
-Each row excludes the two supplied examples. Matches require one-to-one centers within max(3.5 pixels, 35% of labeled radius); this does not measure circle-boundary accuracy. These are training diagnostics, not independent accuracy. Separate-recording overlays still show missed droplets, especially CIF. The independent images produced 40, 167, 13, and 59 new selections respectively, plus two supplied examples each; those counts are not accuracy scores. GPU inference took 0.03–0.46 seconds per image in the longer-run evaluation, excluding model loading.
+| Setup | Remaining labels | Found | Extras |
+| --- | ---: | ---: | ---: |
+| CSU cold stage | 48 | 47 | 0 |
+| CSU IS PCR | 158 | 151 | 0 |
+| PKU | 88 | 86 | 0 |
+| TAMU | 14 | 14 | 0 |
+| CIF | 103 | 99 | 0 |
 
-Single-example training checks also ran without retraining: CSU cold stage 45/49, PCR 150/159, PKU 81/89, TAMU 14/15, and CIF 82/104 remaining labels matched, with no extras in those checks. Results depend on the selected example; more examples do not guarantee better output.
+These are training diagnostics, excluding the two supplied examples. Matches require one-to-one centers within max(3.5 pixels, 35% of labeled radius); this does not measure circle-boundary accuracy. Separate recordings produced 46, 168, 14, and 73 new selections for CSU cold stage, CSU IS PCR, TAMU, and CIF respectively, plus two supplied examples each. Those counts are not accuracy scores. Some droplets are still missed. There is no separate PKU evaluation recording.
 
-Results are preserved in `results/example-guided-general-v1/` and `results/example-guided-general-v1-longer/`. The latter contains `evaluation/overview.jpg`, detailed overlays, `summary.json`, and `one-example-check.json`. No user source image or saved session was overwritten.
+The final trainable weights, provenance, and measurements are preserved in `results/example-guided-general-v2/`. Its `evaluation/` directory separates independent-recording overlays from training diagnostics. Earlier runs remain in their own result directories. No source image or saved session was overwritten.
 
-## Handoff
+The app's OpenCV 4 CPU runtime was checked on all nine images with 0, 1, 2, 3, and 5 examples. Two-example inference took 0.05–0.83 seconds per image, excluding model loading. Repeating detection with the previous results protected added no duplicates. The five training-image counts were unchanged. Independent CPU counts were 45, 170, 14, and 73: three borderline detections crossed the fixed threshold compared with the saved Apple-GPU evaluation. OpenCV versions round some reference-crop pixels differently; broad response peaks can also move slightly. Identical-input network outputs agreed with PyTorch to within 0.000032 in a checked real-image tile. Detailed comparisons are in `results/example-guided-general-v2/runtime-check/summary.json`.
 
-Current goal: improve remaining misses in the tested, developer-managed, example-guided general model. End-user training UI is removed. The official MobileNetV3-Small ImageNet weights under `pretrained/` were verified by SHA-256 and strict state loading. The image encoder, example comparison, and prediction layers train together; synthetic and real stages update the same weights. Model format is `icescopy-droplet-mobilenet-examples-v4`; no plain-detector fallback.
+## Future training and app export
 
-All five labeled training setups are selected for the general model. The 20 synthetic fit scenes contain 835 targets and 433 explicitly empty circles; synthetic validation/calibration scenes remain excluded. Synthetic source paths in old metadata are stale: use the verified adjacent scene-ID PNG contract only. Training views cover each entire source image and each marked circle per epoch, with aligned rotation, reflection, uniform scaling, and lighting changes. No extra generated image files are needed.
+PyTorch and ONNX export dependencies stay in the developer environment. The application runs the exported networks with OpenCV on the CPU; it does not require PyTorch or update model weights. The two app networks total about 1.67 MB. Splitting example encoding from image detection allows arbitrary example counts without changing the learned weights.
 
-The real run must use `--device mps`, as requested. Apple GPU availability is verified outside the sandbox; it appears unavailable inside. PyTorch stays in the developer environment. ONNX export remains unverified because the optional dependency is absent; the app does not yet load this CNN format. Four separate real recordings are available for visual evaluation; PKU source searching is stopped. Preserve source data and previous results. No app packaging, release, or push is requested.
+Keep `results/example-guided-general-v2/model.pt`, `data/datasets.json`, the labeled source files, synthetic fit scenes, and the pretrained encoder. Continue developer training into a new result directory, for example:
 
-Evaluation examples are saved in `data/evaluation/examples.json`, chosen visually before inspecting the new predictions. They are inference inputs, not complete evaluation labels. Training checks use two fixed source-label indices and match only the remaining labels against new detections. This keeps supplied examples out of the reported detection total. The independent recordings receive overlays without accuracy claims.
+```sh
+.venv/bin/python code/train.py \
+  --manifest data/datasets.json --all-setups \
+  --pretrained pretrained/mobilenet_v3_small-047dcff4.pth \
+  --synthetic-manifest data/synthetic/labels.json \
+  --initial-model results/example-guided-general-v2/model.pt \
+  --synthetic-epochs 0 --epochs 20 \
+  --encoder-learning-rate .0001 --head-learning-rate .0005 \
+  --synthetic-views 64 --views 240 --size 256 --batch-size 8 \
+  --threads 4 --device mps --output results/NEW-RUN
+```
+
+Commands in this section run from `auto_cell_ml/`. This starts a fresh optimizer from the saved weights. Source hashes and training settings are checked before continuing. Preserve the separate evaluation recordings; do not use them for training.
+
+After evaluating a new model, export to a new directory:
+
+```sh
+.venv/bin/python code/export.py \
+  --model-path results/NEW-RUN/model.pt \
+  --manifest data/datasets.json --output results/NEW-RUN/app-model
+```
+
+The exporter verifies source provenance and records model hashes. Verify exported predictions with `code/check_runtime.py` before replacing the three files in the application's `resources/models/` directory. Model files contain learned weights and descriptors, without source images or private file paths. User training controls remain removed.

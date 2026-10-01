@@ -57,6 +57,7 @@ py-modules = [
   "icescopy_droplet_detection",
   "icescopy_droplet_tools",
   "icescopy_droplet_training_io",
+  "icescopy_neural_detection",
   "icescopy_event_navigation",
   "icescopy_frame_source",
   "icescopy_frameslider",

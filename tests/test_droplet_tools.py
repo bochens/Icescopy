@@ -84,13 +84,47 @@ class DropletToolsTests(unittest.TestCase):
             QTest.qWait(10)
         self.fail("Droplet detection did not finish within three seconds.")
 
-    def test_model_load_does_not_change_saved_session_content(self):
+    def test_builtin_model_loads_lazily_once_without_changing_session_content(self):
         self.window.mark_session_clean()
-        model = {"default_radius": 8}
-        with patch("icescopy_droplet_detection.load_model", return_value=model):
-            self.assertTrue(self.tools.load_model_path(self.root / "example.icescopy-model.json"))
+        self.assertIsNone(self.tools.model)
+        model = object()
+        with patch("icescopy_neural_detection.load_model", return_value=model) as load, patch("icescopy_neural_detection.NeuralDetector") as detector:
+            detector.return_value.predict.return_value = []
+            load.assert_not_called()
+            for _ in range(2):
+                self.tools.start_detection()
+                self.wait_for_detection()
+            load.assert_called_once_with()
+            self.assertEqual(detector.call_count, 2)
+            self.assertEqual(detector.return_value.predict.call_args.kwargs["examples"], ())
         self.assertIs(self.tools.model, model)
         self.assertFalse(self.window.has_unsaved_session_changes())
+        self.assertEqual(self.window.undo_stack.count(), 0)
+
+    def test_zero_one_two_and_more_selected_examples_use_current_geometry(self):
+        items = [CellSnapshot((30 + 25 * index, 70), 8, (30 + 25 * index, 70), index)
+                 for index in range(5)]
+        self.window.keyframe_list = [1]
+        self.window.keyframe_cell_items_dict = {1: items}
+        for index in range(5):
+            self.window.ensure_cell_record(index)
+        self.window.interpolate_and_displayMarkedRegions(1)
+        for count in (0, 1, 2, 3, 5):
+            with self.subTest(examples=count):
+                for index, cell in enumerate(self.window.cell_items):
+                    cell.setSelected(index < count)
+                snapshot = self.tools.snapshot_current_frame()
+                self.assertEqual(snapshot.examples,
+                                 tuple((30.0 + 25 * index, 70.0, 8.0) for index in range(count)))
+                self.assertEqual(len(snapshot.protected), 5)
+
+    def test_changing_selected_examples_discards_stale_results(self):
+        cell = self.add_keyframed_cell()
+        cell.setSelected(True)
+        snapshot = self.tools.snapshot_current_frame()
+        cell.setSelected(False)
+        self.assertIsNone(self.tools.add_results(snapshot, [detection(140, 70)]))
+        self.assertEqual(len(self.window.cell_items), 1)
         self.assertEqual(self.window.undo_stack.count(), 0)
 
     def test_raw_pixels_and_selected_examples_use_current_keyframe_geometry(self):
@@ -193,8 +227,7 @@ class DropletToolsTests(unittest.TestCase):
                 return [detection(100, 80)]
 
         self.tools.model = {}
-        self.tools.model_path = "test.icescopy-model.json"
-        with patch("icescopy_droplet_detection.RandomForestDetector", WaitingDetector):
+        with patch("icescopy_neural_detection.NeuralDetector", WaitingDetector):
             self.tools.start_detection()
             self.assertTrue(entered.wait(1))
             self.assertFalse(self.window.run_analysis_action.isEnabled())
@@ -220,8 +253,7 @@ class DropletToolsTests(unittest.TestCase):
                 return [detection(140, 70), detection(40, 115)]
 
         self.tools.model = {}
-        self.tools.model_path = "test.icescopy-model.json"
-        with patch("icescopy_droplet_detection.RandomForestDetector", ReturningDetector):
+        with patch("icescopy_neural_detection.NeuralDetector", ReturningDetector):
             self.tools.start_detection()
             self.wait_for_detection()
         self.assertEqual(len(calls), 1)
@@ -235,9 +267,8 @@ class DropletToolsTests(unittest.TestCase):
 
     def test_worker_failure_is_reported_and_leaves_session_unchanged(self):
         self.tools.model = {}
-        self.tools.model_path = "test.icescopy-model.json"
         self.window.mark_session_clean()
-        with patch("icescopy_droplet_detection.RandomForestDetector", side_effect=ImportError("Missing detector dependency")), patch("icescopy_droplet_tools.QMessageBox.warning") as warning:
+        with patch("icescopy_neural_detection.NeuralDetector", side_effect=ImportError("Missing detector dependency")), patch("icescopy_droplet_tools.QMessageBox.warning") as warning:
             self.tools.start_detection()
             self.wait_for_detection()
         warning.assert_called_once()
@@ -256,11 +287,11 @@ class DropletToolsTests(unittest.TestCase):
         self.assertFalse(event.isAccepted())
         self.tools.worker = None
 
-    def test_detection_menu_contains_only_model_loading_and_detection(self):
-        menu = self.tools.load_action.associatedObjects()
+    def test_detection_menu_contains_only_current_frame_detection(self):
+        menu = self.tools.detect_action.associatedObjects()
         actions = next(item for item in menu if hasattr(item, "actions")).actions()
         self.assertEqual([action.text() for action in actions],
-                         ["Load Model...", "Detect Droplets (Current Frame)"])
+                         ["Detect Droplets (Current Frame)"])
 
     def test_failed_insertion_rolls_back_all_cells_and_keyframes(self):
         self.add_keyframed_cell()
@@ -274,14 +305,38 @@ class DropletToolsTests(unittest.TestCase):
         self.assertEqual({frame: len(items) for frame, items in self.window.keyframe_cell_items_dict.items()}, {0: 1, 2: 1})
         self.assertEqual(self.window.undo_stack.count(), 0)
 
-    def test_empty_frame_and_missing_model_are_reported_without_worker(self):
-        with patch("icescopy_droplet_tools.QMessageBox.information") as information:
-            self.tools.start_detection()
-        information.assert_called_once()
-        self.assertIsNone(self.tools.worker)
+    def test_empty_frame_is_reported_before_loading_builtin_model(self):
         self.window.set_frame_source(ImageSequenceFrameSource([]))
+        with patch("icescopy_droplet_tools.QMessageBox.warning") as warning, patch("icescopy_neural_detection.load_model") as load:
+            self.tools.start_detection()
+        warning.assert_called_once()
+        load.assert_not_called()
+        self.assertIsNone(self.tools.worker)
         with self.assertRaisesRegex(ValueError, "Load an image or video"):
             self.tools.snapshot_current_frame()
+
+    def test_builtin_model_error_is_reported_without_session_changes(self):
+        self.window.mark_session_clean()
+        with patch("icescopy_neural_detection.load_model", side_effect=ValueError("Bundled model is missing")), patch("icescopy_droplet_tools.QMessageBox.warning") as warning:
+            self.tools.start_detection()
+        warning.assert_called_once()
+        self.assertIsNone(self.tools.worker)
+        self.assertIsNone(self.tools.model)
+        self.assertFalse(self.window.has_unsaved_session_changes())
+        self.assertEqual(self.window.undo_stack.count(), 0)
+
+    def test_duplicates_match_neural_distance_rule_and_protect_unselected_cells(self):
+        cell = self.add_keyframed_cell()
+        cell.setSelected(True)
+        self.tools.add_results(self.tools.snapshot_current_frame(), [detection(140, 70)])
+        self.window.cell_items[0].setSelected(True)
+        self.window.cell_items[1].setSelected(False)
+        snapshot = self.tools.snapshot_current_frame()
+        before = self.window.undo_stack.count()
+        # Seven pixels is below the minimum eight-pixel radius for both pairs.
+        self.assertEqual(self.tools.add_results(snapshot, [detection(87, 60), detection(147, 70)]), 0)
+        self.assertEqual(len(self.window.cell_items), 2)
+        self.assertEqual(self.window.undo_stack.count(), before)
 
     def test_video_snapshot_uses_same_decoded_rgb_path(self):
         try:

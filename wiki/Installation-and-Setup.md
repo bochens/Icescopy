@@ -101,7 +101,7 @@ icescopy
 
 An editable install keeps the installed program connected to the checkout so code edits take effect without reinstalling. Keep the repository's `resources/` directory with the source. See [Developer Guide](Developer-Guide.md) for an existing Python environment, the source layout, and development practices.
 
-The development source includes experimental [droplet detection](Droplet-Detection.md). Load an existing model to detect cells in the current image or video frame.
+The development source includes experimental [droplet detection](Droplet-Detection.md). The bundled model detects cells in the current image or video frame; selected cells guide its appearance and size.
 
 ## Check a development installation
 
