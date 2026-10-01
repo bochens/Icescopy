@@ -154,3 +154,44 @@ shared image features rather than depend on the old hand-built circle proposals.
 Keep example guidance, current-frame inputs, geometry-preserving augmentation,
 explicit-label boundaries and existing-cell protection. Agree on a bounded
 joint-training recipe before launching it.
+
+## Joint detector: current experiment
+
+The user has now authorized one detector that learns where to place circles
+and when to reject them, with positives and negatives in the same training run.
+The prepared scorer-only extension above remains unrun.
+
+The design combines two established ideas: exemplar matching, as described in
+[Learning To Count Everything](https://arxiv.org/abs/2104.08391), and direct
+center, offset and size prediction from
+[Objects as Points](https://arxiv.org/abs/1904.07850). This is a small adaptation
+using our preserved MobileNet features, not either paper's published detector
+or a claim to reproduce its benchmark results.
+
+- Initialize image features from the first manual-trained checkpoint. Earlier
+  feature blocks and stored normalization statistics stay frozen. Train the last
+  three feature blocks and a new small decoder together.
+- Compare shared image features with features of one or two marked examples.
+  Predict a center score, fine position correction and radius at each location.
+  There is no hand-built circle proposal stage or separately fitted classifier.
+- Scale the image uniformly using example size. Preserve aspect ratio. Use
+  transformed tiles, rotations, flips and lighting changes with labels transformed
+  by the same geometry. The current frame is the only image input.
+- Combine center confidence, position and radius losses in each update. Weight
+  false center predictions explicitly. Synthetic images have complete background
+  labels; real images have known positives, reviewed empty/background regions
+  and the new invalid-center points. Other real locations remain unknown.
+- Begin with four passes of 60 updates, four tiles per update, half real and half
+  synthetic. Use separate learning rates for the pretrained features (0.00005)
+  and new decoder (0.0002). Record actual positive and invalid-center coverage.
+- Use separate synthetic validation for checkpoint selection and separate
+  synthetic calibration for a cutoff based on centered F1, which balances missed
+  and extra selections. Do not select the cutoff from the five real photos.
+- Compare against the actual first detector, retaining its saved classifier and
+  cutoff. Report raw recovered, accurately centered, missed and extra counts,
+  normalized position errors, CPU runtime and repeated-frame duplicate checks.
+
+The five real photos are training diagnostics. Their augmented versions are not
+independent test images. A stricter placement measure is essential: a recovered
+circle within one reference radius can still be visibly misplaced. The new
+preview only uses green for centers within 0.35 reference radii.
