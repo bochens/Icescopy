@@ -1,5 +1,37 @@
 # Small water-droplet experiment
 
+## Current work: separate training regions and a pretrained comparison
+
+The first joint model reduced some extra selections on PKU but performed worse
+on PCR: only 25 of 158 remaining droplets were accurately centered in the first
+two-example trial, with 61 additional selections. Do not adopt that model.
+
+Two experiments now run separately:
+
+- Test the authors' pretrained FamNet without further training or image-specific
+  adaptation. Report its estimated count separately from individual detections.
+- Restart the custom joint model from the preserved synthetic-only encoder.
+  Split each original photo into separate fitting, validation and test regions
+  before creating rotated, flipped, uniformly scaled or lighting-adjusted tiles.
+  No reserved test pixels or droplets enter training or model selection.
+
+The private spatial manifest retains 210 fitting, 99 validation and 106 test
+droplets. Six circles crossing region boundaries are excluded. These are unseen
+regions of previously inspected photos, not independently collected recordings.
+All active source images, synthetic images and split annotations are together
+under `training-data/water-droplets`; original images and sessions are unchanged.
+
+The fixed custom run uses 12 passes of 60 updates, otherwise the joint recipe
+below. Known droplet interiors allow only one center. Full reviewed empty
+regions receive an additional direct false-selection penalty in the same loss.
+Unknown real pixels remain ignored. The saved model minimizes validation loss
+averaged equally over real and synthetic domains, then equally over their
+scenes. All fitting positives must receive updates before selection is allowed.
+Separate synthetic calibration determines the confidence cutoff. Test results
+are reported after the model and cutoff are fixed; they do not select another run.
+
+The sections below retain the history and limitations of previous experiments.
+
 This replaces the earlier full-recording real-image training plan. The user has
 supplied five labeled sessions and authorized training after the save-prompt fix
 was committed. That fix is recorded in commit `1b08821`; no app rebuild is part

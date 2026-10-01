@@ -15,6 +15,7 @@ import numpy as np
 from detector import read_image
 from hybrid_data import sha256
 from joint_model import CORE, HALO, NORMALIZED_RADIUS, STRIDE, TILE
+from joint_spatial import FORMAT as SPATIAL_FORMAT, check_spatial_manifest
 from neural_train import check_manifest
 from water_center_data import check_center_manifest
 
@@ -22,17 +23,22 @@ SUPERVISION_VERSION = 2
 
 def active_scenes(real_path, synthetic_path):
     real_manifest = json.loads(Path(real_path).read_text())
-    previous = real_manifest['previous_manual_manifest']
-    if sha256(previous['path']) != previous['sha256']:
-        raise ValueError('Preserved original manual manifest changed.')
-    real = check_center_manifest(real_manifest, json.loads(Path(previous['path']).read_text()))
+    spatial = real_manifest.get('format_version') == SPATIAL_FORMAT
+    if spatial:
+        real = check_spatial_manifest(real_manifest)
+    else:
+        previous = real_manifest['previous_manual_manifest']
+        if sha256(previous['path']) != previous['sha256']:
+            raise ValueError('Preserved original manual manifest changed.')
+        real = check_center_manifest(real_manifest, json.loads(Path(previous['path']).read_text()))
     synthetic = check_manifest(json.loads(Path(synthetic_path).read_text()))
     scenes = []
     for domain, rows in (('real', real), ('synthetic', synthetic)):
         for original in rows:
-            if domain == 'synthetic' and original['split'] == 'calibration':
+            if original['split'] in {'calibration', 'test'}:
                 continue
-            row = dict(original, domain=domain, split='fit' if domain == 'real' else original['split'])
+            row = dict(original, domain=domain,
+                       split='fit' if domain == 'real' and not spatial else original['split'])
             if sha256(row['source']) != row['sha256']:
                 raise ValueError('Active source pixels changed.')
             scenes.append(row)
@@ -189,9 +195,12 @@ def make_tile(scene, image, focus, rng, augment=True):
     return (photometric(tile, rng) if augment else tile.astype(np.float32)), targets, examples, record
 
 
-def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation_count=10, seed=71003):
+def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation_count=10, seed=71003,
+              real_validation_count=24):
     """Balanced fixed bank; first tiles greedily cover exact known real centers."""
-    plans = [(s, real_count if s['domain'] == 'real' else
+    if any(s['split'] not in {'fit', 'validation'} for s in scenes):
+        raise ValueError('Only fitting and validation regions can enter the tile cache.')
+    plans = [(s, (real_count if s['split'] == 'fit' else real_validation_count) if s['domain'] == 'real' else
               (synthetic_fit_count if s['split'] == 'fit' else validation_count)) for s in scenes]
     count = sum(n for _, n in plans)
     pixels = np.lib.format.open_memmap(folder/'tiles.npy', mode='w+', dtype=np.uint8, shape=(count, TILE, TILE, 3))
@@ -242,7 +251,7 @@ class TileSchedule:
         self.cursor = {'real': 0, 'synthetic': 0}
         self.expected = {}
         for scene in scenes:
-            if scene['domain'] == 'real':
+            if scene['domain'] == 'real' and scene['split'] == 'fit':
                 self.expected[scene['group']] = {'positives': {r['id'] for r in scene['targets']},
                                                'invalid': {r['id'] for r in scene.get('center_negatives', [])},
                                                'old_negative': {r['id'] for r in scene.get('negatives', [])}}
