@@ -52,7 +52,7 @@ def save_trainable_checkpoint(model, metadata, path, *, model_id, version, name)
         raise FileExistsError(path)
     public = {key: metadata[key] for key in ('format', 'architecture', 'crop_size', 'stride',
               'parameters', 'pretrained_sha256', 'normalization') if key in metadata}
-    public.update(model_id=model_id, version=version, name=name,
+    public.update(model_id=model_id, setup=model_id, version=version, name=name,
                   total_real_epochs=metadata.get('total_real_epochs', metadata.get('epochs')),
                   state_dict={key: value.detach().cpu() for key, value in model.state_dict().items()})
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -19,7 +19,7 @@ from PIL import Image, ImageDraw
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = PROJECT_ROOT / "auto_cell_ml/data/datasets.json"
+DEFAULT_MANIFEST = PROJECT_ROOT / "auto_cell_ml/examples/real/datasets.json"
 
 
 def _circles_array(circles):

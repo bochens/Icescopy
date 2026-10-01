@@ -47,6 +47,7 @@ class ExportTests(unittest.TestCase):
             saved = torch.load(path, weights_only=True)
             self.assertEqual(saved['total_real_epochs'], 60)
             self.assertEqual(saved['version'], '1.0.0')
+            self.assertEqual(saved['setup'], 'test')
             self.assertTrue({'source', 'training_manifest_sha256', 'parent_provenance', 'setups'}.isdisjoint(saved))
             for key, value in model.state_dict().items():
                 torch.testing.assert_close(saved['state_dict'][key], value)

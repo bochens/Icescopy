@@ -47,6 +47,8 @@ Draw individual cells with **Add Cell**, or place a row-and-column array with **
 
 A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
 
+**Detect Droplets (Current Frame)** finds similar droplets using selected cells as examples. Review the added circles and adjust them as needed. Choose a bundled or external model in **Preferences → ML**. The [machine learning module](auto_cell_ml/README.md) includes example images, labels, model weights, and a notebook for training and evaluation.
+
 ### 2. Assign samples
 
 Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
