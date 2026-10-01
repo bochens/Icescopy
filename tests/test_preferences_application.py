@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -51,6 +52,23 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.assertEqual(self.window.undo_stack.count(), 1)
         self.assertIs(self.window.undo_stack.command(0), existing)
         self.assertEqual(self.window.undo_stack.undoText(), "Existing real edit")
+
+    def test_ml_choice_persists_across_windows_without_changing_research_session(self):
+        self.window.session_active = True
+        self.window.mark_session_clean()
+        path = (self.folder / "selected.icescopy-model").resolve()
+        dialog = self.dialog()
+        dialog.droplet_model_path_field.setText(str(path))
+        dialog.droplet_model_source_field.setCurrentIndex(1)
+        config = SimpleNamespace(name="Selected detector", version="3.0.0")
+        with patch("icescopy_neural_detection.load_model", return_value=config):
+            self.save(dialog)
+        self.assertEqual(self.window.droplet_model_path, str(path))
+        self.assertFalse(self.window.has_unsaved_session_changes())
+        self.assertEqual(self.window.undo_stack.count(), 0)
+        reopened = IceScopy()
+        self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.droplet_model_path, str(path))
 
     def test_metadata_change_creates_working_undo_and_redo(self):
         self.window.session_active = True

@@ -1,13 +1,17 @@
 """Example-guided droplet inference using bundled OpenCV CPU networks."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import math
 from pathlib import Path
+import stat
+import struct
+import tempfile
 from types import MappingProxyType
 from typing import Mapping
+import zipfile
 
 import cv2
 import numpy as np
@@ -15,6 +19,12 @@ import numpy as np
 from icescopy_validate import find_resources_dir
 
 MODEL_FORMAT = "icescopy-droplet-onnx-v2"
+MAX_BUNDLE_BYTES = 64 * 1024 * 1024
+MAX_GRAPH_BYTES = 32 * 1024 * 1024
+MAX_TEXT_BYTES = 1024 * 1024
+MAX_BUNDLE_MEMBERS = 8
+MAX_ZIP_DIRECTORY_BYTES = 64 * 1024
+OPTIONAL_BUNDLE_FILES = {"README.md", "README.txt", "LICENSE", "LICENSE.md", "LICENSE.txt", "TORCHVISION-LICENSE.txt"}
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,8 @@ def _freeze(value):
 @dataclass(frozen=True)
 class ModelConfig:
     name: str
+    model_id: str
+    version: str
     onnx_path: Path
     reference_onnx_path: Path
     threshold: float
@@ -71,12 +83,25 @@ class ModelConfig:
     default_reference: tuple[float, ...]
     default_radius: float
     metadata: Mapping
+    # A worker's reference to this frozen config keeps extracted graphs alive.
+    # TemporaryDirectory cleans up when the final config reference is released.
+    _storage: tempfile.TemporaryDirectory | None = field(default=None, repr=False, compare=False)
+
+    def __del__(self):
+        storage = getattr(self, "_storage", None)
+        if storage is not None:
+            storage.cleanup()
+
+
+def _local_onnx_name(filename):
+    if (not isinstance(filename, str) or not filename or Path(filename).name != filename
+            or any(char in filename for char in ("/", "\\", ":", "\x00")) or Path(filename).suffix.lower() != ".onnx"):
+        raise ValueError("Model filenames must name local ONNX files beside the metadata")
+    return filename
 
 
 def _checked_model_file(folder, filename, digest):
-    if (not isinstance(filename, str) or not filename or Path(filename).name != filename
-            or "/" in filename or "\\" in filename or Path(filename).suffix.lower() != ".onnx"):
-        raise ValueError("Model filenames must name local ONNX files beside the metadata")
+    filename = _local_onnx_name(filename)
     if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest.lower()):
         raise ValueError("Model metadata must include a valid SHA-256 hash")
     path = (folder / filename).resolve()
@@ -87,21 +112,104 @@ def _checked_model_file(folder, filename, digest):
     return path
 
 
-def load_model(path=None):
-    """Validate portable metadata and both network hashes without loading Torch."""
-    path = Path(path) if path is not None else find_resources_dir() / "models" / "droplet_detector.json"
-    path = path.resolve()
+def _read_metadata(raw):
     try:
-        payload = json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeError) as exc:
         raise ValueError("Droplet model metadata is not valid JSON") from exc
+
+
+def _check_zip_directory(path):
+    # Check the bounded ZIP footer before zipfile allocates member objects.
+    with path.open("rb") as stream:
+        stream.seek(max(0, path.stat().st_size - 65577))
+        tail = stream.read()
+    position = tail.rfind(b"PK\x05\x06")
+    while position >= 0:
+        if len(tail) - position >= 22:
+            record = struct.unpack_from("<4s4H2LH", tail, position)
+            if position + 22 + record[7] == len(tail):
+                break
+        position = tail.rfind(b"PK\x05\x06", 0, position)
+    if position < 0:
+        raise ValueError("Droplet model bundle is not a valid ZIP archive")
+    if record[1] or record[2] or record[3] != record[4] or not 1 <= record[4] <= MAX_BUNDLE_MEMBERS or record[5] > MAX_ZIP_DIRECTORY_BYTES:
+        raise ValueError("Droplet model bundle exceeds its ZIP directory limits")
+    if position >= 20 and tail[position - 20:position - 16] == b"PK\x06\x07":
+        raise ValueError("ZIP64 droplet model bundles are unsupported")
+
+
+def _unpack_bundle(path):
+    if path.stat().st_size > MAX_BUNDLE_BYTES:
+        raise ValueError("Droplet model bundle exceeds the 64 MiB size limit")
+    _check_zip_directory(path)
+    storage = tempfile.TemporaryDirectory(prefix="icescopy-model-")
+    try:
+        with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if not 1 <= len(members) <= MAX_BUNDLE_MEMBERS or sum(info.file_size for info in members) > MAX_BUNDLE_BYTES:
+                raise ValueError("Droplet model bundle exceeds its member or unpacked size limit")
+            names = set()
+            for info in members:
+                filename = info.filename
+                kind = stat.S_IFMT(info.external_attr >> 16)
+                if (not filename or Path(filename).name != filename or any(char in filename for char in ("/", "\\", ":", "\x00"))
+                        or info.orig_filename != filename or filename.casefold() in names or info.is_dir()
+                        or kind not in (0, stat.S_IFREG) or info.flag_bits & 1
+                        or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)):
+                    raise ValueError("Droplet model bundle contains an unsafe or duplicate member")
+                limit = MAX_GRAPH_BYTES if filename.lower().endswith(".onnx") else MAX_TEXT_BYTES
+                if info.file_size > limit:
+                    raise ValueError(f"Droplet model bundle member is too large: {filename}")
+                names.add(filename.casefold())
+            if "droplet_detector.json" not in archive.namelist():
+                raise ValueError("Droplet model bundle is missing droplet_detector.json")
+            payload = _read_metadata(archive.read("droplet_detector.json"))
+            if not isinstance(payload, dict):
+                raise ValueError("Droplet model metadata must be an object")
+            graphs = [_local_onnx_name(payload.get(key)) for key in ("model_file", "reference_model_file")]
+            required = {"droplet_detector.json", *graphs}
+            if len(required) != 3 or not required.issubset(archive.namelist()):
+                raise ValueError("Droplet model bundle must contain its two distinct ONNX graphs")
+            if set(archive.namelist()) - required - OPTIONAL_BUNDLE_FILES:
+                raise ValueError("Droplet model bundle contains unexpected files")
+            for filename in required:
+                (Path(storage.name) / filename).write_bytes(archive.read(filename))
+        return storage
+    except Exception as exc:
+        storage.cleanup()
+        if isinstance(exc, (zipfile.BadZipFile, NotImplementedError, RuntimeError)):
+            raise ValueError("Droplet model bundle is not a valid readable ZIP archive") from exc
+        raise
+
+
+def load_model(path=None):
+    """Load portable JSON or one .icescopy-model bundle; never fall back on error."""
+    path = (Path(path) if path is not None else find_resources_dir() / "models" / "droplet_detector.json").resolve()
+    storage = _unpack_bundle(path) if path.suffix.lower() == ".icescopy-model" else None
+    try:
+        metadata_path = Path(storage.name) / "droplet_detector.json" if storage is not None else path
+        if metadata_path.stat().st_size > MAX_TEXT_BYTES:
+            raise ValueError("Droplet model metadata exceeds the 1 MiB size limit")
+        return _load_config(metadata_path, storage)
+    except Exception:
+        if storage is not None:
+            storage.cleanup()
+        raise
+
+
+def _load_config(path, storage):
+    payload = _read_metadata(path.read_bytes())
     if not isinstance(payload, dict) or payload.get("format") != MODEL_FORMAT:
         raise ValueError("Unsupported bundled droplet model format")
     for key, expected in (("tile_size", 256), ("example_size", 64), ("stride", 4)):
         if type(payload.get(key)) is not int or payload[key] != expected:
             raise ValueError(f"Droplet model requires {key}={expected}")
-    if payload.get("threshold") != 0.5 or not isinstance(payload.get("name"), str) or not payload["name"].strip():
-        raise ValueError("Droplet model requires a name and the fixed threshold 0.5")
+    if payload.get("threshold") != 0.5:
+        raise ValueError("Droplet model requires the fixed threshold 0.5")
+    for key in ("name", "model_id", "version"):
+        if not isinstance(payload.get(key), str) or not payload[key].strip():
+            raise ValueError(f"Droplet model metadata requires a nonempty {key}")
     try:
         reference = np.asarray(payload["default_reference"], np.float32)
         radius = float(payload["default_radius"])
@@ -111,8 +219,9 @@ def load_model(path=None):
         raise ValueError("Default reference must contain 32 finite values and a positive finite radius")
     detector = _checked_model_file(path.parent, payload.get("model_file"), payload.get("sha256"))
     encoder = _checked_model_file(path.parent, payload.get("reference_model_file"), payload.get("reference_sha256"))
-    return ModelConfig(payload["name"], detector, encoder, 0.5, 256, 4, 64,
-                       tuple(float(v) for v in reference), radius, _freeze(payload))
+    return ModelConfig(payload["name"].strip(), payload["model_id"].strip(), payload["version"].strip(),
+                       detector, encoder, 0.5, 256, 4, 64,
+                       tuple(float(v) for v in reference), radius, _freeze(payload), storage)
 
 
 def _reference_blob(image, circle, size):
@@ -228,3 +337,21 @@ class NeuralDetector:
         exclusions = examples + protected
         return [{"circle": asdict(circle), "score": score} for circle, score in sorted(kept, key=lambda item: (item[0].y, item[0].x))
                 if all(not same_object(circle, old) for old in exclusions)]
+
+
+def validate_model(config):
+    """Check both external graphs on fresh CPU networks without changing settings."""
+    engine = NeuralDetector(config)
+    try:
+        engine.reference_net.setInput(np.zeros((1, 3, 64, 64), np.float32), "rgb")
+        reference = engine.reference_net.forward("descriptor")
+        if reference.shape != (1, 32, 1, 1) or not np.isfinite(reference).all():
+            raise ValueError("Reference network must return 32 finite descriptor values")
+        engine.net.setInput(np.zeros((1, 3, 256, 256), np.float32), "rgb")
+        engine.net.setInput(reference, "reference")
+        engine.net.setInput(np.full((1, 1, 1, 1), 16, np.float32), "reference_radius")
+        raw = engine.net.forward("prediction")
+        if raw.shape != (1, 4, 64, 64) or not np.isfinite(raw).all():
+            raise ValueError("Detector network returned invalid center/geometry output")
+    except cv2.error as exc:
+        raise ValueError(f"Droplet model compatibility check failed: {exc}") from exc

@@ -47,5 +47,7 @@
   "default_reference_source": "Equal-weight mean of each training setup positive descriptor mean",
   "training_model_sha256": "2b56ddef2b12544fb2f5786cda8a9febb8de2bf59cf543a951eba642a80be647",
   "total_real_epochs": 60,
-  "parameters": 214332
+  "parameters": 214332,
+  "model_id": "general-droplets",
+  "version": "1.0.0"
 }

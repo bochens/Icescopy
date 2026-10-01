@@ -53,7 +53,7 @@ On the same PCR training image with 160 labels, using one-to-one center matches 
 
 These runs used different training procedures. They do not establish an intrinsic ranking of model types. The ANN_MLP remains inadequate despite the longer fit. Its model is about 226 KB; fitting took 9.6 or 94.9 seconds, respectively. Baseline artifacts remain in `results/random-forest-v1/` and `results/opencv-nn-v1/`.
 
-The bundled model has 214,332 parameters. Apple GPU training used three passes through augmented synthetic fit scenes, followed by 60 passes through augmented real views from all five setups. The final 20 passes continued the saved 40-pass model with a fresh optimizer and lower learning rates; they took 169 seconds.
+The bundled model is **General droplets 1.0.0** (`general-droplets`) and has 214,332 parameters. Apple GPU training used three passes through augmented synthetic fit scenes, followed by 60 passes through augmented real views from all five setups. The final 20 passes continued the saved 40-pass model with a fresh optimizer and lower learning rates; they took 169 seconds.
 
 With two fixed marked examples and a fixed 0.5 score threshold:
 
@@ -96,7 +96,55 @@ After evaluating a new model, export to a new directory:
 ```sh
 .venv/bin/python code/export.py \
   --model-path results/NEW-RUN/model.pt \
-  --manifest data/datasets.json --output results/NEW-RUN/app-model
+  --manifest data/datasets.json --output results/NEW-RUN/app-model \
+  --model-id general-droplets --name "General droplets" --version 1.1.0 \
+  --archive results/NEW-RUN/general-droplets-1.1.0.icescopy-model \
+  --trainable results/NEW-RUN/general-droplets-1.1.0.pt
 ```
 
-The exporter verifies source provenance and records model hashes. Verify exported predictions with `code/check_runtime.py` before replacing the three files in the application's `resources/models/` directory. Model files contain learned weights and descriptors, without source images or private file paths. User training controls remain removed.
+The exporter verifies source provenance and records model hashes. Verify exported predictions with `code/check_runtime.py` with its `--model` option before distributing the new model file. The bundled default can be updated separately when building a later app release. Model files contain learned weights and descriptors, without source images or private file paths. User training controls remain removed.
+
+### Fine-tune with a new labeled dataset
+
+Install the training dependencies in a separate Python environment from the repository root:
+
+```sh
+python -m pip install -e ".[training]"
+```
+
+The training source can be distributed independently from the desktop build. It uses the repository's session readers; keep the `src/`, `auto_cell_ml/code/`, `pyproject.toml`, and `resources/models/TORCHVISION-LICENSE.txt` layout when distributing source. Use the exporter's `--trainable` option to produce a shareable checkpoint with private source names, paths, and labels removed. Publish this trainable `.pt` file separately from the inference-only `.icescopy-model` file if others should be able to continue training. Do not include private images, sessions, or the original dataset manifest in either release.
+
+Create a new dataset manifest with paths relative to that manifest. Each saved `.icescopy` file must point to the corresponding image, be saved on the labeled frame, and mark **every droplet to keep**. Unmarked valid image areas are background. A minimal entry is:
+
+```json
+{
+  "setups": [{
+    "setup": "my-stage",
+    "train": {
+      "recording_id": "my-training-recording",
+      "image": "train/image.png",
+      "session": "train/labels.icescopy",
+      "sha256": "SHA-256 of image.png",
+      "label_status": "user_marked",
+      "circle_count": 40
+    },
+    "evaluation": {}
+  }]
+}
+```
+
+Use separate recordings for evaluation. Crop, rotate, reflect, scale uniformly, and vary lighting during training; the code transforms the circle labels with the image. All augmented views of the training recording remain training data.
+
+From `auto_cell_ml/`, fine-tune the trainable checkpoint on the new manifest:
+
+```sh
+python code/train.py --manifest data/my-dataset.json --all-setups \
+  --finetune-model /path/to/model.pt --synthetic-epochs 0 \
+  --epochs 20 --size 256 --views 240 --batch-size 8 --threads 4 \
+  --encoder-learning-rate .0001 --head-learning-rate .0005 \
+  --device mps --output results/MY-NEW-RUN
+```
+
+Use `mps` on a supported Apple GPU, `cuda` in a CUDA-enabled PyTorch environment, or `cpu`. This command does not need the parent model's private images, synthetic scenes, or original pretrained download. It retains parent-model provenance and records the new data separately. `--initial-model` remains the stricter option for continuing with exactly the same verified sources. Both options create a fresh optimizer and preserve the parent checkpoint.
+
+Export with a new model version after evaluation. The current app contract is `icescopy-droplet-onnx-v2`: a 64×64 RGB example encoder produces a 32-value descriptor; a 256×256 RGB detector accepts that averaged descriptor and a mean radius, and outputs a 4×64×64 map of center scores, x/y offsets, and log radii. RGB inputs use 0–1 values. The model includes its own image normalization. The fixed acceptance threshold is 0.5. Different network implementations must retain this contract; incompatible formats require an app change and are rejected by the loader.

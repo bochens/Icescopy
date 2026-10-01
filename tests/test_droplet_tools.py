@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -53,6 +54,9 @@ class DropletToolsTests(unittest.TestCase):
         self.window.updateImage(1)
         self.window.update_session_actions_state()
         self.tools = self.window.droplet_tools
+        completion = patch.object(self.window, "show_detailed_information_dialog")
+        self.completion = completion.start()
+        self.addCleanup(completion.stop)
 
     def dispose_window(self):
         self.tools.cancel_detection()
@@ -87,7 +91,7 @@ class DropletToolsTests(unittest.TestCase):
     def test_builtin_model_loads_lazily_once_without_changing_session_content(self):
         self.window.mark_session_clean()
         self.assertIsNone(self.tools.model)
-        model = object()
+        model = SimpleNamespace(name="Test droplets", version="1.2.3")
         with patch("icescopy_neural_detection.load_model", return_value=model) as load, patch("icescopy_neural_detection.NeuralDetector") as detector:
             detector.return_value.predict.return_value = []
             load.assert_not_called()
@@ -117,6 +121,34 @@ class DropletToolsTests(unittest.TestCase):
                 self.assertEqual(snapshot.examples,
                                  tuple((30.0 + 25 * index, 70.0, 8.0) for index in range(count)))
                 self.assertEqual(len(snapshot.protected), 5)
+
+    def test_model_choice_changes_between_runs_and_external_is_revalidated(self):
+        builtin = SimpleNamespace(name="General droplets", version="1.0.0")
+        custom = SimpleNamespace(name="My droplets", version="2.0.0")
+        def selected(path=None):
+            return builtin if path is None else custom
+        with patch("icescopy_neural_detection.load_model", side_effect=selected) as load, patch("icescopy_neural_detection.NeuralDetector") as detector:
+            detector.return_value.predict.return_value = []
+            for path in ("", "/tmp/custom.icescopy-model", "/tmp/custom.icescopy-model", ""):
+                self.window.droplet_model_path = path
+                self.tools.start_detection()
+                self.wait_for_detection()
+                message = self.completion.call_args.args[1]
+                self.assertIn("Version: 2.0.0" if path else "Version: 1.0.0", message)
+                self.assertIn("Guidance cells: 0", message)
+                self.assertIn("New cells found: 0", message)
+            self.assertEqual(load.call_count, 4)
+        self.assertEqual(self.window.undo_stack.count(), 0)
+
+    def test_missing_custom_model_does_not_use_previously_loaded_default(self):
+        self.tools.model = SimpleNamespace(name="General droplets", version="1.0.0")
+        self.window.droplet_model_path = "/tmp/missing.icescopy-model"
+        with patch("icescopy_neural_detection.load_model", side_effect=FileNotFoundError("Missing selected model")) as load, patch("icescopy_droplet_tools.QMessageBox.warning") as warning:
+            self.tools.start_detection()
+        load.assert_called_once_with(self.window.droplet_model_path)
+        warning.assert_called_once()
+        self.assertIsNone(self.tools.worker)
+        self.completion.assert_not_called()
 
     def test_changing_selected_examples_discards_stale_results(self):
         cell = self.add_keyframed_cell()
@@ -226,7 +258,7 @@ class DropletToolsTests(unittest.TestCase):
                     threading.Event().wait(0.005)
                 return [detection(100, 80)]
 
-        self.tools.model = {}
+        self.tools.model = SimpleNamespace(name="Test droplets", version="1.2.3")
         with patch("icescopy_neural_detection.NeuralDetector", WaitingDetector):
             self.tools.start_detection()
             self.assertTrue(entered.wait(1))
@@ -252,10 +284,15 @@ class DropletToolsTests(unittest.TestCase):
                 calls.append((image.copy(), examples, protected))
                 return [detection(140, 70), detection(40, 115)]
 
-        self.tools.model = {}
+        self.tools.model = SimpleNamespace(name="Test droplets", version="1.2.3")
         with patch("icescopy_neural_detection.NeuralDetector", ReturningDetector):
             self.tools.start_detection()
             self.wait_for_detection()
+        self.completion.assert_called_once()
+        title, message = self.completion.call_args.args
+        self.assertEqual(title, "Droplet Detection Complete")
+        for text in ("Model: Test droplets", "Version: 1.2.3", "Guidance cells: 1", "New cells found: 2", "Cells added: 2"):
+            self.assertIn(text, message)
         self.assertEqual(len(calls), 1)
         image, examples, protected = calls[0]
         np.testing.assert_array_equal(image[0, 0], [40, 70, 110])
@@ -266,7 +303,7 @@ class DropletToolsTests(unittest.TestCase):
         self.assertIsNone(self.tools.progress)
 
     def test_worker_failure_is_reported_and_leaves_session_unchanged(self):
-        self.tools.model = {}
+        self.tools.model = SimpleNamespace(name="Test droplets", version="1.2.3")
         self.window.mark_session_clean()
         with patch("icescopy_neural_detection.NeuralDetector", side_effect=ImportError("Missing detector dependency")), patch("icescopy_droplet_tools.QMessageBox.warning") as warning:
             self.tools.start_detection()

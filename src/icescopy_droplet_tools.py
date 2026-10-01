@@ -88,9 +88,11 @@ class DropletDetectionTools(QObject):
         super().__init__(window)
         self.window = window
         self.model = None
+        self.model_path = ""
         self.worker = None
         self.progress = None
         self.snapshot = None
+        self.completion_message = None
 
     def install_menu(self, analysis_menu):
         menu = analysis_menu.addMenu("Droplet Detection (Experimental)")
@@ -170,13 +172,18 @@ class DropletDetectionTools(QObject):
             return
         try:
             snapshot = self.snapshot_current_frame()
-            if self.model is None:
+            path = str(getattr(self.window, "droplet_model_path", "") or "")
+            # External files can be updated between runs. Validate them again;
+            # keep the loaded config alive for this worker's entire run.
+            if self.model is None or path or path != self.model_path:
                 from icescopy_neural_detection import load_model
-                self.model = load_model()
+                self.model = load_model(path) if path else load_model()
+                self.model_path = path
         except Exception as error:
             QMessageBox.warning(self.window, "Droplet Detection", str(error))
             return
         self.snapshot = snapshot
+        self.completion_message = None
         self.worker = DetectionWorker(self.model, snapshot, self)
         self.worker.results_ready.connect(self._results_ready)
         self.worker.failed.connect(self._failed)
@@ -216,7 +223,16 @@ class DropletDetectionTools(QObject):
         if count is None:
             self.window.log("Droplet detections discarded because the frame, source, crop, cells, or selected examples changed. Run detection again on the current frame.")
         else:
-            self.window.log(f"Droplet detection added {count} cells on the current frame.")
+            self.completion_message = (
+                f"Model: {self.model.name}\n"
+                f"Version: {self.model.version}\n"
+                f"Guidance cells: {len(self.snapshot.examples)}\n"
+                f"New cells found: {len(results)}\n"
+                f"Cells added: {count}"
+            )
+            if count != len(results):
+                self.completion_message += "\n\nOnly new cells fully inside the current crop are added."
+            self.window.log(self.completion_message.replace("\n", " · "))
 
     def _failed(self, message):
         self.window.log(f"Droplet detection failed: {message}")
@@ -226,6 +242,7 @@ class DropletDetectionTools(QObject):
         self.window.log("Droplet detection cancelled; no cells added.")
 
     def _finished(self):
+        completion_message, self.completion_message = self.completion_message, None
         worker, self.worker = self.worker, None
         if self.progress is not None:
             self.progress.close()
@@ -235,6 +252,8 @@ class DropletDetectionTools(QObject):
         if worker is not None:
             worker.deleteLater()
         self.window.update_session_actions_state()
+        if completion_message is not None:
+            self.window.show_detailed_information_dialog("Droplet Detection Complete", completion_message)
 
     def add_results(self, snapshot, results):
         """Insert a batch using the manual-add ID, keyframe, and undo rules."""

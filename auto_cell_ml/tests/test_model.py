@@ -241,6 +241,22 @@ class ModelTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "synthetic_epochs"):
                     fit(manifest, folder / "invalid-stage", initial_model=initial,
                         synthetic_epochs=synthetic_epochs, epochs=1, **options)
+            # A separately requested fine-tune accepts new labeled sources,
+            # without requiring the private images or synthetic scenes that
+            # produced the parent checkpoint. Ordinary continuation stays strict.
+            new_manifest = folder / "new-dataset.json"
+            new_manifest.write_text(json.dumps({"setups": [rows[0]]}))
+            fine = folder / "finetuned"
+            with mock.patch("train.data.read_synthetic_fit", side_effect=AssertionError("No parent data")):
+                fit(new_manifest, fine, finetune_model=parent, synthetic_epochs=0,
+                    epochs=1, all_setups=True, views=1, size=32, batch_size=2, threads=2)
+            info = json.loads((fine / "metadata.json").read_text())
+            self.assertTrue(info["training_dataset_changed"])
+            self.assertEqual(info["setups"], ["first"])
+            self.assertEqual(info["parent_model_sha256"], parent_sha)
+            self.assertEqual(info["training_manifest_sha256"], hashlib.sha256(new_manifest.read_bytes()).hexdigest())
+            self.assertIsNone(info["synthetic_manifest_sha256"])
+            self.assertEqual(hashlib.sha256(parent.read_bytes()).hexdigest(), parent_sha)
 
     def test_optional_onnx_dependency_is_explicit(self):
         if importlib.util.find_spec("onnx") is not None:

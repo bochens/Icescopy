@@ -349,6 +349,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             }
 
         self.default_circle_radius = preferences.get('DefaultCircleRadius', self.default_circle_radius)
+        self.droplet_model_path = str(preferences.get("DropletModelPath", "") or "")
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -11427,6 +11428,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             element = root.find(key)
             if element is not None and element.text is not None:
                 preferences[key] = element.text
+
+        droplet_model_element = root.find("DropletModelPath")
+        preferences["DropletModelPath"] = (
+            (droplet_model_element.text or "").strip() if droplet_model_element is not None else ""
+        )
 
         try:
             preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)

@@ -1,12 +1,15 @@
 """CPU inference geometry and example-count contract without training dependencies."""
 from dataclasses import FrozenInstanceError
+import gc
 import hashlib
 import json
 from pathlib import Path
 import sys
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 import cv2
 import numpy as np
@@ -53,7 +56,7 @@ class NeuralDetectionTests(unittest.TestCase):
         self.root = Path(self.folder.name)
         for name in ("droplet_detector.onnx", "droplet_reference.onnx"):
             (self.root / name).write_bytes(name.encode())
-        self.payload = {"format": detection.MODEL_FORMAT, "name": "General droplets",
+        self.payload = {"format": detection.MODEL_FORMAT, "name": "General droplets", "model_id": "general-droplets", "version": "1.0.0",
             "model_file": "droplet_detector.onnx", "sha256": self.sha("droplet_detector.onnx"),
             "reference_model_file": "droplet_reference.onnx", "reference_sha256": self.sha("droplet_reference.onnx"),
             "tile_size": 256, "example_size": 64, "stride": 4, "threshold": .5,
@@ -68,6 +71,16 @@ class NeuralDetectionTests(unittest.TestCase):
     def write_metadata(self):
         self.metadata.write_text(json.dumps(self.payload))
 
+    def bundle(self, name="model.icescopy-model", *, extra=(), payload=None):
+        path = self.root / name
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("droplet_detector.json", json.dumps(self.payload if payload is None else payload))
+            for graph in ("droplet_detector.onnx", "droplet_reference.onnx"):
+                archive.writestr(graph, (self.root / graph).read_bytes())
+            for filename, contents in extra:
+                archive.writestr(filename, contents)
+        return path
+
     def detector(self, centers=None):
         reference, query = FakeNet(True), FakeNet(centers=centers)
         def load(path):
@@ -80,6 +93,7 @@ class NeuralDetectionTests(unittest.TestCase):
         config = detection.load_model(self.metadata)
         self.assertEqual(config.onnx_path, (self.root / "droplet_detector.onnx").resolve())
         self.assertEqual(config.reference_onnx_path.name, "droplet_reference.onnx")
+        self.assertEqual((config.model_id, config.version), ("general-droplets", "1.0.0"))
         with self.assertRaises(FrozenInstanceError):
             config.tile_size = 128
         with self.assertRaises(TypeError):
@@ -94,7 +108,8 @@ class NeuralDetectionTests(unittest.TestCase):
             self.assertEqual(detection.load_model().onnx_path.parent, models.resolve())
 
     def test_missing_corrupt_and_incompatible_model_files_have_clear_errors(self):
-        for key, value in (("format", "old"), ("tile_size", 128), ("default_reference", [0]),
+        for key, value in (("format", "old"), ("tile_size", 128), ("version", " "), ("version", None),
+                           ("model_id", ""), ("default_reference", [0]),
                            ("default_radius", 0), ("model_file", "/absolute/model.onnx")):
             original = self.payload[key]; self.payload[key] = value; self.write_metadata()
             with self.assertRaises(ValueError):
@@ -107,6 +122,72 @@ class NeuralDetectionTests(unittest.TestCase):
         (self.root / "droplet_detector.onnx").unlink()
         with self.assertRaisesRegex(FileNotFoundError, "missing"):
             detection.load_model(self.metadata)
+
+    def test_single_bundle_is_portable_and_owned_until_last_worker_reference(self):
+        bundle = self.bundle(extra=(("README.md", "Model notes"), ("TORCHVISION-LICENSE.txt", "License")))
+        moved = self.root / "moved.icescopy-model"; bundle.rename(moved)
+        for file in (self.metadata, self.root / "droplet_detector.onnx", self.root / "droplet_reference.onnx"):
+            file.unlink()
+        config = detection.load_model(moved)
+        extracted = config.onnx_path.parent
+        self.assertEqual(config.version, "1.0.0")
+        self.assertEqual(config.onnx_path.read_bytes(), b"droplet_detector.onnx")
+        self.assertEqual({file.name for file in extracted.iterdir()},
+                         {"droplet_detector.json", "droplet_detector.onnx", "droplet_reference.onnx"})
+        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=lambda path: FakeNet(Path(path).name == "droplet_reference.onnx")):
+            worker_detector = detection.NeuralDetector(config)
+        del config; gc.collect()
+        self.assertTrue(extracted.is_dir())
+        worker_detector.predict(np.zeros((20, 20, 3), np.uint8))
+        del worker_detector; gc.collect()
+        self.assertFalse(extracted.exists())
+
+    def test_bundle_rejects_unsafe_paths_links_duplicates_unexpected_files_and_bounds(self):
+        link = zipfile.ZipInfo("README.md"); link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        for index, filename in enumerate(("../escape.onnx", "/absolute.onnx", "dir/file.onnx", "bad\\file.onnx",
+                                          "DROPLET_DETECTOR.JSON", "unrelated.txt", link)):
+            with self.subTest(filename=filename), self.assertRaises(ValueError):
+                detection.load_model(self.bundle(f"bad-{index}.icescopy-model", extra=((filename, "unused"),)))
+        bundle = self.bundle()
+        for constant, limit in (("MAX_BUNDLE_MEMBERS", 2), ("MAX_GRAPH_BYTES", 1), ("MAX_TEXT_BYTES", 1), ("MAX_BUNDLE_BYTES", 1)):
+            with self.subTest(constant=constant), patch.object(detection, constant, limit), self.assertRaises(ValueError):
+                detection.load_model(bundle)
+        invalid = self.root / "invalid.icescopy-model"; invalid.write_bytes(b"Not a ZIP")
+        with self.assertRaisesRegex(ValueError, "ZIP"):
+            detection.load_model(invalid)
+
+    def test_bundle_hash_failure_cleans_temporary_files_and_does_not_fall_back(self):
+        created = []
+        temporary_directory = tempfile.TemporaryDirectory
+        def track(*args, **kwargs):
+            storage = temporary_directory(*args, **kwargs)
+            created.append(Path(storage.name))
+            return storage
+        bundle = self.bundle(payload={**self.payload, "sha256": "0" * 64})
+        with patch.object(detection.tempfile, "TemporaryDirectory", side_effect=track), self.assertRaisesRegex(ValueError, "SHA-256"):
+            detection.load_model(bundle)
+        self.assertEqual(len(created), 1)
+        self.assertFalse(created[0].exists())
+        with self.assertRaises(FileNotFoundError):
+            detection.load_model(self.root / "missing.icescopy-model")
+
+    def test_external_graph_validation_checks_both_shapes_without_inference_side_effects(self):
+        config = detection.load_model(self.metadata)
+        reference, query = FakeNet(True), FakeNet()
+        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=[reference, query]):
+            self.assertIsNone(detection.validate_model(config))
+        self.assertEqual((reference.calls, query.calls), (1, 1))
+        class BadReference(FakeNet):
+            def forward(self, name):
+                return np.zeros((1, 31, 1, 1), np.float32)
+        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=[BadReference(True), FakeNet()]), self.assertRaisesRegex(ValueError, "32"):
+            detection.validate_model(config)
+        class BadDetector(FakeNet):
+            def forward(self, name):
+                return np.zeros((1, 4, 32, 32), np.float32)
+        with patch.object(cv2.dnn, "readNetFromONNX", side_effect=[FakeNet(True), BadDetector()]), self.assertRaisesRegex(ValueError, "geometry"):
+            detection.validate_model(config)
 
     def test_reference_pixels_match_developer_extraction_including_fractional_padding(self):
         from auto_cell_ml.code.data import extract_examples

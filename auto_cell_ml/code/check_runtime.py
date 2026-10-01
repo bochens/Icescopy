@@ -12,13 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 from icescopy_neural_detection import Circle, NeuralDetector, load_model
 
 
-def check(manifest, evaluation, output):
+def check(manifest, evaluation, output, model=None):
     manifest, evaluation, output = map(Path, (manifest, evaluation, output))
     if output.exists():
         raise FileExistsError(output)
     sources = {row['setup']: row for row in json.loads(manifest.read_text())['setups']}
     saved = json.loads(evaluation.read_text())
-    config = load_model()
+    config = load_model(model)
     if config.metadata['training_model_sha256'] != saved['model_sha256']:
         raise ValueError('Evaluation and runtime model weights differ')
     detector = NeuralDetector(config)
@@ -79,4 +79,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('manifest', 'evaluation', 'output'):
         parser.add_argument('--' + key, type=Path, required=True)
+    parser.add_argument('--model', type=Path, help='External .icescopy-model or JSON; omit for bundled model')
     check(**vars(parser.parse_args()))

@@ -75,41 +75,48 @@ def _select_setups(manifest, setup, all_setups):
     return names
 
 
-def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_setups=False,
+def fit(manifest, output, *, pretrained=None, synthetic_manifest=None, setup=None, all_setups=False,
         synthetic_epochs=3, epochs=20, batch_size=8, seed=0, device="cpu", threads=4,
         size=256, views=240, synthetic_views=64, onnx=False, initial_model=None,
-        encoder_learning_rate=0.0002, head_learning_rate=0.001):
+        encoder_learning_rate=0.0002, head_learning_rate=0.001, finetune_model=None):
     if min(epochs, batch_size, threads, views, synthetic_views) < 1 or seed < 0 or size < 32 or size % 4:
         raise ValueError("Counts must be positive, seed nonnegative, and size >=32 divisible by 4")
-    if (initial_model is None and synthetic_epochs < 1) or (initial_model is not None and synthetic_epochs != 0):
-        raise ValueError("Fresh training requires synthetic_epochs>=1; initial_model requires synthetic_epochs=0")
+    if initial_model is not None and finetune_model is not None:
+        raise ValueError("Choose initial_model for the same data or finetune_model for new labeled data")
+    parent_path = initial_model if initial_model is not None else finetune_model
+    if (parent_path is None and synthetic_epochs < 1) or (parent_path is not None and synthetic_epochs != 0):
+        raise ValueError("Fresh training requires synthetic_epochs>=1; saved weights require synthetic_epochs=0")
     if any(not math.isfinite(rate) or rate <= 0 for rate in (encoder_learning_rate, head_learning_rate)):
         raise ValueError("Learning rates must be finite and positive")
     output, manifest = Path(output).resolve(), Path(manifest).resolve()
-    pretrained, synthetic_manifest = Path(pretrained).resolve(), Path(synthetic_manifest).resolve()
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
-    if not pretrained.is_file():
-        raise FileNotFoundError(f"Required local pretrained file is missing: {pretrained}")
     selected = _select_setups(manifest, setup, all_setups)
-    hashes = {"training_manifest_sha256": _hash(manifest), "synthetic_manifest_sha256": _hash(synthetic_manifest),
-              "pretrained_sha256": _hash(pretrained)}
+    hashes = {"training_manifest_sha256": _hash(manifest)}
+    if finetune_model is None:
+        if pretrained is None or synthetic_manifest is None:
+            raise ValueError("Fresh training and same-data continuation require pretrained and synthetic_manifest files")
+        pretrained, synthetic_manifest = Path(pretrained).resolve(), Path(synthetic_manifest).resolve()
+        hashes.update(synthetic_manifest_sha256=_hash(synthetic_manifest), pretrained_sha256=_hash(pretrained))
     torch.set_num_threads(threads)
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
     start = time.perf_counter()
     parent, real_start, parent_sha = None, 0, None
-    if initial_model is not None:
-        model, parent = load_model(initial_model, device)
-        expected = {**hashes, "setups": selected, "crop_size": size}
+    if parent_path is not None:
+        model, parent = load_model(parent_path, device)
+        expected = ({**hashes, "setups": selected, "crop_size": size} if finetune_model is None
+                    else {"crop_size": size})
         for key, value in expected.items():
             if parent.get(key) != value:
                 raise ValueError(f"Initial model is incompatible: {key} differs")
         real_start = parent.get("total_real_epochs", parent.get("epochs"))
         if isinstance(real_start, bool) or not isinstance(real_start, int) or real_start < 1:
             raise ValueError("Initial model must record a positive completed real epoch count")
-        parent_sha = _hash(initial_model)
+        parent_sha = _hash(parent_path)
+        if finetune_model is not None:
+            hashes.update(synthetic_manifest_sha256=None, pretrained_sha256=parent.get("pretrained_sha256"))
     else:
         model = DropletNet(pretrained).to(device)
     real = ViewDataset([data.TrainingViews(manifest, name, size=size, count=views, seed=seed + index)
@@ -117,7 +124,7 @@ def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_set
     if parent is not None:
         current_sources = [{"setup": row["setup"], "source": row["source"]} for row in real.sources]
         parent_sources = [{"setup": row["setup"], "source": row["source"]} for row in parent.get("source", [])]
-        if current_sources != parent_sources:
+        if finetune_model is None and current_sources != parent_sources:
             raise ValueError("Initial model is incompatible: original source provenance differs")
         plans = [("real", real, epochs)]
     else:
@@ -180,6 +187,7 @@ def fit(manifest, output, *, pretrained, synthetic_manifest, setup=None, all_set
                 **hashes, "pretrained": True,
                 "initialization": "saved model weights with fresh optimizer" if parent is not None else "local pretrained backbone weights",
                 "parent_model_sha256": parent_sha, "parent_total_real_epochs": real_start,
+                "training_dataset_changed": finetune_model is not None,
                 "total_real_epochs": real_start + epochs,
                 "parent_provenance": {key: parent.get(key) for key in ("source", "stages", "synthetic_epochs", "total_real_epochs", "epochs")}
                                      if parent is not None else None,
@@ -218,9 +226,11 @@ def main():
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--setup", action="append", help="Explicit setup; repeat for more than one")
     selection.add_argument("--all-setups", action="store_true")
-    parser.add_argument("--pretrained", type=Path, required=True)
-    parser.add_argument("--synthetic-manifest", type=Path, required=True)
-    parser.add_argument("--initial-model", type=Path, help="Reuse saved weights with a fresh optimizer; requires --synthetic-epochs 0")
+    parser.add_argument("--pretrained", type=Path, help="Required for fresh training or same-data continuation")
+    parser.add_argument("--synthetic-manifest", type=Path, help="Required for fresh training or same-data continuation")
+    initialization = parser.add_mutually_exclusive_group()
+    initialization.add_argument("--initial-model", type=Path, help="Continue the same verified sources; requires --synthetic-epochs 0")
+    initialization.add_argument("--finetune-model", type=Path, help="Start from saved weights on new labeled sources; requires --synthetic-epochs 0")
     parser.add_argument("--encoder-learning-rate", type=float, default=0.0002)
     parser.add_argument("--head-learning-rate", type=float, default=0.001)
     parser.add_argument("--output", type=Path, required=True)
