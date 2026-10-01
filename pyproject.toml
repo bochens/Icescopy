@@ -25,6 +25,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+training = [
+  "torch>=2.5,<3",
+  "torchvision>=0.20,<1",
+  "onnx>=1.16,<2",
+]
 dev = [
   "PyInstaller>=6.11,<7",
 ]
@@ -51,6 +56,10 @@ py-modules = [
   "icescopy_cell_items",
   "icescopy_dialogs",
   "icescopy_dock",
+  "icescopy_droplet_detection",
+  "icescopy_droplet_tools",
+  "icescopy_droplet_training_io",
+  "icescopy_neural_detection",
   "icescopy_event_navigation",
   "icescopy_frame_source",
   "icescopy_frameslider",

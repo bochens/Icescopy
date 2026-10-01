@@ -137,6 +137,75 @@ class PreferencesDialogTests(unittest.TestCase):
         self.assertEqual(dialog.result(), QDialog.Rejected)
         self.assertEqual(user_preferences_path().read_bytes(), before)
 
+    def test_ml_browse_validates_model_and_save_reopens_name_and_version(self):
+        bundled = SimpleNamespace(name="General droplets", version="1.0.0")
+        external = SimpleNamespace(name="Laboratory model", version="2.3.0")
+        path = user_preferences_path().parent / "laboratory.icescopy-model"
+        with patch("icescopy_neural_detection.load_model", side_effect=lambda selected: external if selected else bundled), patch("icescopy_neural_detection.validate_model") as validate:
+            dialog = self.dialog(category=7)
+            self.assertEqual(dialog.category_list.currentItem().text(), "ML")
+            self.assertIn("General droplets", dialog.droplet_model_info_label.text())
+            with patch("icescopy_aux.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+                dialog.browse_droplet_model()
+            validate.assert_called_once_with(external)
+            self.assertEqual(dialog.droplet_model_field.currentData(), str(path))
+            self.assertIn("Version 2.3.0", dialog.droplet_model_info_label.text())
+            dialog.save_preferences()
+            self.assertEqual(dialog.result(), QDialog.Accepted)
+            self.assertEqual(parse(user_preferences_path()).findtext("DropletModelPath"), str(path))
+            reopened = self.dialog(category=7)
+            self.assertEqual(reopened.selected_droplet_model_path(), str(path))
+            self.assertIn("Laboratory model", reopened.droplet_model_info_label.text())
+            self.assertIn("Version 2.3.0", reopened.droplet_model_info_label.text())
+
+    def test_ml_cancel_keeps_previous_selection_and_saved_file(self):
+        self.dialog().save_preferences()
+        before = user_preferences_path().read_bytes()
+        self.window.set_preferences.reset_mock()
+        config = SimpleNamespace(name="Alternate", version="1.2.0")
+        with patch("icescopy_neural_detection.load_model", return_value=config), patch("icescopy_neural_detection.validate_model"), patch("icescopy_aux.QFileDialog.getOpenFileName", return_value=(str(user_preferences_path().parent / "alternate.icescopy-model"), "")):
+            dialog = self.dialog(category=7)
+            dialog.browse_droplet_model()
+            dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.Cancel).click()
+        self.assertEqual(dialog.result(), QDialog.Rejected)
+        self.assertEqual(user_preferences_path().read_bytes(), before)
+        self.window.set_preferences.assert_not_called()
+
+    def test_invalid_ml_browse_keeps_choice_and_reports_graph_error(self):
+        config = SimpleNamespace(name="General droplets", version="1.0.0")
+        with patch("icescopy_neural_detection.load_model", return_value=config), patch("icescopy_neural_detection.validate_model", side_effect=ValueError("Incompatible model graphs")), patch("icescopy_aux.QFileDialog.getOpenFileName", return_value=(str(user_preferences_path().parent / "bad.icescopy-model"), "")), patch("icescopy_aux.QMessageBox.warning") as warning:
+            dialog = self.dialog(category=7)
+            dialog.browse_droplet_model()
+        self.assertEqual(dialog.droplet_model_field.currentData(), "")
+        self.assertEqual(dialog.selected_droplet_model_path(), "")
+        warning.assert_called_once()
+        self.assertIn("Incompatible model graphs", warning.call_args.args[2])
+
+    def test_missing_ml_file_has_no_fallback_and_can_be_reset_to_bundled(self):
+        path = user_preferences_path().parent / "missing.icescopy-model"
+        user_preferences_path().write_text(f"<Preferences><DropletModelPath>{path}</DropletModelPath></Preferences>")
+        before = user_preferences_path().read_bytes()
+        config = SimpleNamespace(name="General droplets", version="1.0.0")
+
+        def load(selected):
+            if selected:
+                raise FileNotFoundError(f"Model file not found: {selected}")
+            return config
+
+        with patch("icescopy_neural_detection.load_model", side_effect=load):
+            dialog = self.dialog(category=7)
+            self.assertEqual(dialog.droplet_model_field.currentData(), str(path))
+            self.assertEqual(dialog.selected_droplet_model_path(), str(path))
+            self.assertIn("not found", dialog.droplet_model_info_label.text())
+            with patch("icescopy_aux.QMessageBox.warning") as warning:
+                dialog.save_preferences()
+            warning.assert_called_once()
+            self.assertEqual(user_preferences_path().read_bytes(), before)
+            dialog.droplet_model_field.setCurrentIndex(0)
+            dialog.save_preferences()
+        self.assertEqual(dialog.result(), QDialog.Accepted)
+        self.assertEqual(parse(user_preferences_path()).findtext("DropletModelPath"), "")
+
     def test_failed_replace_preserves_previous_file_and_allows_retry(self):
         self.dialog().save_preferences()
         before = user_preferences_path().read_bytes()

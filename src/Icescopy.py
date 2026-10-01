@@ -80,6 +80,7 @@ from icescopy_paths import preferences_read_path
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
 from icescopy_cell_controller import CellEditController
+from icescopy_droplet_tools import DropletDetectionTools
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
@@ -116,6 +117,7 @@ from icescopy_session_io import (
     load_session_bundle,
     normalize_sample_catalog_record,
     save_session_bundle,
+    session_content_fingerprint,
     serialize_sample_catalog_payload,
 )
 from icescopy_sample_metadata import (
@@ -308,6 +310,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.edit_group_rotation_delta = 0.0
         
         super().__init__()
+        self.droplet_tools = DropletDetectionTools(self)
         self.cell_state = CellStateManager(self)
         self.cell_controller = CellEditController(self)
         self.undo_stack = QUndoStack(self)
@@ -324,6 +327,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.initData()
         self.initUI()
         self.set_preferences()
+        self.mark_session_clean()
 
     def set_preferences(self, preserve_session_tool_state=False):
         preferences = {}
@@ -345,6 +349,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             }
 
         self.default_circle_radius = preferences.get('DefaultCircleRadius', self.default_circle_radius)
+        self.droplet_model_path = str(preferences.get("DropletModelPath", "") or "")
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -2181,6 +2186,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         else:
             crop_value = self.normalize_image_edit_crop_state({})
 
+        crop_geometry_defined = isinstance(raw_crop_state, dict) and any(
+            raw_crop_state.get(key) is not None
+            for key in ("center_x", "center_y", "width", "height")
+        )
+        crop_is_unset = not crop_geometry_defined and abs(float(crop_value["angle"])) <= 1e-9
+        previous_crop_is_unset = all(
+            getattr(self, attribute, None) is None
+            for attribute in (
+                "image_edit_crop_center_x",
+                "image_edit_crop_center_y",
+                "image_edit_crop_width",
+                "image_edit_crop_height",
+            )
+        ) and abs(float(getattr(self, "image_edit_crop_angle", 0.0))) <= 1e-9
         previous_value = float(getattr(self, "image_edit_exposure", 0.0))
         previous_contrast = float(getattr(self, "image_edit_contrast", 0.0))
         previous_uniform_area = self.current_image_edit_uniform_exposure_area_state()
@@ -2190,16 +2209,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             if abs(float(value)) > 1e-9
         }
         previous_crop = self.current_image_edit_crop_state()
+        crop_changed = previous_crop != crop_value or previous_crop_is_unset != crop_is_unset
         state_changed = abs(previous_value - exposure_value) > 1e-9
         state_changed = state_changed or abs(previous_contrast - contrast_value) > 1e-9
         state_changed = state_changed or previous_uniform_area != uniform_area
         state_changed = state_changed or previous_uniform_offsets != uniform_offsets
-        state_changed = state_changed or previous_crop != crop_value
+        state_changed = state_changed or crop_changed
         visual_changed = abs(previous_value - exposure_value) > 1e-9
         visual_changed = visual_changed or abs(previous_contrast - contrast_value) > 1e-9
         visual_changed = visual_changed or previous_uniform_offsets != uniform_offsets
-        visual_changed = visual_changed or previous_crop != crop_value
-        geometry_changed = previous_crop != crop_value
+        visual_changed = visual_changed or crop_changed
+        geometry_changed = crop_changed
         self.image_edit_exposure = exposure_value
         self.image_edit_contrast = contrast_value
         if uniform_area is None:
@@ -2213,10 +2233,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.image_edit_uniform_exposure_area_width = float(uniform_area["width"])
             self.image_edit_uniform_exposure_area_height = float(uniform_area["height"])
         self.image_edit_uniform_exposure_offsets = uniform_offsets
-        self.image_edit_crop_center_x = float(crop_value["center_x"])
-        self.image_edit_crop_center_y = float(crop_value["center_y"])
-        self.image_edit_crop_width = float(crop_value["width"])
-        self.image_edit_crop_height = float(crop_value["height"])
+        # An unset crop follows each frame's full size, including mixed sizes.
+        self.image_edit_crop_center_x = None if crop_is_unset else float(crop_value["center_x"])
+        self.image_edit_crop_center_y = None if crop_is_unset else float(crop_value["center_y"])
+        self.image_edit_crop_width = None if crop_is_unset else float(crop_value["width"])
+        self.image_edit_crop_height = None if crop_is_unset else float(crop_value["height"])
         self.image_edit_crop_angle = float(crop_value["angle"])
 
         if visual_changed:
@@ -3339,8 +3360,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def has_session_save_payload(self):
         return self.has_session_content() or any(self.serialize_session_metadata().values())
 
+    def mark_session_clean(self):
+        self.saved_session_fingerprint = session_content_fingerprint(self)
+
+    def has_unsaved_session_changes(self):
+        baseline = getattr(self, "saved_session_fingerprint", None)
+        if baseline is None:
+            return self.has_session_save_payload()
+        try:
+            return session_content_fingerprint(self) != baseline
+        except Exception as err:
+            self.log(f"Unable to check unsaved session changes: {err}")
+            return True
+
     def prompt_save_before_replacing_session(self, next_action_label="starting a new session"):
-        if (not getattr(self, "session_active", False)) or (not self.has_session_save_payload()):
+        if (not getattr(self, "session_active", False)) or (not self.has_unsaved_session_changes()):
             return "discard"
 
         dialog = QMessageBox(self)
@@ -3398,6 +3432,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         )
         self.undo_stack.clear()
         self.pending_analysis_before_state = None
+        # New Session starts clean, including its initial metadata.
+        self.mark_session_clean()
         self.log("New session ready")
 
     def initUI(self):
@@ -3495,6 +3531,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         file_menu.addAction(self.sort_images_action)
 
         analysis_menu.addAction(self.run_analysis_action)
+        analysis_menu.addSeparator()
+        self.droplet_tools.install_menu(analysis_menu)
         analysis_menu.addSeparator()
         import_temperature_menu = analysis_menu.addMenu("Import Temperature Data")
         import_temperature_menu.addAction(self.import_temperature_csv_action)
@@ -3627,6 +3665,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.toolbar.addAction(self.grid_tool_action)
         self.toolbar.addAction(self.deselect_tool_action)
         self.toolbar.addAction(self.edit_tool_action)
+        self.toolbar.addAction(self.droplet_tools.detect_action)
         self.toolbar.addSeparator()  # Add a separator between groups of actions
         self.toolbar.addAction(self.viewer_single_action)
         self.toolbar.addAction(self.viewer_double_action)
@@ -7240,6 +7279,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.viewer_triple_action.setEnabled(interactive)
         self.viewer_orientation_toggle_action.setEnabled(interactive and self.viewer_image_count in (2, 3))
         self.image_edit_action.setEnabled(has_frames and not self.output_state)
+        self.droplet_tools.update_actions()
 
         if session_active:
             self.set_undo_status()
@@ -9291,6 +9331,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         previous_state = None
         previous_session_active = bool(getattr(self, "session_active", False))
         previous_session_file_path = getattr(self, "current_session_file_path", None)
+        previous_saved_fingerprint = getattr(self, "saved_session_fingerprint", None)
         restore_started = False
         try:
             previous_state = self.capture_session_state()
@@ -9316,6 +9357,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     "Session Images Missing",
                     "Some session image files could not be found.\n\nUse File -> Relink Images Folder... to point the session to the current image folder.",
                 )
+            self.mark_session_clean()
             return True
         except Exception as err:
             rollback_error = None
@@ -9324,6 +9366,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     self.restore_session_state(previous_state)
                     self.session_active = previous_session_active
                     self.current_session_file_path = previous_session_file_path
+                    self.saved_session_fingerprint = previous_saved_fingerprint
                     self.update_session_actions_state()
                 except Exception as rollback_err:
                     rollback_error = rollback_err
@@ -9549,6 +9592,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         while True:
             try:
                 payload = build_session_payload(self)
+                saved_fingerprint = session_content_fingerprint(self, payload=payload)
                 save_session_bundle(
                     file_path,
                     payload,
@@ -9560,6 +9604,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     self.freeze_count_timeseries_rows,
                 )
                 self.current_session_file_path = file_path
+                self.saved_session_fingerprint = saved_fingerprint
                 self.log(f"Saved session at {file_path}")
                 return True
             except Exception as err:
@@ -11134,6 +11179,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.reset_cursor_action.setIcon(self.toolbar_icon(mode_folder, "pointer.svg"))
         self.select_tool_action.setIcon(self.toolbar_icon(mode_folder, "media-record-add-filled.svg"))
         self.grid_tool_action.setIcon(self.toolbar_icon(mode_folder, "media-record-table-filled.svg"))
+        self.droplet_tools.detect_action.setIcon(self.toolbar_icon(mode_folder, "media-record-star-filled.svg"))
         self.edit_tool_action.setIcon(self.toolbar_icon(mode_folder, "media-record-edit-filled.svg"))
         self.deselect_tool_action.setIcon(self.toolbar_icon(mode_folder, "media-record-remove-filled.svg"))
         self.pan_tool_action.setIcon(self.toolbar_icon(mode_folder, "hand-left.svg"))
@@ -11284,6 +11330,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.zoom_slider_set_maximum()
 
     def closeEvent(self, event):
+        if self.droplet_tools.is_running():
+            self.droplet_tools.cancel_detection()
+            QMessageBox.information(
+                self,
+                "Droplet Detection",
+                "Cancelling droplet detection. Close Icescopy again when it finishes.",
+            )
+            event.ignore()
+            return
         worker = getattr(self, "worker", None)
         if getattr(self, "output_state", False) or (worker is not None and worker.isRunning()):
             QMessageBox.information(
@@ -11373,6 +11428,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             element = root.find(key)
             if element is not None and element.text is not None:
                 preferences[key] = element.text
+
+        droplet_model_element = root.find("DropletModelPath")
+        preferences["DropletModelPath"] = (
+            (droplet_model_element.text or "").strip() if droplet_model_element is not None else ""
+        )
 
         try:
             preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)

@@ -1,0 +1,53 @@
+{
+  "examples": {
+    "01-CSU-cold-stage": [
+      [
+        892,
+        518,
+        14
+      ],
+      [
+        1009,
+        634,
+        15
+      ]
+    ],
+    "02-CSU-IS-PCR-filled-and-empty": [
+      [
+        234,
+        457,
+        10
+      ],
+      [
+        841,
+        541,
+        10
+      ]
+    ],
+    "04-TAMU": [
+      [
+        189,
+        95,
+        10
+      ],
+      [
+        289,
+        303,
+        10
+      ]
+    ],
+    "05-CIF": [
+      [
+        348,
+        207,
+        38
+      ],
+      [
+        1408,
+        507,
+        38
+      ]
+    ]
+  },
+  "note": "Positive guidance circles used only at inference; these are not complete evaluation labels."
+}

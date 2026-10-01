@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "path_base": "this manifest directory",
+  "split_rule": "Separate recordings; all augmented views of a recording stay in its original partition.",
+  "setups": [
+    {
+      "setup": "01-CSU-cold-stage",
+      "train": {
+        "sha256": "6dc9e673548f24db56086f190beb32759d1bc5403e2fee644f006d57066276f3",
+        "label_status": "user_marked",
+        "circle_count": 50,
+        "recording_id": "01-CSU-cold-stage-training-recording",
+        "image": "train/01-CSU-cold-stage/image.png",
+        "session": "train/01-CSU-cold-stage/labels.icescopy"
+      },
+      "evaluation": {
+        "recording_id": "01-CSU-cold-stage-evaluation-recording",
+        "image": "evaluation/01-CSU-cold-stage/image.png",
+        "sha256": "115a7d25ca0310314116424c8de5c8a17fa33ec33aafc555eca85d4a51e1b536",
+        "label_status": "unlabeled",
+        "labels": null
+      }
+    },
+    {
+      "setup": "02-CSU-IS-PCR-filled-and-empty",
+      "train": {
+        "sha256": "bc1862fb4722ea762ef25c275ab42b5a4371d065465e5a6362c682b8c9249d58",
+        "label_status": "user_marked",
+        "circle_count": 160,
+        "recording_id": "02-CSU-IS-PCR-filled-and-empty-training-recording",
+        "image": "train/02-CSU-IS-PCR-filled-and-empty/image.png",
+        "session": "train/02-CSU-IS-PCR-filled-and-empty/labels.icescopy"
+      },
+      "evaluation": {
+        "recording_id": "02-CSU-IS-PCR-filled-and-empty-evaluation-recording",
+        "image": "evaluation/02-CSU-IS-PCR-filled-and-empty/image.png",
+        "sha256": "cdd7f855ac2353b20112371b8168b02a0b3a5f42da88910147a4f97da67c2cf3",
+        "label_status": "unlabeled",
+        "labels": null
+      }
+    },
+    {
+      "setup": "03-PKU",
+      "train": {
+        "sha256": "9e1681594df729411b57b2955970ad65d38e3de1376a58655cf01dee0a3d5696",
+        "label_status": "user_marked",
+        "circle_count": 90,
+        "recording_id": "03-PKU-training-recording",
+        "image": "train/03-PKU/image.jpg",
+        "session": "train/03-PKU/labels.icescopy"
+      },
+      "evaluation": {
+        "image": null,
+        "label_status": "unavailable",
+        "note": "No independent recording is included for this setup."
+      }
+    },
+    {
+      "setup": "04-TAMU",
+      "train": {
+        "sha256": "fdf2ff72c3d9f38f10482def33508bc0d2f2faff87fab28d6e216ba477eabccc",
+        "label_status": "user_marked",
+        "circle_count": 16,
+        "recording_id": "04-TAMU-training-recording",
+        "image": "train/04-TAMU/image.png",
+        "session": "train/04-TAMU/labels.icescopy"
+      },
+      "evaluation": {
+        "recording_id": "04-TAMU-evaluation-recording",
+        "image": "evaluation/04-TAMU/image.png",
+        "sha256": "6cbd2abffc16695eda188e0a480969a1b8d1eba08d8f198084347ba056c62144",
+        "label_status": "unlabeled",
+        "labels": null
+      }
+    },
+    {
+      "setup": "05-CIF",
+      "train": {
+        "sha256": "d93d9f8867183f2a4ac50d6f7bbbd3586e8c89c3d92f1760611f4e6150587030",
+        "label_status": "user_marked",
+        "circle_count": 105,
+        "recording_id": "05-CIF-training-recording",
+        "image": "train/05-CIF/image.jpg",
+        "session": "train/05-CIF/labels.icescopy",
+        "source_url": "https://github.com/CIF-Cold-Stage/DropFreezingDetection.jl/blob/v0.2.0/exampledata/level%201/Experiment%201/pic_0001_20220426T101339_10.25.jpg",
+        "git_blob_sha1": "0fce8be8d835885370e54e6619b5cc1a8ce46411"
+      },
+      "evaluation": {
+        "recording_id": "05-CIF-evaluation-recording",
+        "image": "evaluation/05-CIF/image.jpg",
+        "sha256": "2d4b7993c6efb076cc5ab9f4dde42615f19c80e1602adbf8f30a63fc5458aee6",
+        "label_status": "unlabeled",
+        "labels": null,
+        "source_url": "https://github.com/CIF-Cold-Stage/DropFreezingDetection.jl/blob/v0.2.0/exampledata/level%201/Experiment%202/pic_0001_20220504T145436_9.97.jpg",
+        "git_blob_sha1": "c8ff868891b9caf7197cec0a751c7d3f74b1b066"
+      }
+    }
+  ]
+}

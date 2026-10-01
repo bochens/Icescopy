@@ -10,8 +10,8 @@ Download the version listed for your computer below. These downloads include Pyt
 
 | Platform | Download | Installation |
 | --- | --- | --- |
-| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe) — v2.3.8 | Run the installer. |
-| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-macos-arm64.zip) — v2.4.0 | Unzip, then move **Icescopy.app** to **Applications**. |
+| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-windows-installer.exe) — v2.4.0 | Run the installer. |
+| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-macos-arm64.zip) — v2.5.0 | Unzip, then move **Icescopy.app** to **Applications**. |
 
 The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
 
@@ -46,6 +46,8 @@ Draw individual cells with **Add Cell**, or place a row-and-column array with **
 ![Grid Tool preview beside numbered cells](resources/readme/2026-09-30/grid-annotation-full-plate.png)
 
 A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
+
+**Detect Droplets (Current Frame)** finds similar droplets using selected cells as examples. Review the added circles and adjust them as needed. Choose a bundled or external model in **Preferences → ML**. The [machine learning module](auto_cell_ml/README.md) includes example images, labels, model weights, and a notebook for training and evaluation.
 
 ### 2. Assign samples
 

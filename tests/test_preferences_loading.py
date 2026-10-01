@@ -80,6 +80,12 @@ class PreferenceLoadingTests(unittest.TestCase):
         self.assertEqual(result["GridRotationDegrees"], -180)
         self.assertNotIn("_load_warnings", result)
 
+    def test_ml_path_is_preserved_and_empty_or_older_settings_use_bundled(self):
+        path = str(self.path.parent / "custom.icescopy-model")
+        self.assertEqual(self.load(f"<DropletModelPath>{path}</DropletModelPath>")["DropletModelPath"], path)
+        self.assertEqual(self.load("<DropletModelPath/>")["DropletModelPath"], "")
+        self.assertEqual(self.load("")["DropletModelPath"], "")
+
     def test_bad_sample_schema_preserves_valid_numeric_values(self):
         result = self.load("<MaximumZoom>17</MaximumZoom><SampleMetadataFields><Field key='Invalid Key'/></SampleMetadataFields>")
         self.assertEqual(result["MaximumZoom"], 17)

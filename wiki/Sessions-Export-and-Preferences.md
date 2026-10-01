@@ -9,7 +9,7 @@ A **session** saves working state you can reopen in Icescopy. An **export** is a
 3. To resume, choose **File → Open Session** and select that file.
 4. Check a few frames, cell positions, analysis markers, and result panels before continuing.
 
-The first **Save Session** also asks for a filename if the session has not been saved before. Starting or opening another session can prompt you to save the current work; cancel that action if you still need to preserve it.
+The first **Save Session** also asks for a filename if the session has not been saved before. Starting or opening another session, or closing Icescopy, prompts you to save when the document has changed since its last save or open. Browsing frames, selecting cells, and changing viewing or tool controls do not trigger this prompt. An untouched new session starts without unsaved changes; adding images, annotations, results, or editing its metadata creates changes to save.
 
 Use **File → Edit Session Metadata...** to edit the project, user, institution, and date. These details can appear in exported metadata.
 

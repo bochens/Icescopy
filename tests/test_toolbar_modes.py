@@ -49,6 +49,19 @@ class ToolbarModeTests(unittest.TestCase):
         self.assertEqual(self.window.tool_options_mode_label.text(), "Cursor")
         self.assert_only_checked(self.window.tool_action_group, self.window.reset_cursor_action)
 
+    def test_detection_star_is_a_one_shot_toolbar_action_in_both_themes(self):
+        action = self.window.droplet_tools.detect_action
+        actions = self.window.toolbar.actions()
+        self.assertEqual(actions[actions.index(self.window.edit_tool_action) + 1], action)
+        self.assertFalse(action.isCheckable())
+        self.assertNotIn(action, self.window.tool_action_group.actions())
+        for dark in (False, True):
+            with patch('Icescopy.darkdetect.isDark', return_value=dark):
+                self.window.reset_toolbar_icon()
+                self.assertFalse(action.icon().isNull())
+                self.assertFalse(action.icon().pixmap(24, 24).isNull())
+        self.assert_cursor()
+
     def test_accessibility_toggles_switch_tools_and_keep_active_tool_checked(self):
         self.assert_cursor()
         self.accessible_toggle(self.window.edit_tool_action)

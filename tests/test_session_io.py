@@ -71,6 +71,7 @@ class SessionIoTests(unittest.TestCase):
             set_undo_status=lambda: None,
             set_redo_status=lambda: None,
             update_document_interface_state=lambda: None,
+            droplet_tools=SimpleNamespace(update_actions=lambda: None),
         )
         action_names = (
             "add_source_action",
@@ -247,7 +248,10 @@ class SessionIoTests(unittest.TestCase):
                 self.ignored = True
 
         event = DummyEvent()
-        fake_window = SimpleNamespace(output_state=True, worker=None)
+        fake_window = SimpleNamespace(
+            output_state=True, worker=None,
+            droplet_tools=SimpleNamespace(is_running=lambda: False),
+        )
 
         with patch.object(icescopy_module.QMessageBox, "information") as information:
             IceScopy.closeEvent(fake_window, event)
@@ -267,6 +271,7 @@ class SessionIoTests(unittest.TestCase):
             output_state=False,
             worker=None,
             prompt_save_before_replacing_session=lambda _label: "cancel",
+            droplet_tools=SimpleNamespace(is_running=lambda: False),
         )
 
         IceScopy.closeEvent(fake_window, event)
@@ -2126,6 +2131,71 @@ class SessionIoTests(unittest.TestCase):
             self.assertEqual(grayscale_table, (grayscale_headers, grayscale_rows))
             self.assertEqual(freeze_table, (freeze_headers, freeze_rows))
             self.assertEqual(temperature_table, (temperature_headers, temperature_rows))
+
+    def test_session_bundle_resolves_declared_relative_image_paths_without_changing_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            bundle_path = Path(td) / "session.icescopy"
+            circles = [{
+                "circle_positions": [100, 200],
+                "circle_pixel_positions": [10, 20],
+                "circle_sizes": 5,
+                "cell_id": 2,
+            }]
+            for with_frame_source in (False, True):
+                with self.subTest(current_schema=with_frame_source):
+                    payload = {
+                        "image_paths": ["image.png", "left/image.png", "right/image.png"],
+                        "cell_items": circles,
+                        "keyframe_cell_items_dict": {"0": circles},
+                    }
+                    if with_frame_source:
+                        payload["frame_source"] = {
+                            "kind": "image_sequence",
+                            "image_paths": payload["image_paths"].copy(),
+                        }
+                    save_session_bundle(bundle_path, payload, [], [], [], [], [], [])
+                    original = bundle_path.read_bytes()
+                    restored, *_tables = load_session_bundle(bundle_path)
+                    expected = [str(Path(td) / path) for path in payload["image_paths"]]
+                    self.assertEqual(restored["image_paths"], expected)
+                    if with_frame_source:
+                        self.assertEqual(restored["frame_source"]["image_paths"], expected)
+                    self.assertEqual(restored["cell_items"], circles)
+                    self.assertEqual(restored["keyframe_cell_items_dict"], {"0": circles})
+                    self.assertEqual(bundle_path.read_bytes(), original)
+                    with zipfile.ZipFile(bundle_path) as archive:
+                        self.assertEqual(json.loads(archive.read(SESSION_STATE_FILENAME)), payload)
+
+    def test_session_bundle_resolves_declared_relative_single_and_multiple_videos(self):
+        with tempfile.TemporaryDirectory() as td:
+            bundle_path = Path(td) / "session.icescopy"
+            sources = [
+                {"kind": "video", "video_path": "clips/a.mp4"},
+                {"kind": "video_sequence", "video_paths": ["left/a.mp4", "right/a.mp4"]},
+            ]
+            for source in sources:
+                with self.subTest(source_kind=source["kind"]):
+                    save_session_bundle(bundle_path, {"frame_source": source}, [], [], [], [], [], [])
+                    restored, *_tables = load_session_bundle(bundle_path)
+                    actual = restored["frame_source"]
+                    self.assertEqual(actual["kind"], source["kind"])
+                    if source["kind"] == "video":
+                        self.assertEqual(actual["video_path"], str(Path(td) / "clips/a.mp4"))
+                    else:
+                        self.assertEqual(actual["video_paths"], [str(Path(td) / path) for path in source["video_paths"]])
+
+    def test_session_bundle_preserves_absolute_paths_without_same_folder_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            bundle_path = Path(td) / "session.icescopy"
+            (Path(td) / "image.png").write_bytes(b"a different same-named file")
+            paths = ["/missing/old/image.png", "C:\\old\\image.png"]
+            payload = {
+                "image_paths": paths,
+                "frame_source": {"kind": "image_sequence", "image_paths": paths},
+            }
+            save_session_bundle(bundle_path, payload, [], [], [], [], [], [])
+            restored, *_tables = load_session_bundle(bundle_path)
+            self.assertEqual(restored, payload)
 
     def test_failed_session_serialization_preserves_existing_file(self):
         with tempfile.TemporaryDirectory() as td:

@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ipynb_checkpoints/
 .coverage
 .coverage.*
 
@@ -17,6 +18,13 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Private training images and manual labels
+/auto_cell_ml/data/
+/auto_cell_ml/pretrained/
+/auto_cell_ml/results/
+/auto_cell_ml/.venv/
+/auto_cell_ml/archive/saved_workflows/
 
 # Build and packaging outputs
 build/
