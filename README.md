@@ -1,6 +1,6 @@
 # Icescopy
 
-Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, check the detections against the images, and match them to temperature records.
+Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, compare neighboring frames, and match events to temperature records. Experimental droplet selection can find similar cells from a few marked examples.
 
 [Quick start](wiki/Quick-Start.md) · [User guide](wiki/Home.md) · [Releases](https://github.com/bochens/Icescopy/releases)
 
@@ -41,13 +41,21 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 ### 1. Mark droplets or wells
 
-Draw individual cells with **Add Cell**, or place a row-and-column array with **Grid Tool**. Adjust the size, spacing, and angle to fit the image. Click **Apply** to create the cells.
+A **cell** is the circle whose brightness Icescopy measures. Draw cells with **Add Cell**, or use **Grid Tool** to place a regular array.
 
-![Grid Tool preview beside numbered cells](resources/readme/2026-09-30/grid-annotation-full-plate.png)
+For **experimental droplet detection**, mark and select a few representative droplets, then click the **star tool** beside **Edit Cell**. **Detect Droplets (Current Frame)** finds similar droplets in the current image or video frame and adds new cells without duplicating existing ones. Review the circles, edit any mistakes, or undo the batch.
 
-A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
+![Two selected examples guide droplet detection; the app adds fourteen cells and reports the model version and counts](resources/readme/2026-10-01/droplet-selection.png)
 
-**Detect Droplets (Current Frame)** finds similar droplets using selected cells as examples. Review the added circles and adjust them as needed. Choose a bundled or external model in **Preferences → ML**. The [machine learning module](auto_cell_ml/README.md) includes example images, labels, model weights, and a notebook for training and evaluation.
+*Two selected examples (cyan), fourteen new cells (green). The Console reports the model version and detection counts.*
+
+The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
+
+<img src="resources/readme/2026-10-01/ml-model.png" alt="ML preferences with a single model chooser, Browse button, and model name and version" width="680">
+
+To improve automatic selection for your instrument and lighting, you can **continue training the supplied model or train your own compatible model**. The [training notebook](auto_cell_ml/train_and_evaluate.ipynb) covers training, evaluation, and exporting weights for the app; the [machine learning module](auto_cell_ml/README.md) includes labeled examples, synthetic scenes, and trainable weights. Load the new model without updating Icescopy, and check its results before running freezing analysis.
+
+If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md) and [droplet detection](wiki/Droplet-Detection.md).
 
 ### 2. Assign samples
 
