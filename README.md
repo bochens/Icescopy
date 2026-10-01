@@ -49,6 +49,12 @@ For **experimental droplet detection**, mark and select a few representative dro
 
 *Two selected examples (cyan), fourteen new cells (green). The Console reports the model version and detection counts.*
 
+The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
+
+<img src="resources/readme/2026-10-01/ml-model.png" alt="ML preferences with a single model chooser, Browse button, and model name and version" width="680">
+
+To improve automatic selection for your instrument and lighting, you can **continue training the supplied model or train your own compatible model**. The [training notebook](auto_cell_ml/train_and_evaluate.ipynb) covers training, evaluation, and exporting weights for the app; the [machine learning module](auto_cell_ml/README.md) includes labeled examples, synthetic scenes, and trainable weights. Load the new model without updating Icescopy, and check its results before running freezing analysis.
+
 If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md) and [droplet detection](wiki/Droplet-Detection.md).
 
 ### 2. Assign samples
@@ -88,11 +94,3 @@ Use **Analysis → Import Temperature Data** to match freeze events with CSV or 
 Save a `.icescopy` session to resume later. **File → Output Results** exports brightness measurements, freeze events, or temperature-based counts with sample information. Keep the original images or videos: the session refers to them.
 
 Use **Save Session As...** and a new export folder to preserve earlier work. See [saving and exporting](wiki/Sessions-Export-and-Preferences.md).
-
-## Models and training
-
-The app includes **General droplets 1.0.0** and runs detection on the CPU; no GPU or training software is needed. In **Preferences → ML**, choose the bundled model or use **Browse…** to load a separate `.icescopy-model` file. Model updates can be installed without replacing the app.
-
-<img src="resources/readme/2026-10-01/ml-model.png" alt="ML preferences with a single model chooser, Browse button, and model name and version" width="680">
-
-The [machine learning module](auto_cell_ml/README.md) includes a [training notebook](auto_cell_ml/train_and_evaluate.ipynb), labeled examples, synthetic scenes, evaluation code, and trainable weights. Detection remains experimental: check the results for your setup and lighting before running freezing analysis.
