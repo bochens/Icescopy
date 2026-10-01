@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import json
 import os
@@ -210,6 +211,89 @@ def build_session_payload(main_window):
         "console_history": main_window.terminal.toPlainText(),
     }
     return payload
+
+
+def _cell_geometry(circles):
+    """Compare image coordinates, independent of scene layout and selection."""
+    return sorted(
+        (
+            int(circle["cell_id"]),
+            float(circle["circle_pixel_positions"][0]),
+            float(circle["circle_pixel_positions"][1]),
+            float(circle["circle_sizes"]),
+        )
+        for circle in circles
+    )
+
+
+class _SessionFingerprintWriter:
+    def __init__(self):
+        self.digest = hashlib.sha256()
+
+    def write(self, text):
+        self.digest.update(text.encode("utf-8"))
+        return len(text)
+
+
+def session_content_fingerprint(main_window, *, payload=None):
+    """Hash saved document content without copying the analysis tables.
+
+    This runs at save/open/replacement boundaries, not during frame navigation.
+    Viewing state is saved for convenience but does not constitute an edit.
+    """
+    if payload is None:
+        payload = build_session_payload(main_window)
+    viewing_fields = {
+        "schema_version",
+        "image_width",
+        "image_index",
+        "image_list_entry_ids",
+        "next_image_list_entry_id",
+        "sort_mode",
+        "next_cell_id",
+        "next_sample_id",
+        "tool_mode",
+        "tool_settings",
+        "last_grayscale_output_path",
+        "last_freeze_output_path",
+        "console_history",
+        "cell_items",
+        "keyframe_cell_items_dict",
+    }
+    content = {key: value for key, value in payload.items() if key not in viewing_fields}
+    content["keyframe_cell_items_dict"] = {
+        frame: _cell_geometry(circles)
+        for frame, circles in payload.get("keyframe_cell_items_dict", {}).items()
+    }
+    current_geometry = _cell_geometry(payload.get("cell_items", []))
+    if payload.get("keyframe_list"):
+        expected_circles = main_window.keyframe_interpolation(main_window.image_index)
+        expected_geometry = _cell_geometry(
+            [cell_circle_to_dict(circle) for circle in expected_circles]
+        )
+        # Normal navigation replaces the displayed cells with interpolated ones.
+        # A temporary edit on a non-keyframe still needs to count as a change.
+        content["cell_items"] = (
+            {"frame": int(main_window.image_index), "geometry": current_geometry}
+            if current_geometry != expected_geometry
+            else None
+        )
+    else:
+        content["cell_items"] = current_geometry
+
+    writer = _SessionFingerprintWriter()
+    json.dump(content, writer, sort_keys=True, separators=(",", ":"))
+    tables = (
+        (main_window.grayscale_results_headers, main_window.grayscale_results_rows),
+        (main_window.freeze_results_headers, main_window.freeze_results_rows),
+        (main_window.freeze_count_timeseries_headers, main_window.freeze_count_timeseries_rows),
+    )
+    csv_writer = csv.writer(writer)
+    for headers, rows in tables:
+        writer.write("\0")
+        csv_writer.writerow(headers)
+        csv_writer.writerows(rows)
+    return writer.digest.hexdigest()
 
 
 def migrate_session_payload(payload):
