@@ -2,7 +2,8 @@
 
 Only padding is unknown. Unmarked valid centers are negative. Inference uses
 the original median marked radius, optionally overridden, and uncalibrated
-positive-tree vote fractions. No circle finder or evaluation labels are used.
+positive-tree vote fractions. Circle proposals supply training negatives only;
+inference never calls a circle finder or reads evaluation labels.
 """
 from __future__ import annotations
 
@@ -16,9 +17,14 @@ import time
 import cv2
 import numpy as np
 
+if __package__:
+    from .data import _read_source
+else:
+    from data import _read_source
 
 FORMAT = "icescopy-opencv-center-forest-v1"
 FEATURE_VERSION = "gray-color-layout-gradient-rings-v1"
+SAMPLER_VERSION = "original-image-circle-edge-negatives-v2"
 DEFAULT_THRESHOLD = 0.55
 
 
@@ -100,12 +106,34 @@ def _usable(points, valid):
     return inside & valid[iy, ix]
 
 
-def sample_points(circles, valid, *, budget, seed=0):
-    """Exact centers, small center jitter, and whole-crop/near-center negatives.
+def _negative_proposals(image, valid, radius):
+    """Fixed training-only circle centers and strongest local edge locations."""
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    gray = cv2.GaussianBlur(gray, (0, 0), max(0.6, 0.06 * radius))
+    found = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=max(2, 0.7 * radius),
+                             param1=80, param2=8, minRadius=max(2, math.floor(0.7 * radius)),
+                             maxRadius=max(3, math.ceil(1.3 * radius)))
+    centers = np.empty((0, 2), np.float32) if found is None else found[0, :, :2]
+    jitter = radius * 0.1 * np.array([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]])
+    proposals = (centers[:, None, :] + jitter).reshape(-1, 2)
+    gx, gy = cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1)
+    gradient = cv2.magnitude(gx, gy)
+    known = cv2.erode(valid.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+    values = gradient[known & (gradient > 0)]
+    cutoff = max(16, float(np.quantile(values, 0.9))) if len(values) else math.inf
+    edge = np.argwhere(known & (gradient >= cutoff) &
+                       (gradient == cv2.dilate(gradient, np.ones((3, 3), np.uint8))))
+    return proposals, edge[:, ::-1].astype(np.float32)
+
+
+def sample_points(circles, valid, *, budget, seed=0, image=None, radius=None, return_details=False):
+    """Exact centers, small jitter, and automatic/spatial/near-center negatives.
 
     The positive support is max(1.5 pixels, 15% of each marked radius), covering
     the worst 1.414-pixel quantization error of the two-pixel inference grid.
-    Crops with no visible marked center contribute only negative examples.
+    Empty regions contribute only negatives. At most half the negative budget
+    uses automatic proposals; remaining points retain broad spatial coverage.
+    Positive coordinates are unique, not repeated to fill a class quota.
     """
     circles = np.asarray(circles, np.float32).reshape(-1, 3)
     if valid.ndim != 2 or valid.dtype != np.bool_ or not valid.size or not valid.any():
@@ -119,13 +147,18 @@ def sample_points(circles, valid, *, budget, seed=0):
     tolerance = np.maximum(1.5, 0.15 * centers[:, 2])
     angles = np.arange(8) * math.pi / 4
     direction = np.column_stack((np.cos(angles), np.sin(angles)))
-    jitter = (centers[:, None, :2] + tolerance[:, None, None] * 0.85 * direction).reshape(-1, 2)
+    jitter = np.concatenate([(centers[:, None, :2] + tolerance[:, None, None] * factor * direction).reshape(-1, 2)
+                             for factor in (0.5, 0.85)])
     # Include neighboring two-pixel grid locations when within positive support.
     offsets = np.array([[0, 0], [0, 2], [2, 0], [2, 2]])
     quantized = (2 * np.floor(centers[:, None, :2] / 2) + offsets).reshape(-1, 2)
     distance = np.linalg.norm(quantized.reshape(-1, 4, 2) - centers[:, None, :2], axis=2)
     extras = np.concatenate((quantized[(distance <= tolerance[:, None]).ravel()], jitter))
     extras = extras[_usable(extras, valid)]
+    # Keep exact labeled centers first and remove coincident support coordinates.
+    positive_set = set(map(tuple, centers[:, :2]))
+    extras = np.asarray([point for point in np.unique(extras.astype(np.float32), axis=0)
+                         if tuple(point) not in positive_set], np.float32).reshape(-1, 2)
     rng.shuffle(extras)
     positive = np.concatenate((centers[:, :2], extras[:max(0, max(len(centers), budget // 3) - len(centers))]))
     remaining = budget - len(positive)
@@ -143,9 +176,29 @@ def sample_points(circles, valid, *, budget, seed=0):
         rng.shuffle(points)
         return points
 
-    baseline = negative(uniform)[:remaining // 2]
-    nearby = negative(near)[:remaining - len(baseline)]
-    negatives = np.concatenate((baseline, nearby))
+    proposal_budget = remaining // 2 if image is not None else 0
+    circle_points, edge_points = np.empty((0, 2)), np.empty((0, 2))
+    proposal_counts = {"circle_candidate_count": 0, "circle_proposal_pool": 0, "edge_proposal_pool": 0,
+                       "eligible_circle_proposals": 0, "eligible_edge_proposals": 0}
+    if image is not None:
+        if image.shape[:2] != valid.shape or image.dtype != np.uint8 or image.shape[2:] != (3,):
+            raise ValueError("Proposal image must be RGB uint8 and match the valid mask")
+        radius = float(np.median(circles[:, 2])) if radius is None and len(circles) else radius
+        if radius is None or not math.isfinite(radius) or radius <= 0:
+            raise ValueError("Automatic proposals require a positive finite radius")
+        cp, ep = _negative_proposals(image, valid, radius)
+        eligible_cp, eligible_ep = negative(cp), negative(ep)
+        proposal_counts = {"circle_candidate_count": len(cp) // 5, "circle_proposal_pool": len(cp),
+                           "edge_proposal_pool": len(ep), "eligible_circle_proposals": len(eligible_cp),
+                           "eligible_edge_proposals": len(eligible_ep)}
+        circle_points = eligible_cp[:3 * proposal_budget // 4]
+        edge_points = eligible_ep[:proposal_budget - len(circle_points)]
+    baseline = negative(uniform)[:(remaining - proposal_budget) // 2]
+    nearby = negative(near)[:remaining - proposal_budget - len(baseline)]
+    negatives = np.concatenate((circle_points, edge_points, baseline, nearby))
+    details = {"negative_circle_proposals": len(circle_points), "negative_edge_proposals": len(edge_points),
+               "negative_spatial": len(baseline), "negative_near_marked": len(nearby), **proposal_counts}
+    initial_negative_count = len(negatives)
     known_y, known_x = np.nonzero(valid)
     for _ in range(10):
         missing = remaining - len(negatives)
@@ -155,61 +208,41 @@ def sample_points(circles, valid, *, budget, seed=0):
         extra = negative(np.column_stack((known_x[index], known_y[index])))[:missing]
         negatives = np.concatenate((negatives, extra))
     if len(negatives) == 0:
-        raise ValueError("Crop has no sampled negative center outside positive support")
+        raise ValueError("Image has no sampled negative center outside positive support")
+    details["negative_random"] = len(negatives) - initial_negative_count
     points = np.asarray(np.concatenate((positive, negatives)), np.float32)
-    return points, np.concatenate((np.ones(len(positive), np.int32), np.zeros(len(negatives), np.int32)))
+    labels = np.concatenate((np.ones(len(positive), np.int32), np.zeros(len(negatives), np.int32)))
+    return (points, labels, details) if return_details else (points, labels)
 
 
-def fit(manifest, output, *, max_samples=80000, trees=64, max_depth=16, seed=0, threads=4):
-    """Train from data.py's saved PNGs/JSON labels/masks; refuse existing output."""
+def fit(manifest, output, *, setup, max_samples=80000, trees=64, max_depth=16, seed=0, threads=4):
+    """Train directly from one original labeled image selected in datasets.json.
+
+    The trusted session reader verifies source identity, hashes, and marks.
+    No transformed images, generated manifests, or evaluation data are read.
+    """
     manifest, output = Path(manifest).resolve(), Path(output).resolve()
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
-    rows = json.loads(manifest.read_text())
-    if rows.get("split") != "train" or not rows.get("samples"):
-        raise ValueError("Expected a nonempty generated training manifest")
-    source = rows.get("source", {})
-    recording_id = source.get("recording_id")
-    if not isinstance(recording_id, str) or not recording_id:
-        raise ValueError("Training manifest must name its original recording_id")
     if min(max_samples, trees, max_depth, threads) < 1 or seed < 0:
         raise ValueError("Training settings must be positive and seed nonnegative")
-    if max_samples < 2 * len(rows["samples"]):
-        raise ValueError("max_samples must allow at least two examples per crop")
     cv2.setNumThreads(threads)
     cv2.setRNGSeed(seed)
     start = time.perf_counter()
-    descriptors, responses, counts = [], [], []
-    original_radius = None
-    for index, row in enumerate(rows["samples"]):
-        label = json.loads((manifest.parent / row["labels"]).read_text())
-        if label.get("split") != "train" or label.get("setup") != rows.get("setup"):
-            raise ValueError("Crop labels must belong to this training setup")
-        if (row.get("recording_id") != recording_id or label.get("recording_id") != recording_id
-                or label.get("source") != source):
-            raise ValueError("Crop recording_id and source provenance must match the training manifest")
-        circles = np.asarray(label["circles"], np.float32).reshape(-1, 3)
-        scale = float(label["scale"])
-        if not len(circles) or not math.isfinite(scale) or scale <= 0:
-            raise ValueError("Each transformed label must retain original circles and a positive scale")
-        radius = float(np.median(circles[:, 2]))
-        derived = radius / scale
-        if original_radius is None:
-            original_radius = derived
-        elif not math.isclose(original_radius, derived, rel_tol=1e-5):
-            raise ValueError("Transformed circle radii do not share an original median")
-        image = read_rgb(manifest.parent / row["image"])
-        mask = cv2.imread(str(manifest.parent / row["valid_mask"]), cv2.IMREAD_GRAYSCALE)
-        if mask is None or mask.shape != image.shape[:2]:
-            raise ValueError("Padding mask must exist and match its image")
-        quota = max_samples // len(rows["samples"]) + (index < max_samples % len(rows["samples"]))
-        points, target = sample_points(circles, mask > 0, budget=quota, seed=seed + index)
-        descriptors.append(_features(_prepare(image, radius, mask > 0), points, radius))
-        responses.append(target)
-        counts.append({"sample_index": row["sample_index"], "positive": int(target.sum()),
-                       "negative": int(len(target) - target.sum()), "radius": radius})
-    features, labels = np.concatenate(descriptors), np.concatenate(responses)
-    del descriptors, responses
+    image, circles, source = _read_source(manifest, setup)
+    if not len(circles):
+        raise ValueError("Original training image must contain marked circles")
+    radius = float(np.median(np.asarray(circles)[:, 2]))
+    valid = np.ones(image.shape[:2], bool)
+    points, labels, counts = sample_points(circles, valid, budget=max_samples, seed=seed,
+                                          image=image, radius=radius, return_details=True)
+    negatives = points[labels == 0]
+    coverage, _, _ = np.histogram2d(negatives[:, 1], negatives[:, 0],
+                                    bins=(np.linspace(0, image.shape[0], 9), np.linspace(0, image.shape[1], 9)))
+    prepared = _prepare(image, radius)
+    # cv2.remap supports fewer than 32767 rows; also bound temporary memory.
+    features = np.concatenate([_features(prepared, points[i:i + 4096], radius)
+                               for i in range(0, len(points), 4096)])
     if set(np.unique(labels)) != {0, 1}:
         raise ValueError("Training requires both positive and negative center examples")
     sampling_seconds = time.perf_counter() - start
@@ -226,16 +259,22 @@ def fit(manifest, output, *, max_samples=80000, trees=64, max_depth=16, seed=0, 
     output.mkdir(parents=True, exist_ok=False)
     model_path = output / "model.xml.gz"
     forest.save(str(model_path))
-    metadata = {"format": FORMAT, "feature_version": FEATURE_VERSION, "setup": rows["setup"],
-                "recording_id": recording_id, "source": source,
+    metadata = {"format": FORMAT, "feature_version": FEATURE_VERSION, "setup": setup,
+                "recording_id": source["recording_id"], "source": source,
+                "sampler_version": SAMPLER_VERSION, "training_image_count": 1, "augmentation": False,
                 "opencv_version": cv2.__version__, "training_manifest_sha256": _hash(manifest),
                 "model_sha256": _hash(model_path), "model_bytes": model_path.stat().st_size,
-                "fixed_radius": original_radius, "radius_rule": "median transformed radius divided by uniform crop scale",
+                "fixed_radius": radius, "radius_rule": "median original user-marked radius",
+                "center_suppression": "Reject lower-vote centers separated by less than the smaller radius",
                 "threshold": DEFAULT_THRESHOLD, "positive_support": "max(1.5 pixels, 0.15 * marked radius)",
-                "feature_count": features.shape[1], "crop_count": len(counts), "sample_count": len(labels),
+                "feature_count": features.shape[1], "sample_count": len(labels), "negative_sampling_counts": counts,
+                "negative_frame_coverage": {"rows": 8, "columns": 8, "occupied_tiles": int((coverage > 0).sum()),
+                                            "sample_counts": coverage.astype(int).tolist()},
                 "positive_count": int(labels.sum()), "negative_count": int(len(labels) - labels.sum()),
                 "sampling_seconds": sampling_seconds, "fit_seconds": fitting_seconds,
-                "total_seconds": time.perf_counter() - start, "samples": counts,
+                "total_seconds": time.perf_counter() - start,
+                "sampling_note": "Unique positive support coordinates; sampled class counts are not image class prevalence. No balancing or calibration.",
+                "proposal_rule": "Training only: Hough dp=1, minDist=0.7r, param1=80, param2=8, radius=0.7..1.3r; top-decile local gradient maxima; up to half negatives",
                 "config": {"max_samples": max_samples, "trees": trees, "max_depth": max_depth,
                            "min_sample_count": 3, "active_var_count": forest.getActiveVarCount(),
                            "seed": seed, "threads": threads, "class_priors": "empirical sampled counts"}}
@@ -266,6 +305,16 @@ def _scores(forest, features):
     return votes[1:, positive[0]].astype(np.float32) / np.maximum(1, votes[1:].sum(axis=1))
 
 
+def suppress_centers(circles):
+    """Keep the highest vote; distinct overlapping cells a radius apart survive."""
+    found = []
+    for circle in sorted(circles, key=lambda c: c["confidence"], reverse=True):
+        if all(math.hypot(circle["x"] - c["x"], circle["y"] - c["y"])
+               >= min(circle["radius"], c["radius"]) for c in found):
+            found.append(circle)
+    return sorted(found, key=lambda c: (c["y"], c["x"]))
+
+
 def detect(forest, image, *, radius, threshold=DEFAULT_THRESHOLD, stride=2, batch_size=4096):
     """Score a dense <=2-pixel grid, retain local maxima, and merge close centers."""
     if not 0 < threshold < 1 or stride not in (1, 2) or batch_size < 1:
@@ -280,13 +329,8 @@ def detect(forest, image, *, radius, threshold=DEFAULT_THRESHOLD, stride=2, batc
         scores.flat[start:start + len(indices)] = _scores(forest, _features(prepared, points, radius))
     maxima = (scores >= threshold) & (scores == cv2.dilate(scores, np.ones((3, 3), np.uint8)))
     candidates = np.argwhere(maxima)
-    order = np.argsort(-scores[maxima], kind="stable")
-    found = []
-    for row, col in candidates[order]:
-        x, y = int(xs[col]), int(ys[row])
-        if all(math.hypot(x - c["x"], y - c["y"]) >= max(2 * stride, 0.5 * radius) for c in found):
-            found.append({"x": x, "y": y, "radius": float(radius), "confidence": float(scores[row, col])})
-    return sorted(found, key=lambda c: (c["y"], c["x"]))
+    return suppress_centers([{"x": int(xs[col]), "y": int(ys[row]), "radius": float(radius),
+                              "confidence": float(scores[row, col])} for row, col in candidates])
 
 
 def evaluate(model_path, image_path, output, *, radius=None, threshold=DEFAULT_THRESHOLD, stride=2, threads=4):
@@ -306,6 +350,7 @@ def evaluate(model_path, image_path, output, *, radius=None, threshold=DEFAULT_T
               "image_sha256": _hash(image_path), "width": image.shape[1], "height": image.shape[0],
               "model_sha256": metadata["model_sha256"], "threshold": threshold, "stride": stride,
               "fixed_radius": radius, "inference_seconds": time.perf_counter() - start,
+              "center_suppression": "Reject lower-vote centers separated by less than the smaller radius",
               "count": len(circles), "circles": circles, "evaluation_labels_used": False,
               "score_meaning": "fraction of trees voting for center; not calibrated accuracy"}
     output.mkdir(parents=True, exist_ok=False)
@@ -325,6 +370,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     train = commands.add_parser("train")
     train.add_argument("--manifest", type=Path, required=True)
+    train.add_argument("--setup", required=True)
     train.add_argument("--output", type=Path, required=True)
     for name, default in (("max-samples", 80000), ("trees", 64), ("max-depth", 16), ("seed", 0), ("threads", 4)):
         train.add_argument("--" + name, type=int, default=default)
