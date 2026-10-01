@@ -176,7 +176,10 @@ def main():
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--cache-only', action='store_true')
     parser.add_argument('--prepared-cache', type=Path)
+    parser.add_argument('--passes', type=int, default=CONFIG['passes'])
     args = parser.parse_args(); cfg = dict(CONFIG)
+    if args.passes < 1: parser.error('--passes must be a positive integer.')
+    cfg['passes'] = args.passes
     torch.set_num_threads(cfg['threads']); cv2.setNumThreads(cfg['threads']); torch.manual_seed(cfg['seed'])
     manifest, scenes = active_scenes(args.real_labels, args.synthetic_labels)
     parent_hash = sha256(args.parent_checkpoint)
@@ -192,7 +195,9 @@ def main():
     folder = args.prepared_cache or args.output/'tile-cache'
     if args.prepared_cache:
         provenance = json.loads((folder/'cache-source.json').read_text())
-        if provenance['source'] != source or provenance['config'] != cfg: raise ValueError('Prepared cache source/config mismatch.')
+        old_config = {k: v for k, v in provenance['config'].items() if k != 'passes'}
+        new_config = {k: v for k, v in cfg.items() if k != 'passes'}
+        if provenance['source'] != source or old_config != new_config: raise ValueError('Prepared cache source/config mismatch.')
         for name, expected in provenance['cache_hashes'].items():
             if sha256(folder/name) != expected: raise ValueError('Prepared cache changed.')
         records = json.loads((folder/'tile-index.json').read_text())
