@@ -268,9 +268,9 @@ def train(network, cache, records, scenes, folder, source, cfg):
         raise RuntimeError('Joint update invariants failed.')
     save_joint(folder/'best-trained.pt', network, metadata)
     selected_pass, selected_loss, improved = select_validation_weights(network, initial_state, initial['total'], best_loss, best_pass)
+    metadata = dict(metadata, selected_pass=selected_pass, selected_validation_loss=selected_loss)
     if not improved:
-        metadata = dict(metadata, selected_pass=0, selected_validation_loss=initial['total'],
-                        selected_actual_update_coverage=None, changed_backbone_tensor_l2_norms={},
+        metadata = dict(metadata, selected_actual_update_coverage=None, changed_backbone_tensor_l2_norms={},
                         changed_convolution_tensors={},
                         note='No trained checkpoint beat initial validation. The selected model preserves initial weights; best-trained.pt retains actual updated weights.')
     save_joint(folder/'joint.pt', network, metadata)
