@@ -22,4 +22,4 @@ Open **Preferences → ML**. Use **Bundled model** for the included **General dr
 
 Model versions are independent of Icescopy versions. A compatible replacement can be loaded without reinstalling the app. Keep the selected file in its location; if it is moved, select it again. An unreadable or incompatible custom model produces an error instead of silently switching to the bundled model.
 
-Model files contain the networks and their version information. They do not contain the training program. Developers can train or fine-tune a model outside Icescopy, export a compatible `.icescopy-model` file, and distribute it separately. See [developer training and export](../auto_cell_ml/README.md#future-training-and-app-export). The application itself does not need PyTorch.
+Model files contain the networks and their version information. They do not contain the training program. Developers can train or fine-tune a model outside Icescopy, export a compatible `.icescopy-model` file, and distribute it separately. See [developer training and export](../auto_cell_ml/README.md#use-and-distribute-a-new-model). The application itself does not need PyTorch.
