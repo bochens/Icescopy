@@ -8,12 +8,12 @@ Use the release for your platform. All releases and their notes are on [GitHub R
 
 | Computer | Download | Version |
 | --- | --- | --- |
-| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-windows-installer.exe) | 2.4.0 |
+| Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-windows-installer.exe) | 2.5.0 |
 | Mac with Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-macos-arm64.zip) | 2.5.0 |
 
 These releases do not include an Intel Mac or Linux app. Windows x64 means 64-bit Intel/AMD Windows. The Mac arm64 download targets Apple Silicon. GitHub's **Source code** ZIP/TAR downloads contain program source, not an installer.
 
-The Mac download is **2.5.0**; the Windows download remains **2.4.0** until a new Windows installer is published. Check platform-specific assets when installing a release; a release need not contain a build for every platform.
+The Mac and Windows downloads are both **2.5.0**. Check platform-specific assets when installing a release; a release need not contain a build for every platform.
 
 ## Install on Windows
 
@@ -57,7 +57,7 @@ A checksum is a number calculated from a file's bytes. Matching the release chec
 
 Download the matching checksum:
 
-- Windows 2.4.0: [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-windows-installer.exe.sha256).
+- Windows 2.5.0: [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-windows-installer.exe.sha256).
 - macOS 2.5.0: [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-macos-arm64.zip.sha256).
 
 On Windows, open PowerShell in the download folder:

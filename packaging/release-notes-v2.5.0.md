@@ -27,6 +27,10 @@ The NC State/CIF example images are credited to Petters and Yadav (2023), [DropF
 
 **Mac, Apple Silicon:** download `Icescopy-macos-arm64.zip`, unzip it, and copy `Icescopy.app` into Applications after saving work and closing the old app. The checksum is in `Icescopy-macos-arm64.zip.sha256`. This build is signed locally for integrity; it is not Apple-notarized. See the [Mac installation guide](https://github.com/bochens/Icescopy/blob/v2.5.0/wiki/Installation-and-Setup.md#install-on-macos).
 
-**Model only:** `general-droplets-1.0.0.icescopy-model` can be selected in Preferences → ML. It is also bundled in the Mac app. `general-droplets-1.0.0.pt` is the separate trainable checkpoint for the notebook, not an app installer. Their checksums are in `model-sha256.json`.
+**Model only:** `general-droplets-1.0.0.icescopy-model` can be selected in Preferences → ML. It is also bundled in the Mac and Windows apps. `general-droplets-1.0.0.pt` is the separate trainable checkpoint for the notebook, not an app installer. Their checksums are in `model-sha256.json`.
 
-**Windows:** the [2.4.0 installer](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-windows-installer.exe) remains available. A Windows 2.5.0 build can be added separately using the [Windows packaging instructions](https://github.com/bochens/Icescopy/blob/v2.5.0/packaging/windows/README.md).
+**Windows:** download [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-windows-installer.exe) for 64-bit x64 Windows 10 (1809 or later) or Windows 11. Save work and close Icescopy before upgrading, run the installer, then open Icescopy from the Start menu. It installs for your Windows account and includes Python, the required libraries, and the General droplets 1.0.0 model. No separate Python installation or GPU is required.
+
+The matching [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-windows-installer.exe.sha256) file provides the download checksum.
+
+The Windows build includes a compatibility fix for loading droplet models from paths containing non-English characters, such as Windows usernames. Its source is `v2.5.0` plus [the Windows model-path fix](https://github.com/bochens/Icescopy/commit/9e52f31de6831a0ab0178226c2baabba9f02cd7b).
