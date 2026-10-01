@@ -108,3 +108,49 @@ The next experiment should label the misleading patches near droplets as
 explicit negatives and improve recognition of the droplet center. Simply
 rejecting every closely spaced circle could remove distinct nearby droplets.
 Keep the current model experimental; it is not ready for app integration.
+
+## Prepared center-negative extension (not run)
+
+The user identified another misplaced PKU circle that the broad recovery count
+had accepted. Its center was 0.92 reference radii from the manual center. The
+second run therefore retains broad recovery for comparison and adds a separate
+placement measure: a centered detection must be within 0.35 of the marked
+circle's radius. Report both models under the same two measures, with median
+and 90th-percentile center errors. Preview colors must distinguish misplaced
+matches from centered detections.
+
+The new private manifest preserves every original positive and negative. It
+adds 669 invalid detection centers: 248 actual failed selections from the first
+run, checked visually, and one deliberately displaced example for each of the
+421 user circles. These labels mean the proposed center is wrong; they do not
+mean that water is absent from the surrounding crop. Every rounded crop center
+is at least 0.55 reference radii from every marked positive. Ambiguous distant
+unmarked objects are excluded.
+
+The approved second run starts from the first manual-trained checkpoint and
+keeps the same four passes, update count, learning rate and synthetic replay.
+It reuses the original 4,464 manual crops and adds four variants per new center,
+for 22,152 total manual and synthetic crops. New center-negative crops have no
+translation, center jitter or radius jitter; rotation, flips, uniform scaling
+and lighting variation keep the invalid location at the center. Sampling splits
+manual negatives equally between old examples and new invalid centers, while
+cycling new centers through actual updates. Teacher embeddings are regenerated
+from the preserved first-run model.
+
+Compare the complete previous detector, including its frozen scorer and cutoff,
+with the updated detector using the same fixed example selections. Also fit a
+new scorer over the unchanged first-run network to distinguish scorer changes
+from neural-weight changes. Keep the earlier synthetic F2 calibration rule;
+centering is an additional reported measure, not a retrospective cutoff change.
+Use only the five manual photos and the reserved synthetic validation/calibration
+sets for this bounded run. Leave the optional structured stress test out.
+
+Before this prepared run was launched, the user requested both changes together:
+jointly learn circle location and rejection, using the original positives and
+new negative examples in the same training. That supersedes the scorer-only
+second run above. Its data preparation and tested code are preserved, but no
+weights were trained with it. The next model must generate/refine centers with
+shared image features rather than depend on the old hand-built circle proposals.
+Keep example guidance, current-frame inputs, geometry-preserving augmentation,
+explicit-label boundaries and existing-cell protection. Agree on a bounded
+joint-training recipe before launching it.

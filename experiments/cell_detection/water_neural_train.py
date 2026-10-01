@@ -58,13 +58,13 @@ def combine_parent_cache(parent,folder,synthetic_cache,synthetic_rows,real_folde
                     'prefix_sha256':sha256(folder/'prefix.npy'),'teacher_sha256':sha256(folder/'teacher.npy')}
 
 
-def train_water(parent,records,folder,source,config=None):
+def train_water(parent,records,folder,source,config=None,sampler_class=WaterTriplets,final_pass_only=False):
     cfg=dict(CONFIG if config is None else config);t=parent.torch
     t.manual_seed(cfg['seed']);rng=np.random.default_rng(cfg['seed']);_,suffix=trainable_suffix(parent)
     before={n:v.detach().cpu().clone() for n,v in parent.model.features.state_dict().items()}
     frozen=tensor_hash(prefix_state(parent.model.features));bn=tensor_hash(batchnorm_buffers(parent.model.features))
     prefix=np.load(folder/'prefix.npy',mmap_mode='r');teacher=np.load(folder/'teacher.npy',mmap_mode='r')
-    fit=WaterTriplets(records,'fit');validation=WaterTriplets(records,'validation')
+    fit=sampler_class(records,'fit');validation=sampler_class(records,'validation')
     fixed=validation.sample(np.random.default_rng(cfg['seed']+1),640);np.save(folder/'validation-triplets.npy',fixed)
     optimizer=t.optim.AdamW(suffix.parameters(),lr=cfg['learning_rate'],weight_decay=cfg['weight_decay'])
     def val_loss():
@@ -90,8 +90,9 @@ def train_water(parent,records,folder,source,config=None):
              'ranking_loss':float(np.mean(np.asarray(losses)[:,1])),'preservation_loss':float(np.mean(np.asarray(losses)[:,2])),
              'validation_loss':val,'seconds':time.perf_counter()-epoch_start,
              'checkpoint_eligible':eligible,'positive_update_coverage':fit.object_coverage()}
+        if hasattr(fit,'negative_coverage'):row['center_negative_update_coverage']=fit.negative_coverage()
         history.append(row);print('Water pass complete',json.dumps(row),flush=True)
-        if eligible and val<best_loss:
+        if eligible and val<best_loss and (not final_pass_only or epoch==cfg['epochs']):
             best_loss=val;best_epoch=epoch;best_state={n:v.detach().cpu().clone() for n,v in parent.model.features.state_dict().items()}
         (folder/'history.json').write_text(json.dumps(history,indent=2)+'\n')
     if best_state is None:raise RuntimeError('No trained checkpoint updated all manual positives within the fixed budget.')
@@ -103,7 +104,15 @@ def train_water(parent,records,folder,source,config=None):
               'batchnorm_buffers_unchanged':tensor_hash(batchnorm_buffers(parent.model.features))==bn,
               'changed_tensor_l2_norms':changes,'changed_convolution_tensors':{n:v for n,v in changes.items() if before[n].ndim==4},
               'selected_positive_update_coverage':history[best_epoch-1]['positive_update_coverage'],
-              'source':source,'note':'Starts from preserved synthetic parent. Manual native-radius objects and synthetic replay update weights. Real-frame recovery is training diagnostics; separate synthetic scenes choose weights and thresholds.'}
+              'source':source,'note':'Starts from the preserved parent encoder. Manual native-radius objects and synthetic replay update weights. Real-frame recovery is training diagnostics. '+
+              ('Uses the fixed final pass after complete update coverage; separate synthetic validation is reported, and synthetic calibration chooses thresholds.' if final_pass_only else
+               'Separate synthetic validation chooses weights, and synthetic calibration chooses thresholds.')}
+    if hasattr(fit,'negative_coverage'):
+        metadata['selected_center_negative_update_coverage']=history[best_epoch-1]['center_negative_update_coverage']
+    if final_pass_only:
+        metadata.update(checkpoint_selection='Fixed final training pass after complete positive/invalid-center update coverage.',
+                        selected_validation_loss=best_loss,
+                        minimum_validation_loss_across_all_passes=min(r['validation_loss'] for r in history))
     if not metadata['changed_convolution_tensors'] or not metadata['frozen_prefix_unchanged'] or not metadata['batchnorm_buffers_unchanged']:
         raise RuntimeError('Water adaptation violated the actual-update/frozen-layer contract.')
     save_checkpoint(folder/'encoder.pt',parent,metadata)

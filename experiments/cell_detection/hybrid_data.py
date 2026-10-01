@@ -72,7 +72,7 @@ def check_real_manifest(manifest,split_manifest=None):
     return scenes
 
 
-def augment_training(patch,rng):
+def augment_training(patch,rng,*,translate=True):
     """Bounded transforms retain the entire central measurement circle.
 
     Cropping varies context via an affine scale/translation, not object labels.
@@ -82,7 +82,7 @@ def augment_training(patch,rng):
     if rng.random()<.5:patch=patch[:,::-1]
     if rng.random()<.5:patch=patch[::-1]
     angle=float(rng.choice([0,90,180,270])+rng.uniform(-12,12))
-    scale=float(rng.uniform(.90,1.10));shift=rng.uniform(-3,3,2)
+    scale=float(rng.uniform(.90,1.10));shift=rng.uniform(-3,3,2) if translate else np.zeros(2)
     matrix=cv2.getRotationMatrix2D((47.5,47.5),angle,scale);matrix[:,2]+=shift
     result=cv2.warpAffine(patch,matrix,(96,96),borderMode=cv2.BORDER_REFLECT_101)
     contrast=float(rng.uniform(.85,1.15));exposure=float(rng.uniform(.85,1.15))
