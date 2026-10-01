@@ -1,5 +1,11 @@
 # Real-image training experiment
 
+Status: paused before training. The user identified poor droplet annotations
+and will correct them manually. All current labels are provisional, including
+records currently marked complete. Do not train or evaluate from these labels
+until those corrections have been incorporated and checked. The comparison
+runner remains to be implemented.
+
 This extends the earlier synthetic-only experiment with authorized real-stage
 training. It remains separate from Icescopy. The detector uses one current image
 or decoded video frame, guided by one or two marked cells. Existing cells remain
