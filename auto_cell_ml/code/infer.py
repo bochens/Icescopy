@@ -12,7 +12,12 @@ from PIL import Image, ImageDraw
 import torch
 from torch.nn import functional as F
 
-from model import load_model
+if __package__:
+    from .model import FORMAT, load_model
+    from .image_samples import suppress_centers
+else:
+    from model import FORMAT, load_model
+    from image_samples import suppress_centers
 
 
 def read_rgb(path):
@@ -76,12 +81,7 @@ def detect(model, image, *, size=384, threshold=0.5, device="cpu", batch_size=4)
                 if 0 < radius <= max(width, height):
                     circles.append({"x": cx, "y": cy, "radius": radius,
                                     "confidence": float(scores[b, 0, row, col])})
-    retained = []
-    for circle in sorted(circles, key=lambda c: c["confidence"], reverse=True):
-        if not any(math.hypot(circle["x"] - other["x"], circle["y"] - other["y"])
-                   < 0.5 * min(circle["radius"], other["radius"]) for other in retained):
-            retained.append(circle)
-    return sorted(retained, key=lambda c: (c["y"], c["x"]))
+    return suppress_centers(circles)
 
 
 def run(model_path, image_path, output, *, threshold=0.5, device="cpu", threads=4):
@@ -95,10 +95,12 @@ def run(model_path, image_path, output, *, threshold=0.5, device="cpu", threads=
     start = time.perf_counter()
     circles = detect(model, image, size=meta["crop_size"], threshold=threshold, device=device)
     elapsed = time.perf_counter() - start
-    result = {"setup": meta["setup"], "image_name": Path(image_path).name,
+    result = {"format": FORMAT, "setup": meta["setup"], "image_name": Path(image_path).name,
               "width": image.shape[1], "height": image.shape[0], "threshold": threshold,
               "inference_seconds": elapsed, "count": len(circles), "circles": circles,
-              "evaluation_labels_used": False, "accuracy": None}
+              "evaluation_labels_used": False,
+              "score_meaning": "sigmoid center score, not independently calibrated accuracy",
+              "center_suppression": "Reject weaker centers closer than the smaller radius"}
     prefix.parent.mkdir(parents=True, exist_ok=True)
     destinations[0].write_text(json.dumps(result, indent=2) + "\n")
     preview = Image.fromarray(image)

@@ -182,3 +182,136 @@ def test_existing_output_and_invalid_requests_fail_before_writing(tmp_path):
         with pytest.raises(ValueError):
             data.generate(manifest, "synthetic", output, **arguments)
         assert not output.exists()
+
+
+def test_in_memory_tiles_cover_every_source_pixel_and_expand_count(tmp_path):
+    pixels = np.zeros((75, 91, 3), np.uint8)
+    manifest, circles, _ = _fixture(tmp_path, pixels)
+    files_before = {path.name for path in tmp_path.iterdir()}
+    views = data.TrainingViews(manifest, "synthetic", size=32, count=1, seed=8)
+    assert len(views) == views.count == views.tile_count + len(circles) == 12
+    assert views.requested_count == 1
+    for epoch in (0, 2):
+        views.set_epoch(epoch)
+        coverage = np.zeros(pixels.shape[:2], bool)
+        for index, (x, y) in enumerate(views.tiles):
+            image, moved, valid = views[index]
+            assert image.shape == (32, 32, 3) and image.dtype == np.uint8
+            assert valid.dtype == bool and valid.all()
+            np.testing.assert_allclose(moved, circles - np.array([x, y, 0]))
+            coverage[y:y + 32, x:x + 32] |= valid
+        assert coverage.all()
+    assert files_before == {path.name for path in tmp_path.iterdir()}
+
+
+def test_in_memory_views_epoch_determinism_and_whole_circle_geometry(tmp_path):
+    manifest, circles, _ = _fixture(tmp_path)
+    first = data.TrainingViews(manifest, "synthetic", size=64, count=12, seed=19)
+    second = data.TrainingViews(manifest, "synthetic", size=64, count=12, seed=19)
+    for index in range(len(first)):
+        for actual, expected in zip(first[index], second[index]):
+            np.testing.assert_array_equal(actual, expected)
+    changed = first[first.tile_count]
+    first.set_epoch(1)
+    second.set_epoch(1)
+    assert not np.array_equal(changed[1], first[first.tile_count][1])
+    positions = []
+    for focus in range(len(circles)):
+        image, moved, valid = first[first.tile_count + focus]
+        for actual, expected in zip((image, moved, valid), second[second.tile_count + focus]):
+            np.testing.assert_array_equal(actual, expected)
+        assert len(moved) == len(circles)
+        x, y, radius = moved[focus]
+        assert radius <= x <= 63 - radius and radius <= y <= 63 - radius
+        assert data.targets(moved, valid)["center"][0, int(y // 4), int(x // 4)] == 1
+        scale = moved[:, 2] / circles[:, 2]
+        np.testing.assert_allclose(scale, scale[0])
+        assert 0.75 <= scale[0] <= 1.25
+        np.testing.assert_allclose(np.linalg.norm(moved[1, :2] - moved[0, :2]),
+                                   scale[0] * np.linalg.norm(circles[1, :2] - circles[0, :2]))
+        assert not image[~valid].any()
+        positions.append([x, y])
+    assert np.ptp(positions, axis=0).min() > 2
+
+
+def test_in_memory_padding_and_all_known_background_remain_valid(tmp_path, monkeypatch):
+    manifest, circles, pixels = _fixture(tmp_path)
+    original_open = Path.open
+
+    def guarded_open(path, *args, **kwargs):
+        assert "evaluation" not in path.parts
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+    views = data.TrainingViews(manifest, "synthetic", size=128, count=1)
+    image, moved, valid = views[0]
+    assert valid[:64, :96].all()
+    assert not valid[64:].any() and not valid[:, 96:].any()
+    assert not image[~valid].any()
+    np.testing.assert_allclose(moved, circles)
+    target = data.targets(moved, valid)
+    assert target["valid"].sum() == (64 // 4) * (96 // 4)
+    assert target["center"].sum() == len(circles)
+    assert np.count_nonzero(target["valid"] - target["center"]) == 384 - len(circles)
+
+
+def test_in_memory_view_input_and_epoch_validation(tmp_path):
+    manifest, _, _ = _fixture(tmp_path)
+    for options in ({"count": 0}, {"size": 31}, {"size": 33}, {"seed": -1}):
+        with pytest.raises(ValueError):
+            data.TrainingViews(manifest, "synthetic", **options)
+    views = data.TrainingViews(manifest, "synthetic", size=64, count=1)
+    for epoch in (-1, 0.5, True):
+        with pytest.raises(ValueError):
+            views.set_epoch(epoch)
+    with pytest.raises(IndexError):
+        views[len(views)]
+
+
+def test_synthetic_fit_reader_uses_verified_local_pngs_only(tmp_path):
+    manifest, circles, pixels = _fixture(tmp_path)
+    image_path = tmp_path / "fit-local.png"
+    Image.fromarray(pixels).save(image_path)
+    labels = tmp_path / "labels.json"
+    fit = {"id": "fit-local", "split": "fit", "recording": "synthetic-recording",
+           "complete_labels": True,
+           "source": "/must/not/be/read/stale.png", "width": 96, "height": 64,
+           "sha256": data._hash(image_path),
+           "targets": [{"x": x, "y": y, "radius": r} for x, y, r in circles]}
+    labels.write_text(json.dumps({"scenes": [fit, {"id": "missing", "split": "validation"},
+                                            {"id": "missing-too", "split": "calibration"}]}))
+    scenes = data.read_synthetic_fit(labels)
+    assert len(scenes) == 1
+    np.testing.assert_array_equal(scenes[0]["image"], pixels)
+    np.testing.assert_allclose(scenes[0]["circles"], circles)
+    assert scenes[0]["source"]["split"] == "fit"
+    assert scenes[0]["source"]["image_sha256"] == data._hash(image_path)
+    fit["sha256"] = "wrong"
+    labels.write_text(json.dumps({"scenes": [fit]}))
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        data.read_synthetic_fit(labels)
+
+
+def test_synthetic_fit_reader_rejects_incomplete_labels_before_image_read(tmp_path):
+    labels = tmp_path / "labels.json"
+    for value in (False, None, 1):
+        labels.write_text(json.dumps({"scenes": [{"id": "absent", "split": "fit",
+                                                 "complete_labels": value}]}))
+        with pytest.raises(ValueError, match="complete_labels=true"):
+            data.read_synthetic_fit(labels)
+    labels.write_text(json.dumps({"scenes": [{"id": "absent", "split": "fit"}]}))
+    with pytest.raises(ValueError, match="complete_labels=true"):
+        data.read_synthetic_fit(labels)
+
+
+def test_original_training_requires_marked_circles(tmp_path):
+    manifest, _, _ = _fixture(tmp_path)
+    session = tmp_path / "training.icescopy"
+    with zipfile.ZipFile(session) as archive:
+        payload = json.loads(archive.read("session.json"))
+    payload["cell_items"] = []
+    payload["keyframe_cell_items_dict"] = {}
+    with zipfile.ZipFile(session, "w") as archive:
+        archive.writestr("session.json", json.dumps(payload))
+    with pytest.raises(ValueError, match="marked circles"):
+        data.TrainingViews(manifest, "synthetic")

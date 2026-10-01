@@ -168,6 +168,162 @@ def _lighting(image, params, valid):
     return result
 
 
+def _tile_starts(length, size):
+    last = max(0, length - size)
+    starts = list(range(0, last + 1, size))
+    if starts[-1] != last:
+        starts.append(last)
+    return starts
+
+
+class TrainingViews:
+    """Make training views in memory from one original marked recording.
+
+    Every epoch includes unrotated, scale-one tiles covering every source pixel,
+    followed by one randomly positioned whole-circle view per manual circle.
+    The actual ``count`` is max(requested count, tile count + circle count).
+    Remaining views sample marked circles or source background. No files are
+    written and no evaluation files are read. Calling ``set_epoch`` changes
+    random views and lighting deterministically without caching derived images.
+    """
+
+    def __init__(self, manifest, setup, *, size=256, count=240, seed=0):
+        for name, value in (("size", size), ("count", count), ("seed", seed)):
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+                raise ValueError(f"{name} must be an integer")
+        if size < 32 or size % 4 or count < 1 or seed < 0:
+            raise ValueError("size must be >=32 and divisible by 4; count positive; seed nonnegative")
+        self.setup, self.size, self.seed = setup, int(size), int(seed)
+        self.requested_count, self.epoch = int(count), 0
+        self._image, self._circles, self.source = _read_source(Path(manifest).resolve(), setup)
+        if len(self._circles) == 0:
+            raise ValueError("Original training recording requires at least one marked circle")
+        height, width = self._image.shape[:2]
+        self.tiles = tuple((x, y) for y in _tile_starts(height, self.size)
+                           for x in _tile_starts(width, self.size))
+        self.tile_count, self.circle_count = len(self.tiles), len(self._circles)
+        self.count = max(self.requested_count, self.tile_count + self.circle_count)
+        # Keep the scale range at .75..1.25 rather than shrinking large circles
+        # below the documented range merely to fit a too-small crop.
+        if np.any(self._circles[:, 2] * 0.75 + 4 > (self.size - 1) / 2):
+            raise ValueError("View size is too small for a whole source circle at scale .75")
+        for x, y in self.tiles:
+            matrix = np.array([[1, 0, -x], [0, 1, -y]], dtype=np.float64)
+            targets(transform_circles(self._circles, matrix),
+                    _valid_mask(matrix, self._image.shape, self.size))
+
+    def __len__(self):
+        return self.count
+
+    def set_epoch(self, epoch):
+        if isinstance(epoch, bool) or not isinstance(epoch, (int, np.integer)) or epoch < 0:
+            raise ValueError("epoch must be a nonnegative integer")
+        self.epoch = int(epoch)
+
+    def __getitem__(self, index):
+        if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
+            raise TypeError("view index must be an integer")
+        index = int(index)
+        if index < 0:
+            index += self.count
+        if not 0 <= index < self.count:
+            raise IndexError(index)
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, index]))
+        if index < self.tile_count:
+            x, y = self.tiles[index]
+            matrix = np.array([[1, 0, -x], [0, 1, -y]], dtype=np.float64)
+            circles = transform_circles(self._circles, matrix)
+        else:
+            focus = index - self.tile_count if index < self.tile_count + self.circle_count else (
+                int(rng.integers(self.circle_count)) if rng.random() < 0.8 else None
+            )
+            matrix, circles = self._random_transform(rng, focus)
+        pixels, valid = _warp(self._image, matrix, self.size)
+        lighting = {"brightness": float(rng.uniform(0.9, 1.1)),
+                    "contrast": float(rng.uniform(0.9, 1.1)),
+                    "gamma": float(rng.uniform(0.95, 1.05)),
+                    "channel_gain": [1.0, 1.0, 1.0]}
+        return _lighting(pixels, lighting, valid), circles, valid
+
+    def _random_transform(self, rng, focus):
+        height, width = self._image.shape[:2]
+        max_scale = 1.25 if focus is None else min(
+            1.25, (self.size - 9) / (2 * self._circles[focus, 2]))
+        for _ in range(100):
+            theta = float(rng.uniform(0, 2 * math.pi))
+            flips = rng.choice([-1, 1], size=2)
+            scale = float(rng.uniform(0.75, max_scale))
+            linear = scale * np.array([[math.cos(theta), -math.sin(theta)],
+                                       [math.sin(theta), math.cos(theta)]]) @ np.diag(flips)
+            if focus is None:
+                anchor = rng.uniform([0, 0], [width - 1, height - 1])
+                destination = rng.uniform(0.2 * self.size, 0.8 * self.size, size=2)
+            else:
+                anchor = self._circles[focus, :2]
+                margin = self._circles[focus, 2] * scale + 4
+                destination = rng.uniform(margin, self.size - 1 - margin, size=2)
+            matrix = np.column_stack((linear, destination - linear @ anchor))
+            circles = transform_circles(self._circles, matrix)
+            valid = _valid_mask(matrix, self._image.shape, self.size)
+            try:
+                target = targets(circles, valid)
+            except ValueError as exc:
+                if "share target cell" in str(exc):
+                    continue
+                raise
+            if focus is not None:
+                x, y, _ = circles[focus]
+                if not target["valid"][0, int(y // 4), int(x // 4)]:
+                    continue
+            return matrix, circles
+        raise ValueError("Could not make a valid view without center collisions after 100 attempts")
+
+
+def read_synthetic_fit(labels_path):
+    """Read only local synthetic fit PNGs, ignoring historical source paths.
+
+    ``labels.json`` contains a ``scenes`` list whose rows name ``id``, ``split``,
+    ``sha256``, ``width``, ``height``, ``recording``, and x/y/radius ``targets``.
+    Each fit row must declare ``complete_labels: true`` before its unmarked
+    pixels can be negatives. The PNG must be adjacent as ``<id>.png``.
+    Validation and calibration PNGs are never opened. This writes no files.
+    """
+    labels_path = Path(labels_path).resolve()
+    payload = json.loads(labels_path.read_text())
+    manifest_hash = _hash(labels_path)
+    scenes, seen = [], set()
+    for row in payload["scenes"]:
+        if row["split"] != "fit":
+            continue
+        if row.get("complete_labels") is not True:
+            raise ValueError("Synthetic fit scenes require complete_labels=true")
+        scene_id = row["id"]
+        if (not isinstance(scene_id, str) or not scene_id or Path(scene_id).name != scene_id
+                or scene_id in (".", "..") or scene_id in seen):
+            raise ValueError("Synthetic fit scene IDs must be unique local filenames")
+        seen.add(scene_id)
+        image_path = labels_path.parent / f"{scene_id}.png"
+        image_hash = _hash(image_path)
+        if image_hash != row["sha256"]:
+            raise ValueError(f"Synthetic fit image SHA-256 mismatch: {scene_id}")
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None or image.shape[:2] != (row["height"], row["width"]):
+            raise ValueError(f"Synthetic fit image dimensions do not match: {scene_id}")
+        circles = _circles_array([[item["x"], item["y"], item["radius"]] for item in row["targets"]])
+        height, width = image.shape[:2]
+        if np.any((circles[:, 0] < 0) | (circles[:, 0] >= width) |
+                  (circles[:, 1] < 0) | (circles[:, 1] >= height)):
+            raise ValueError(f"Synthetic target center is outside its image: {scene_id}")
+        scenes.append({"image": cv2.cvtColor(image, cv2.COLOR_BGR2RGB), "circles": circles,
+                       "source": {"recording_id": row["recording"], "scene_id": scene_id,
+                                  "image": image_path.name, "image_sha256": image_hash,
+                                  "manifest_sha256": manifest_hash, "split": "fit",
+                                  "complete_labels": True, "synthetic": True}})
+    if not scenes:
+        raise ValueError("Synthetic labels contain no fit scenes")
+    return scenes
+
+
 def _plan(image, circles, size, count, seed):
     height, width = image.shape[:2]
     x, y, radius = circles.T

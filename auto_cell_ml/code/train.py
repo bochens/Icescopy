@@ -1,4 +1,4 @@
-"""Train one setup using the PNGs and circle labels saved by data.py."""
+"""Train a small setup CNN from dense labels on in-memory augmented original views."""
 from __future__ import annotations
 
 import argparse
@@ -9,73 +9,65 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from data import targets
-from model import DropletNet, loss
+if __package__:
+    from . import data
+    from .model import DropletNet, FORMAT, export_onnx, loss
+else:
+    import data
+    from model import DropletNet, FORMAT, export_onnx, loss
 
 
-class CropDataset(Dataset):
-    def __init__(self, manifest):
+class ViewDataset(Dataset):
+    def __init__(self, manifest, setup, *, size=256, views=240, seed=0):
         self.path = Path(manifest).resolve()
-        self.meta = json.loads(self.path.read_text())
-        if self.meta.get("split") != "train" or not self.meta.get("setup"):
-            raise ValueError("Expected a training crop manifest for one named setup")
-        self.rows = self.meta["samples"]
-        if not self.rows:
-            raise ValueError("The training crop manifest is empty")
-        self.recording_id = self.meta["source"]["recording_id"]
-        if any(row["recording_id"] != self.recording_id for row in self.rows):
-            raise ValueError("This run must contain only its selected training recording")
+        self.views = data.TrainingViews(self.path, setup, size=size, count=views, seed=seed)
+        self.source, self.setup, self.size = self.views.source, self.views.setup, self.views.size
 
     def __len__(self):
-        return len(self.rows)
+        return len(self.views)
+
+    def set_epoch(self, epoch):
+        self.views.set_epoch(epoch)
 
     def __getitem__(self, index):
-        row = self.rows[index]
-        image = np.array(Image.open(self.path.parent / row["image"]).convert("RGB"))
-        valid = np.array(Image.open(self.path.parent / row["valid_mask"])) > 0
-        labels = json.loads((self.path.parent / row["labels"]).read_text())
-        if (labels.get("split") != "train" or labels.get("setup") != self.meta["setup"]
-                or labels.get("recording_id") != self.recording_id):
-            raise ValueError("Crop labels do not belong to this training recording")
-        if image.shape[:2] != valid.shape or image.shape[0] != image.shape[1]:
-            raise ValueError("A training crop and its padding mask must have the same square dimensions")
-        circles = np.asarray(labels["circles"], dtype=np.float64).reshape(-1, 3)
-        expected = targets(circles, valid, stride=DropletNet.stride)
+        image, circles, valid = self.views[index]
+        target = data.targets(circles, valid, stride=DropletNet.stride)
         return torch.from_numpy(image.transpose(2, 0, 1).copy()).float() / 255, {
-            name: torch.from_numpy(array) for name, array in expected.items()}
+            name: torch.from_numpy(array) for name, array in target.items()}
 
 
-def fit(manifest, output, pretrained, *, epochs=20, batch_size=8, seed=0, device="cpu", threads=4):
-    if epochs < 1 or batch_size < 1 or threads < 1:
-        raise ValueError("Epochs, batch size, and thread count must be positive")
-    output = Path(output)
+def fit(manifest, output, *, setup, epochs=20, batch_size=8, seed=0, device="cpu", threads=4,
+        size=256, views=240, onnx=False):
+    if min(epochs, batch_size, threads, views) < 1 or seed < 0 or size < 32 or size % 4:
+        raise ValueError("Counts must be positive, seed nonnegative, and size >=32 divisible by 4")
+    output = Path(output).resolve()
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
     torch.set_num_threads(threads)
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-    dataset = CropDataset(manifest)
+    start = time.perf_counter()
+    dataset = ViewDataset(manifest, setup, size=size, views=views, seed=seed)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0,
                         generator=torch.Generator().manual_seed(seed))
-    model = DropletNet(pretrained).to(device).train()
-    encoder_ids = {id(p) for p in model.encoder.parameters()}
-    optimizer = torch.optim.AdamW([
-        {"params": model.encoder.parameters(), "lr": 0.0002},
-        {"params": [p for p in model.parameters() if id(p) not in encoder_ids], "lr": 0.001},
-    ], weight_decay=0.0001)
-    output.mkdir(parents=True)
-    start = time.perf_counter()
+    model = DropletNet().to(device).train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)
+    output.mkdir(parents=True, exist_ok=False)
     history = []
     for epoch in range(epochs):
-        sums = {k: 0.0 for k in ("total", "center", "offsets", "radius")}
+        dataset.set_epoch(epoch)
+        epoch_start = time.perf_counter()
+        sums = {key: 0.0 for key in ("total", "center", "offsets", "radius")}
+        valid_cells = positive_cells = 0
         for image, target in loader:
+            valid_cells += int(target["valid"].sum())
+            positive_cells += int((target["center"] * target["valid"]).sum())
             image = image.to(device)
-            target = {k: v.to(device) for k, v in target.items()}
+            target = {key: value.to(device) for key, value in target.items()}
             optimizer.zero_grad(set_to_none=True)
             terms = loss(model(image), target)
             if not torch.isfinite(terms["total"]):
@@ -83,41 +75,65 @@ def fit(manifest, output, pretrained, *, epochs=20, batch_size=8, seed=0, device
             terms["total"].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
             optimizer.step()
-            for k, value in terms.items():
-                sums[k] += float(value.detach()) * len(image)
-        row = {k: v / len(dataset) for k, v in sums.items()}
-        row.update(epoch=epoch + 1, seconds=time.perf_counter() - start)
+            for key, value in terms.items():
+                sums[key] += float(value.detach()) * len(image)
+        row = {key: value / len(dataset) for key, value in sums.items()}
+        row.update(epoch=epoch + 1, epoch_seconds=time.perf_counter() - epoch_start,
+                   seconds=time.perf_counter() - start, positive_grid_cells=positive_cells,
+                   negative_grid_cells=valid_cells - positive_cells, valid_grid_cells=valid_cells)
         history.append(row)
-        (output / "training.json").write_text(json.dumps(history, indent=2) + "\n")
+        (output / "training.json").write_text(json.dumps(history, indent=2, allow_nan=False) + "\n")
         print(f"epoch {epoch + 1}/{epochs} loss={row['total']:.4f} center={row['center']:.4f} "
-              f"geometry={row['offsets'] + row['radius']:.4f} elapsed={row['seconds']:.1f}s", flush=True)
-    state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
-    metadata = {"format": "icescopy-droplet-net-v1", "state_dict": state,
-                "setup": dataset.meta.get("setup"), "epochs": epochs, "batch_size": batch_size,
-                "seed": seed, "crop_size": int(image.shape[-1]), "stride": model.stride,
-                "parameters": sum(p.numel() for p in model.parameters()),
+              f"geometry={row['offsets'] + row['radius']:.4f} "
+              f"positive={positive_cells} negative={valid_cells - positive_cells} "
+              f"elapsed={row['seconds']:.1f}s", flush=True)
+    metadata = {"format": FORMAT, "setup": setup, "source": dataset.source,
+                "epochs": epochs, "batch_size": batch_size, "seed": seed,
+                "crop_size": dataset.size, "stride": model.stride,
+                "requested_views": views, "views_per_epoch": len(dataset),
+                "coverage_tile_views": dataset.views.tile_count,
+                "coverage_circle_views": dataset.views.circle_count,
+                "parameters": sum(parameter.numel() for parameter in model.parameters()),
                 "training_manifest_sha256": hashlib.sha256(dataset.path.read_bytes()).hexdigest(),
-                "pretrained_sha256": hashlib.sha256(Path(pretrained).read_bytes()).hexdigest(),
-                "training_seconds": time.perf_counter() - start,
+                "pretrained": False, "training_seconds": time.perf_counter() - start,
+                "device": device, "threads": threads,
+                "optimizer": {"name": "AdamW", "learning_rate": 0.001, "weight_decay": 0.0001},
+                "supervision": "Every full valid stride4 block is positive at a marked center or negative; padding is unknown",
                 "evaluation_used_for_training": False}
-    torch.save(metadata, output / "model.pt")
-    print(f"Saved {output / 'model.pt'} ({metadata['parameters']:,} parameters)", flush=True)
-    return output / "model.pt"
+    state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
+    model_path = output / "model.pt"
+    torch.save({**metadata, "state_dict": state}, model_path)
+    metadata["model_sha256"] = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    metadata["model_bytes"] = model_path.stat().st_size
+    if onnx:
+        try:
+            export_onnx(model, output / "model.onnx", size=dataset.size)
+            metadata["onnx_export"] = "saved model.onnx"
+        except RuntimeError as exc:
+            metadata["onnx_export"] = str(exc)
+            print(str(exc), flush=True)
+    (output / "metadata.json").write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n")
+    print(f"Saved {model_path} ({metadata['parameters']:,} parameters)", flush=True)
+    return model_path
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--manifest", type=Path, required=True)
-    p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--pretrained", type=Path,
-                   default=Path(__file__).resolve().parents[1] / "pretrained/mobilenet_v3_small-047dcff4.pth")
-    p.add_argument("--epochs", type=int, default=20)
-    p.add_argument("--batch-size", type=int, default=8)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--threads", type=int, default=4)
-    p.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
-    args = p.parse_args()
-    fit(**vars(args))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--setup", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--size", type=int, default=256)
+    parser.add_argument("--views", type=int, default=240)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
+    parser.add_argument("--onnx", action="store_true", help="Export if the optional onnx package is available")
+    try:
+        fit(**vars(parser.parse_args()))
+    except (ValueError, OSError, RuntimeError) as exc:
+        parser.exit(2, f"{exc}\n")
 
 
 if __name__ == "__main__":
