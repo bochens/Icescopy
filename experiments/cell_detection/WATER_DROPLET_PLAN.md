@@ -2,6 +2,12 @@
 
 ## Current work: separate training regions and a pretrained comparison
 
+Current direction: focus on the custom joint model. The unchanged FamNet
+comparison is complete and its files are preserved. The user stopped the
+proposed FamNet fine-tuning before any training or optimizer update began.
+Do not start that experiment. Investigate the custom model's false detections
+on reviewed empty wells using fitting and validation regions before another run.
+
 The first joint model reduced some extra selections on PKU but performed worse
 on PCR: only 25 of 158 remaining droplets were accurately centered in the first
 two-example trial, with 61 additional selections. Do not adopt that model.
