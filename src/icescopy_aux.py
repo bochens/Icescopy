@@ -1322,21 +1322,21 @@ class PreferencesDialog(QDialog):
 
     def build_ml_page(self):
         path = str(self.pref_value("DropletModelPath") or "")
-        self.droplet_model_source_field = QComboBox()
-        self.droplet_model_source_field.addItem("Bundled model", "bundled")
-        self.droplet_model_source_field.addItem("Model file", "external")
-        self.droplet_model_source_field.setFixedWidth(self.preference_field_width)
-        self.droplet_model_source_field.setCurrentIndex(1 if path else 0)
-        self.droplet_model_path_field = QLineEdit(path)
-        self.droplet_model_path_field.setReadOnly(True)
-        self.droplet_model_path_field.setMinimumWidth(0)
-        self.droplet_model_path_field.setToolTip(path)
+        self.droplet_model_field = QComboBox()
+        self.droplet_model_field.addItem("Bundled model", "")
+        self.droplet_model_field.setMinimumWidth(0)
+        self.droplet_model_field.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.droplet_model_field.setMinimumContentsLength(18)
+        if path:
+            self.droplet_model_field.addItem(Path(path).name, path)
+            self.droplet_model_field.setItemData(1, path, Qt.ToolTipRole)
+            self.droplet_model_field.setCurrentIndex(1)
         self.droplet_model_browse_button = QPushButton("Browse...")
         self.droplet_model_browse_button.clicked.connect(self.browse_droplet_model)
         file_widget = QWidget()
         file_layout = QHBoxLayout(file_widget)
         file_layout.setContentsMargins(0, 0, 0, 0)
-        file_layout.addWidget(self.droplet_model_path_field, 1)
+        file_layout.addWidget(self.droplet_model_field, 1)
         file_layout.addWidget(self.droplet_model_browse_button)
         file_widget.setMaximumWidth(self.preference_help_width)
         self.droplet_model_info_label = QLabel("Model file selected" if path else "Bundled model")
@@ -1345,20 +1345,17 @@ class PreferencesDialog(QDialog):
         self.droplet_model_info_label.setMaximumWidth(self.preference_help_width)
         self.ml_page = self.build_preferences_page(
             "ML", "Choose the machine learning model used for droplet detection.",
-            [("Droplet Detection", [("Model", self.droplet_model_source_field),
-                                   ("Model File", file_widget),
+            [("Droplet Detection", [("Model", file_widget),
                                    ("Name and Version", self.droplet_model_info_label)])],
         )
         help_label = self.make_help_label("Browse for a portable .icescopy-model file. Changes take effect after Save.")
         self.ml_page.content_layout.insertWidget(self.ml_page.content_layout.count() - 1, help_label)
-        self.droplet_model_source_field.currentIndexChanged.connect(self.update_ml_model_choice)
+        self.droplet_model_field.currentIndexChanged.connect(self.update_ml_model_choice)
         self.update_ml_model_choice()
         return self.ml_page
 
     def update_ml_model_choice(self):
-        external = self.droplet_model_source_field.currentData() == "external"
-        self.droplet_model_path_field.setEnabled(external)
-        self.droplet_model_browse_button.setEnabled(external)
+        self.droplet_model_field.setToolTip(self.selected_droplet_model_path())
         if self.pages.currentWidget() is self.ml_page:
             self.refresh_ml_model_info()
 
@@ -1367,12 +1364,8 @@ class PreferencesDialog(QDialog):
             self.refresh_ml_model_info()
 
     def selected_droplet_model_path(self):
-        if self.droplet_model_source_field.currentData() == "bundled":
-            return ""
-        path = self.droplet_model_path_field.text().strip()
-        if not path:
-            raise ValueError("Choose an external .icescopy-model file with Browse, or select the bundled model.")
-        return str(Path(path).expanduser().resolve())
+        path = self.droplet_model_field.currentData() or ""
+        return str(Path(path).expanduser().resolve()) if path else ""
 
     @staticmethod
     def read_droplet_model_config(path, *, validate=False):
@@ -1395,7 +1388,7 @@ class PreferencesDialog(QDialog):
 
     def browse_droplet_model(self):
         path, _filter = QFileDialog.getOpenFileName(
-            self, "Load Droplet Model", self.droplet_model_path_field.text(),
+            self, "Load Droplet Model", self.selected_droplet_model_path(),
             "Icescopy model (*.icescopy-model);;All files (*)",
         )
         if not path:
@@ -1406,9 +1399,14 @@ class PreferencesDialog(QDialog):
         except Exception as error:
             QMessageBox.warning(self, "Load Droplet Model", str(error))
             return
-        self.droplet_model_path_field.setText(path)
-        self.droplet_model_path_field.setToolTip(path)
-        self.droplet_model_source_field.setCurrentIndex(1)
+        self.droplet_model_field.blockSignals(True)
+        if self.droplet_model_field.count() > 1:
+            self.droplet_model_field.removeItem(1)
+        self.droplet_model_field.addItem(Path(path).name, path)
+        self.droplet_model_field.setItemData(1, path, Qt.ToolTipRole)
+        self.droplet_model_field.setCurrentIndex(1)
+        self.droplet_model_field.setToolTip(path)
+        self.droplet_model_field.blockSignals(False)
         self.show_droplet_model_info(config)
 
     def build_sample_metadata_editor(self):

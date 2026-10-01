@@ -51,7 +51,8 @@ class ToolbarModeTests(unittest.TestCase):
 
     def test_detection_star_is_a_one_shot_toolbar_action_in_both_themes(self):
         action = self.window.droplet_tools.detect_action
-        self.assertIn(action, self.window.toolbar.actions())
+        actions = self.window.toolbar.actions()
+        self.assertEqual(actions[actions.index(self.window.edit_tool_action) + 1], action)
         self.assertFalse(action.isCheckable())
         self.assertNotIn(action, self.window.tool_action_group.actions())
         for dark in (False, True):

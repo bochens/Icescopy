@@ -148,13 +148,13 @@ class PreferencesDialogTests(unittest.TestCase):
             with patch("icescopy_aux.QFileDialog.getOpenFileName", return_value=(str(path), "")):
                 dialog.browse_droplet_model()
             validate.assert_called_once_with(external)
-            self.assertEqual(dialog.droplet_model_source_field.currentData(), "external")
+            self.assertEqual(dialog.droplet_model_field.currentData(), str(path))
             self.assertIn("Version 2.3.0", dialog.droplet_model_info_label.text())
             dialog.save_preferences()
             self.assertEqual(dialog.result(), QDialog.Accepted)
             self.assertEqual(parse(user_preferences_path()).findtext("DropletModelPath"), str(path))
             reopened = self.dialog(category=7)
-            self.assertEqual(reopened.droplet_model_path_field.text(), str(path))
+            self.assertEqual(reopened.selected_droplet_model_path(), str(path))
             self.assertIn("Laboratory model", reopened.droplet_model_info_label.text())
             self.assertIn("Version 2.3.0", reopened.droplet_model_info_label.text())
 
@@ -176,8 +176,8 @@ class PreferencesDialogTests(unittest.TestCase):
         with patch("icescopy_neural_detection.load_model", return_value=config), patch("icescopy_neural_detection.validate_model", side_effect=ValueError("Incompatible model graphs")), patch("icescopy_aux.QFileDialog.getOpenFileName", return_value=(str(user_preferences_path().parent / "bad.icescopy-model"), "")), patch("icescopy_aux.QMessageBox.warning") as warning:
             dialog = self.dialog(category=7)
             dialog.browse_droplet_model()
-        self.assertEqual(dialog.droplet_model_source_field.currentData(), "bundled")
-        self.assertEqual(dialog.droplet_model_path_field.text(), "")
+        self.assertEqual(dialog.droplet_model_field.currentData(), "")
+        self.assertEqual(dialog.selected_droplet_model_path(), "")
         warning.assert_called_once()
         self.assertIn("Incompatible model graphs", warning.call_args.args[2])
 
@@ -194,14 +194,14 @@ class PreferencesDialogTests(unittest.TestCase):
 
         with patch("icescopy_neural_detection.load_model", side_effect=load):
             dialog = self.dialog(category=7)
-            self.assertEqual(dialog.droplet_model_source_field.currentData(), "external")
-            self.assertEqual(dialog.droplet_model_path_field.text(), str(path))
+            self.assertEqual(dialog.droplet_model_field.currentData(), str(path))
+            self.assertEqual(dialog.selected_droplet_model_path(), str(path))
             self.assertIn("not found", dialog.droplet_model_info_label.text())
             with patch("icescopy_aux.QMessageBox.warning") as warning:
                 dialog.save_preferences()
             warning.assert_called_once()
             self.assertEqual(user_preferences_path().read_bytes(), before)
-            dialog.droplet_model_source_field.setCurrentIndex(0)
+            dialog.droplet_model_field.setCurrentIndex(0)
             dialog.save_preferences()
         self.assertEqual(dialog.result(), QDialog.Accepted)
         self.assertEqual(parse(user_preferences_path()).findtext("DropletModelPath"), "")

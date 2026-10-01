@@ -58,8 +58,8 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.window.mark_session_clean()
         path = (self.folder / "selected.icescopy-model").resolve()
         dialog = self.dialog()
-        dialog.droplet_model_path_field.setText(str(path))
-        dialog.droplet_model_source_field.setCurrentIndex(1)
+        dialog.droplet_model_field.addItem(path.name, str(path))
+        dialog.droplet_model_field.setCurrentIndex(1)
         config = SimpleNamespace(name="Selected detector", version="3.0.0")
         with patch("icescopy_neural_detection.load_model", return_value=config):
             self.save(dialog)

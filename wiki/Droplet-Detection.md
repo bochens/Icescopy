@@ -18,7 +18,7 @@ Detection uses the underlying frame and its image coordinates, so display zoom, 
 
 ## Choose a model
 
-Open **Preferences → ML**. Use **Bundled model** for the included **General droplets 1.0.0**, or choose **Model file** and browse to an `.icescopy-model` file. Save to apply the choice. Cancel leaves the previous choice in place.
+Open **Preferences → ML**. Use **Bundled model** for the included **General droplets 1.0.0**, or click **Browse…** beside the model selector to load an `.icescopy-model` file. The loaded file appears in the same selector. Save to apply the choice. Cancel leaves the previous choice in place.
 
 Model versions are independent of Icescopy versions. A compatible replacement can be loaded without reinstalling the app. Keep the selected file in its location; if it is moved, select it again. An unreadable or incompatible custom model produces an error instead of silently switching to the bundled model.
 
