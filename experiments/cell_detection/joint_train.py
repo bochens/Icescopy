@@ -20,11 +20,15 @@ from neural_model import batchnorm_buffers, changed_tensors, prefix_state, tenso
 
 
 CONFIG = {'seed': 71003, 'threads': 4, 'passes': 4, 'steps_per_pass': 60,
-          'batch_tiles': 4, 'real_tiles_per_instrument': 120, 'synthetic_fit_tiles_per_scene': 30,
+          'batch_tiles': 4, 'real_tiles_per_instrument': 240, 'synthetic_fit_tiles_per_scene': 30,
           'synthetic_validation_tiles_per_scene': 10, 'backbone_learning_rate': 5e-5,
           'real_validation_tiles_per_scene': 24,
           'decoder_learning_rate': 2e-4, 'weight_decay': 1e-4, 'negative_loss_weight': 2.,
           'supervision_version': SUPERVISION_VERSION, 'reviewed_negative_bce_weight': 1.,
+          'augmentation_version': 2,
+          'padding': 'Constant ImageNet mean RGB; outside-source pixels and halo excluded from loss. No mirrored objects.',
+          'augmentation': 'Uniform rotation -180..180 degrees, isotropic scale0.75..1.25, full-core crop translation, flips and bounded lighting/blur.',
+          'tile_sampling': 'Cover labels first, then visit each distinct crop before replaying it.',
           'offset_loss_weight': 1., 'radius_loss_weight': .1, 'gradient_clip': 5.,
           'selection': 'Lowest validation loss, averaged equally over domains and scenes, after all fitting positives receive updates.',
           'conditioning': 'Actual shared-image features pooled at one or two supplied positive circles.',
@@ -197,9 +201,11 @@ def main():
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--cache-only', action='store_true')
     parser.add_argument('--prepared-cache', type=Path)
+    parser.add_argument('--new-cache', type=Path, help='Save a new tile cache with the training data; must not exist.')
     parser.add_argument('--passes', type=int, default=CONFIG['passes'])
     args = parser.parse_args(); cfg = dict(CONFIG)
     if args.passes < 1: parser.error('--passes must be a positive integer.')
+    if args.prepared_cache and args.new_cache: parser.error('Use either a prepared cache or a new cache path.')
     cfg['passes'] = args.passes
     torch.set_num_threads(cfg['threads']); cv2.setNumThreads(cfg['threads']); torch.manual_seed(cfg['seed'])
     manifest, scenes = active_scenes(args.real_labels, args.synthetic_labels)
@@ -216,7 +222,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output/'config.json').write_text(json.dumps(cfg, indent=2)+'\n')
     network = JointNetwork(args.parent_checkpoint)
-    folder = args.prepared_cache or args.output/'tile-cache'
+    folder = args.prepared_cache or args.new_cache or args.output/'tile-cache'
     if args.prepared_cache:
         provenance = json.loads((folder/'cache-source.json').read_text())
         old_config = {k: v for k, v in provenance['config'].items() if k != 'passes'}

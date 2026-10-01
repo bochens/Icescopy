@@ -72,5 +72,18 @@ class SpatialSplitTests(unittest.TestCase):
         self.assertTrue(schedule.all_positives_updated())
         self.assertEqual(set(schedule.coverage()), {'fit'})
 
+    def test_distinct_crop_variants_are_used_before_replay(self):
+        records = [dict(index=i, scene_id=domain, group=domain, split='fit', domain=domain,
+                        positive_ids=[], invalid_center_ids=[], old_negative_ids=[])
+                   for domain, base in [('real', 0), ('synthetic', 8)] for i in range(base, base+8)]
+        schedule = TileSchedule(records, [])
+        rng = np.random.default_rng(23)
+        for _ in range(20):
+            batch = schedule.sample(rng); schedule.mark_updated(batch)
+        for domain in ('real', 'synthetic'):
+            uses = [schedule.tile_uses[r['index']] for r in records if r['domain'] == domain]
+            self.assertTrue(all(n > 0 for n in uses))
+            self.assertLessEqual(max(uses)-min(uses), 2)
+
 
 if __name__ == '__main__': unittest.main()

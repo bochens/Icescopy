@@ -14,7 +14,7 @@ import numpy as np
 
 from detector import read_image
 from hybrid_data import sha256
-from joint_model import CORE, HALO, NORMALIZED_RADIUS, STRIDE, TILE
+from joint_model import CORE, HALO, NORMALIZED_RADIUS, PADDING_RGB, STRIDE, TILE
 from joint_spatial import FORMAT as SPATIAL_FORMAT, check_spatial_manifest
 from neural_train import check_manifest
 from water_center_data import check_center_manifest
@@ -56,8 +56,8 @@ def affine_for(scene, focus, rng, augment=True):
     """Keep a selected center in the core and a real positive query in the tile."""
     radius = float(np.median([row['radius'] for row in scene['targets']]))
     scale = NORMALIZED_RADIUS/radius
-    angle = float(rng.choice([0, 90, 180, 270])+rng.uniform(-12, 12)) if augment else 0.
-    scale *= float(rng.uniform(.94, 1.06)) if augment else 1.
+    angle = float(rng.uniform(-180, 180)) if augment else 0.
+    scale *= float(rng.uniform(.75, 1.25)) if augment else 1.
     a = math.radians(angle)
     linear = scale*np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
     if augment and rng.random() < .5:
@@ -73,10 +73,13 @@ def affine_for(scene, focus, rng, augment=True):
     focus_at = np.clip(focus_at, margin-delta, TILE-margin-delta)
     focus_at = np.clip(focus_at, HALO+12, TILE-HALO-12)
     if augment:
-        shift = rng.uniform(-12, 12, size=2)
-        proposed = np.clip(focus_at+shift, HALO+12, TILE-HALO-12)
-        if np.all((proposed+delta >= margin) & (proposed+delta < TILE-margin)):
-            focus_at = proposed
+        # Move the crop across the source rather than nearly always placing
+        # the chosen droplet at the tile center. Keep both the supervised focus
+        # in the core and its nearest complete example inside the tile.
+        low = np.maximum(HALO+12, margin-delta)
+        high = np.minimum(TILE-HALO-12, TILE-margin-1-delta)
+        if np.all(high > low):
+            focus_at = rng.uniform(low, high)
     matrix = np.c_[linear, focus_at-linear @ np.array([focus['x'], focus['y']])].astype(np.float32)
     return matrix
 
@@ -108,7 +111,7 @@ def circle_usable(row, valid):
 def targets_for(scene, matrix, valid):
     """Offsets/radii supervise known centers; invalid points supervise no center.
 
-    Reflected padding and the halo never contribute to a loss. Complete
+    Constant padding and the halo never contribute to a loss. Complete
     synthetic labels supply background; incomplete real images only supply
     positive neighborhoods and explicit reviewed negative neighborhoods.
     """
@@ -174,7 +177,9 @@ def targets_for(scene, matrix, valid):
 
 def make_tile(scene, image, focus, rng, augment=True):
     matrix = affine_for(scene, focus, rng, augment)
-    tile = cv2.warpAffine(image, matrix, (TILE, TILE), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+    # Do not mirror visible droplets into unlabeled context at crop boundaries.
+    tile = cv2.warpAffine(image, matrix, (TILE, TILE), flags=cv2.INTER_LINEAR,
+                         borderMode=cv2.BORDER_CONSTANT, borderValue=PADDING_RGB)
     valid = cv2.warpAffine(np.ones(image.shape[:2], np.uint8), matrix, (TILE, TILE),
                            flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT) > 0
     targets, positive_ids, invalid_ids, old_negative_ids = targets_for(scene, matrix, valid)
@@ -248,6 +253,7 @@ class TileSchedule:
     def __init__(self, records, scenes):
         self.rows = {r['index']: r for r in records}; self.groups = {'real': {}, 'synthetic': {}}
         self.updated_positive = set(); self.updated_invalid = set(); self.updated_old_negative = set()
+        self.tile_uses = {r['index']: 0 for r in records}
         self.cursor = {'real': 0, 'synthetic': 0}
         self.expected = {}
         for scene in scenes:
@@ -270,12 +276,17 @@ class TileSchedule:
                           sum((name, p) not in self.updated_old_negative for p in r.get('old_negative_ids', [])) for r in pool]
                 best = max(scores)
                 choices = [row for row, score in zip(pool, scores) if score == best] if best else pool
+                # Once annotation coverage is secured, visit every distinct
+                # crop/rotation before replaying already-used variations.
+                fewest_uses = min(self.tile_uses[row['index']] for row in choices)
+                choices = [row for row in choices if self.tile_uses[row['index']] == fewest_uses]
                 batch.append(choices[int(rng.integers(len(choices)))]['index'])
         return np.asarray(batch, np.int64)
 
     def mark_updated(self, indices):
         for index in indices:
             row = self.rows[int(index)]
+            self.tile_uses[int(index)] += 1
             self.updated_positive.update((row['group'], p) for p in row['positive_ids'])
             self.updated_invalid.update((row['group'], p) for p in row['invalid_center_ids'])
             self.updated_old_negative.update((row['group'], p) for p in row.get('old_negative_ids', []))

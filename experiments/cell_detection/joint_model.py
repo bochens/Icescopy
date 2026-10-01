@@ -23,6 +23,7 @@ NORMALIZED_RADIUS = 16.
 TILE = 384
 HALO = 64
 CORE = TILE-2*HALO
+PADDING_RGB = (.485, .456, .406)  # Zero after ImageNet channel normalization.
 
 
 def input_tensor(rgb):
@@ -35,7 +36,7 @@ def scaled_image(image, scale):
     height, width = image.shape[:2]
     matrix = np.asarray([[scale, 0, (scale-1)/2], [0, scale, (scale-1)/2]], dtype=np.float32)
     return cv2.warpAffine(image, matrix, (math.ceil(width*scale), math.ceil(height*scale)),
-                          flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                          flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=PADDING_RGB)
 
 
 class Smooth(nn.Sequential):
@@ -149,7 +150,7 @@ class JointDetector:
         height, width = resized.shape[:2]
         nh, nw = math.ceil(height/CORE), math.ceil(width/CORE)
         padded = cv2.copyMakeBorder(resized, HALO, nh*CORE-height+HALO,
-                                   HALO, nw*CORE-width+HALO, cv2.BORDER_REFLECT_101)
+                                   HALO, nw*CORE-width+HALO, cv2.BORDER_CONSTANT, value=PADDING_RGB)
         canvas = torch.empty((1, 32, nh*CORE//STRIDE, nw*CORE//STRIDE))
         for y in range(nh):
             for x in range(nw):

@@ -1,9 +1,10 @@
 """Geometry and supervision contracts; these are not accuracy tests."""
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from joint_data import TileSchedule, affine_for, circle_usable, make_tile, targets_for, transformed
-from joint_model import HALO, STRIDE, TILE
+from joint_model import HALO, PADDING_RGB, STRIDE, TILE
 
 
 class JointGeometryTests(unittest.TestCase):
@@ -44,12 +45,21 @@ class JointGeometryTests(unittest.TestCase):
         tile, target, queries, record = make_tile(scene, image, scene['targets'][0], np.random.default_rng(12))
         self.assertEqual(tile.shape, (384, 384, 3)); self.assertTrue(record['positive_ids'])
         self.assertTrue(np.all(queries[:, :2] >= 0)); self.assertTrue(np.all(queries[:, :2] < 96))
-        # Reflection is visible context, never a manufactured background label.
+        # Pixels outside the source never become manufactured background labels.
         valid = np.ones((384, 384), bool); valid[:, :180] = False
         complete = dict(scene, complete_labels=True)
         partial, ids, _, _ = targets_for(complete, np.array([[1, 0, -40], [0, 1, 0]], np.float32), valid)
         self.assertNotIn(0, ids)
         self.assertEqual(partial['mask'][0, 48, 43], 0)
+
+    def test_crop_padding_does_not_copy_unlabeled_droplets(self):
+        scene = self.scene(); image = np.ones((384, 384, 3), np.float32)
+        matrix = np.array([[1, 0, 100], [0, 1, 0]], np.float32)
+        with patch('joint_data.affine_for', return_value=matrix):
+            tile, target, _, _ = make_tile(scene, image, scene['targets'][0], np.random.default_rng(2), augment=False)
+        np.testing.assert_allclose(tile[192, 20], PADDING_RGB, atol=1e-7)
+        self.assertEqual(target['mask'][0, 48, 20], 0)
+        np.testing.assert_allclose(tile[192, 192], [1, 1, 1])
 
     def test_rounding_at_last_pixel_is_safe_and_updates_are_actual(self):
         self.assertFalse(circle_usable({'x': 367.8, 'y': 192., 'radius': 16.}, np.ones((384, 384), bool)))
@@ -64,6 +74,23 @@ class JointGeometryTests(unittest.TestCase):
         self.assertTrue(schedule.all_positives_updated())
         self.assertEqual(schedule.coverage()['one']['updated_invalid_centers'], 1)
         self.assertEqual(schedule.coverage()['one']['updated_old_negatives'], 1)
+
+    def test_augmentation_moves_crops_and_rotates_without_stretching(self):
+        scene = self.scene(); rng = np.random.default_rng(42)
+        focus = scene['targets'][0]; positions = []; scales = []; angles = []
+        for _ in range(100):
+            matrix = affine_for(scene, focus, rng)
+            linear = matrix[:, :2]; singular = np.linalg.svd(linear, compute_uv=False)
+            self.assertAlmostEqual(float(singular[0]), float(singular[1]), places=5)
+            self.assertGreater(abs(float(np.linalg.det(linear))), 0)
+            position = matrix @ [focus['x'], focus['y'], 1]
+            self.assertTrue((position >= HALO+12-1e-4).all())
+            self.assertTrue((position <= TILE-HALO-12+1e-4).all())
+            positions.append(position); scales.append(float(singular[0]))
+            angles.append(float(np.arctan2(linear[1, 0], linear[0, 0])))
+        self.assertTrue((np.ptp(positions, axis=0) > 180).all())
+        self.assertGreater(max(scales)/min(scales), 1.5)
+        self.assertGreater(np.ptp(angles), 5.5)
 
 
 if __name__ == '__main__': unittest.main()

@@ -32,6 +32,20 @@ are reported after the model and cutoff are fixed; they do not select another ru
 
 The sections below retain the history and limitations of previous experiments.
 
+The user's follow-up asks for more crop and rotation variation. A new preserved
+run uses 240 distinct tiles per real fitting region, arbitrary rotation angles,
+uniform scale factors from 0.75 to 1.25, and crop positions across the tile core.
+The sampler visits unused variants before repeating them after label coverage.
+Its fixed budget is 20 passes of 60 updates. It uses the same synthetic-only
+parent and separated source regions; no additional original images are needed.
+
+An audit of the training preview found unmarked droplets created by mirror
+padding beyond the source region. Those pixels were excluded from the loss,
+but their surrounding features could still influence predictions. The new run
+uses constant padding for training and inference, with no copied objects. The
+old checkpoint and its previews are retained. Test regions have now been viewed;
+later comparisons remain reserved-region diagnostics, not a fresh blinded test.
+
 This replaces the earlier full-recording real-image training plan. The user has
 supplied five labeled sessions and authorized training after the save-prompt fix
 was committed. That fix is recorded in commit `1b08821`; no app rebuild is part
