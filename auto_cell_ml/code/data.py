@@ -176,6 +176,48 @@ def _tile_starts(length, size):
     return starts
 
 
+def _example_views(image, circles, linear, lighting, example_size):
+    if (isinstance(example_size, bool) or not isinstance(example_size, (int, np.integer))
+            or example_size < 8):
+        raise ValueError("example_size must be an integer of at least 8 pixels")
+    refs = np.zeros((2, example_size, example_size, 3), np.uint8)
+    mask = np.zeros(2, bool)
+    radii = np.zeros(2, np.float32)
+    scale = math.sqrt(float(np.sum(linear * linear) / 2))
+    center = np.full(2, (example_size - 1) / 2)
+    for slot, (x, y, radius) in enumerate(circles):
+        # Normalize each example to a three-radius-wide field of view while
+        # preserving the query's rotation/reflection. Report its query radius
+        # separately so resizing the reference cannot erase the size example.
+        ref_linear = example_size / (3 * radius * scale) * linear
+        matrix = np.column_stack((ref_linear, center - ref_linear @ np.array([x, y])))
+        pixels, valid = _warp(image, matrix, example_size)
+        refs[slot] = _lighting(pixels, lighting, valid)
+        mask[slot], radii[slot] = True, radius * scale
+    return refs, mask, radii
+
+
+def extract_examples(image, circles, *, example_size=64):
+    """Crop one or two marked runtime examples and return refs, mask, radii.
+
+    Input circles use original image pixels. Examples have an approximately
+    three-radius-wide field of view, centered at 31.5 for the default 64 pixels.
+    Their radii remain in original image pixels. No fitting or files are used.
+    """
+    if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8 or not image.size:
+        raise ValueError("Example image must be nonempty RGB uint8")
+    circles = _circles_array(circles)
+    if not 1 <= len(circles) <= 2:
+        raise ValueError("Provide one or two marked example circles")
+    height, width = image.shape[:2]
+    if np.any((circles[:, 0] < 0) | (circles[:, 0] >= width) |
+              (circles[:, 1] < 0) | (circles[:, 1] >= height)):
+        raise ValueError("Example circle centers must be inside the source image")
+    lighting = {"brightness": 1.0, "contrast": 1.0, "gamma": 1.0,
+                "channel_gain": [1.0, 1.0, 1.0]}
+    return _example_views(image, circles, np.eye(2), lighting, example_size)
+
+
 class TrainingViews:
     """Make training views in memory from one original marked recording.
 
@@ -188,14 +230,34 @@ class TrainingViews:
     """
 
     def __init__(self, manifest, setup, *, size=256, count=240, seed=0):
+        self._validate_settings(size, count, seed)
+        image, circles, source = _read_source(Path(manifest).resolve(), setup)
+        self._initialize(image, circles, source, setup=setup, size=size, count=count, seed=seed)
+
+    @classmethod
+    def from_scene(cls, image, circles, source, *, setup, size=256, count=64, seed=0):
+        """Use an already verified synthetic fit scene with the same view rules."""
+        if source.get("synthetic") is not True or source.get("split") != "fit" or source.get("complete_labels") is not True:
+            raise ValueError("Scene views require a verified, completely labeled synthetic fit source")
+        instance = cls.__new__(cls)
+        instance._initialize(image, circles, source, setup=setup, size=size, count=count, seed=seed)
+        return instance
+
+    @staticmethod
+    def _validate_settings(size, count, seed):
         for name, value in (("size", size), ("count", count), ("seed", seed)):
             if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
                 raise ValueError(f"{name} must be an integer")
         if size < 32 or size % 4 or count < 1 or seed < 0:
             raise ValueError("size must be >=32 and divisible by 4; count positive; seed nonnegative")
+
+    def _initialize(self, image, circles, source, *, setup, size, count, seed):
+        self._validate_settings(size, count, seed)
         self.setup, self.size, self.seed = setup, int(size), int(seed)
         self.requested_count, self.epoch = int(count), 0
-        self._image, self._circles, self.source = _read_source(Path(manifest).resolve(), setup)
+        if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8 or not image.size:
+            raise ValueError("Training image must be nonempty RGB uint8")
+        self._image, self._circles, self.source = image, _circles_array(circles), dict(source)
         if len(self._circles) == 0:
             raise ValueError("Original training recording requires at least one marked circle")
         height, width = self._image.shape[:2]
@@ -221,6 +283,24 @@ class TrainingViews:
         self.epoch = int(epoch)
 
     def __getitem__(self, index):
+        """Return the legacy image, all circles, and padding-valid mask."""
+        return self._view(index)[:3]
+
+    def episode(self, index, example_size=64):
+        """Return a query and one or two positive examples from the full source.
+
+        The first three arrays exactly match ``self[index]``. References share
+        the query's rotation, reflection, and lighting, even when the query is
+        background only. Returned radii use query pixels; unused slots are zero.
+        """
+        pixels, circles, valid, matrix, lighting, rng = self._view(index)
+        count = int(rng.integers(1, min(2, self.circle_count) + 1))
+        selected = rng.choice(self.circle_count, size=count, replace=False)
+        refs, mask, radii = _example_views(self._image, self._circles[selected],
+                                          matrix[:, :2], lighting, example_size)
+        return pixels, circles, valid, refs, mask, radii
+
+    def _view(self, index):
         if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
             raise TypeError("view index must be an integer")
         index = int(index)
@@ -243,7 +323,7 @@ class TrainingViews:
                     "contrast": float(rng.uniform(0.9, 1.1)),
                     "gamma": float(rng.uniform(0.95, 1.05)),
                     "channel_gain": [1.0, 1.0, 1.0]}
-        return _lighting(pixels, lighting, valid), circles, valid
+        return _lighting(pixels, lighting, valid), circles, valid, matrix, lighting, rng
 
     def _random_transform(self, rng, focus):
         height, width = self._image.shape[:2]

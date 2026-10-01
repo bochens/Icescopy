@@ -1,4 +1,4 @@
-"""Apply a trained setup model to one original image and save a circle overlay."""
+"""Match one or two selected cells in the current image and save new circles."""
 from __future__ import annotations
 
 import argparse
@@ -15,9 +15,11 @@ from torch.nn import functional as F
 if __package__:
     from .model import FORMAT, load_model
     from .image_samples import suppress_centers
+    from .data import extract_examples
 else:
     from model import FORMAT, load_model
     from image_samples import suppress_centers
+    from data import extract_examples
 
 
 def read_rgb(path):
@@ -40,13 +42,20 @@ def tile_intervals(length, size, overlap):
 
 
 @torch.inference_mode()
-def detect(model, image, *, size=384, threshold=0.5, device="cpu", batch_size=4):
+def detect(model, image, *, examples, existing_circles=(), size=384, threshold=0.5, device="cpu", batch_size=4):
     if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
         raise ValueError("Expected an RGB uint8 image or decoded video frame")
     if size < 32 or size % 4 or not 0 < threshold < 1 or batch_size < 1:
         raise ValueError("Tile size must be at least 32 and a multiple of 4; threshold must be between 0 and 1")
     model.eval()
     height, width = image.shape[:2]
+    # Read reference pixels once from the complete current image, including
+    # references outside individual tiles. Inference never updates model weights.
+    references, mask, radii = extract_examples(image, examples)
+    reference_tensor = torch.from_numpy(references.transpose(0, 3, 1, 2).copy()).to(device).float()[None] / 255
+    mask_tensor = torch.from_numpy(mask).to(device)[None]
+    radii_tensor = torch.from_numpy(radii).to(device)[None]
+    exclusions = _circle_rows(examples) + _circle_rows(existing_circles)
     tiles = [(x, y, left, right, top, bottom)
              for y, top, bottom in tile_intervals(height, size, size // 4)
              for x, left, right in tile_intervals(width, size, size // 4)]
@@ -59,7 +68,10 @@ def detect(model, image, *, size=384, threshold=0.5, device="cpu", batch_size=4)
             padded = np.zeros((size, size, 3), dtype=np.uint8)
             padded[:len(patch), :patch.shape[1]] = patch
             arrays.append(padded.transpose(2, 0, 1))
-        pred = model(torch.from_numpy(np.stack(arrays)).to(device).float() / 255)
+        batch = len(group)
+        pred = model(torch.from_numpy(np.stack(arrays)).to(device).float() / 255,
+                     reference_tensor.expand(batch, -1, -1, -1, -1), mask_tensor.expand(batch, -1),
+                     radii_tensor.expand(batch, -1))
         confidence = pred["center"].sigmoid()
         maxima = (confidence >= threshold) & (confidence == F.max_pool2d(confidence, 3, 1, 1))
         offsets = pred["offsets"].cpu().numpy()
@@ -81,10 +93,22 @@ def detect(model, image, *, size=384, threshold=0.5, device="cpu", batch_size=4)
                 if 0 < radius <= max(width, height):
                     circles.append({"x": cx, "y": cy, "radius": radius,
                                     "confidence": float(scores[b, 0, row, col])})
-    return suppress_centers(circles)
+    circles = suppress_centers(circles)
+    return [circle for circle in circles if not any(
+        math.hypot(circle["x"] - x, circle["y"] - y) < min(circle["radius"], radius)
+        for x, y, radius in exclusions)]
 
 
-def run(model_path, image_path, output, *, threshold=0.5, device="cpu", threads=4):
+def _circle_rows(circles):
+    """Accept API circle rows or x/y/radius dictionaries; reject invalid geometry."""
+    rows = [[row["x"], row["y"], row["radius"]] if isinstance(row, dict) else list(row) for row in circles]
+    values = np.asarray(rows, np.float64).reshape(-1, 3)
+    if not np.isfinite(values).all() or (values[:, 2] <= 0).any():
+        raise ValueError("Circle coordinates must be finite and radii positive")
+    return values.tolist()
+
+
+def run(model_path, image_path, output, *, examples, existing_circles=(), threshold=0.5, device="cpu", threads=4):
     prefix = Path(output)
     destinations = [prefix.with_suffix(suffix) for suffix in (".json", ".jpg")]
     if any(p.exists() for p in destinations):
@@ -92,15 +116,21 @@ def run(model_path, image_path, output, *, threshold=0.5, device="cpu", threads=
     torch.set_num_threads(threads)
     model, meta = load_model(model_path, device)
     image = read_rgb(image_path)
+    if isinstance(existing_circles, (str, Path)):
+        payload = json.loads(Path(existing_circles).read_text())
+        existing_circles = payload["circles"] if isinstance(payload, dict) else payload
     start = time.perf_counter()
-    circles = detect(model, image, size=meta["crop_size"], threshold=threshold, device=device)
+    circles = detect(model, image, examples=examples, existing_circles=existing_circles,
+                     size=meta["crop_size"], threshold=threshold, device=device)
     elapsed = time.perf_counter() - start
     result = {"format": FORMAT, "setup": meta["setup"], "image_name": Path(image_path).name,
               "width": image.shape[1], "height": image.shape[0], "threshold": threshold,
               "inference_seconds": elapsed, "count": len(circles), "circles": circles,
+              "examples": _circle_rows(examples), "existing_cell_count": len(existing_circles),
+              "runtime_training": False,
               "evaluation_labels_used": False,
               "score_meaning": "sigmoid center score, not independently calibrated accuracy",
-              "center_suppression": "Reject weaker centers closer than the smaller radius"}
+              "center_suppression": "Reject weaker centers closer than the smaller radius; exclude selected and existing cells by the same distance rule"}
     prefix.parent.mkdir(parents=True, exist_ok=True)
     destinations[0].write_text(json.dumps(result, indent=2) + "\n")
     preview = Image.fromarray(image)
@@ -109,6 +139,8 @@ def run(model_path, image_path, output, *, threshold=0.5, device="cpu", threads=
     for c in circles:
         x, y, r = c["x"], c["y"], c["radius"]
         draw.ellipse((x - r, y - r, x + r, y + r), outline="#39ff76", width=line_width)
+    for x, y, r in _circle_rows(examples):
+        draw.ellipse((x - r, y - r, x + r, y + r), outline="#00dcff", width=line_width)
     preview.thumbnail((1600, 1600))
     preview.save(destinations[1], quality=93)
     print(f"{len(circles)} detections in {elapsed:.2f}s; {destinations[1]}", flush=True)
@@ -120,10 +152,22 @@ def main():
     p.add_argument("--model", dest="model_path", type=Path, required=True)
     p.add_argument("--image", dest="image_path", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True, help="Output filename prefix")
+    def circle(text):
+        try:
+            values = [float(value) for value in text.split(",")]
+            return _circle_rows([values])[0]
+        except (ValueError, TypeError) as exc:
+            raise argparse.ArgumentTypeError("Use x,y,radius in image pixels") from exc
+    p.add_argument("--example", dest="examples", type=circle, action="append", required=True,
+                   help="Selected positive cell x,y,radius; supply one or two")
+    p.add_argument("--existing-circles", type=Path, default=(), help="JSON circle rows or a circles array; suppress all previously marked cells")
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     p.add_argument("--threads", type=int, default=4)
-    run(**vars(p.parse_args()))
+    try:
+        run(**vars(p.parse_args()))
+    except (ValueError, OSError, RuntimeError) as exc:
+        p.exit(2, f"{exc}\n")
 
 
 if __name__ == "__main__":

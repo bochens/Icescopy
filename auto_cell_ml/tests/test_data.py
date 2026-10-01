@@ -315,3 +315,103 @@ def test_original_training_requires_marked_circles(tmp_path):
         archive.writestr("session.json", json.dumps(payload))
     with pytest.raises(ValueError, match="marked circles"):
         data.TrainingViews(manifest, "synthetic")
+
+
+def _scene_views(image, circles, *, size=64, count=12, seed=3):
+    return data.TrainingViews.from_scene(
+        image, circles, {"synthetic": True, "split": "fit", "complete_labels": True,
+                         "recording_id": "verified-scene"},
+        setup="synthetic", size=size, count=count, seed=seed)
+
+
+def test_episode_shared_orientation_lighting_and_query_radius(monkeypatch):
+    image = np.zeros((128, 128, 3), np.uint8)
+    image[64, 67, 0] = 255
+    image[68, 64, 1] = 255
+    source_circle = np.array([[64, 64, 8]], float)
+    views = _scene_views(image, source_circle)
+    linear = np.array([[0, -1.25], [-1.25, 0]])
+    matrix = np.column_stack((linear, [31.5, 31.5] - linear @ source_circle[0, :2]))
+    monkeypatch.setattr(views, "_random_transform",
+                        lambda rng, focus: (matrix, data.transform_circles(source_circle, matrix)))
+    lighting_calls = []
+    original_lighting = data._lighting
+
+    def record_lighting(pixels, params, valid):
+        lighting_calls.append(dict(params))
+        return original_lighting(pixels, params, valid)
+
+    monkeypatch.setattr(data, "_lighting", record_lighting)
+    query, circles, valid, refs, mask, radii = views.episode(views.tile_count)
+    assert lighting_calls[0] == lighting_calls[1]
+    np.testing.assert_array_equal(mask, [True, False])
+    np.testing.assert_allclose(radii, [10, 0])
+    assert not refs[1].any()
+    np.testing.assert_allclose(circles, [[31.5, 31.5, 10]])
+    # Original red (+3x) and green (+4y) marks share reflected/rotated axes.
+    expected_query = [(31.5, 27.75), (26.5, 31.5)]
+    expected_refs = [(31.5, 23.5), (20.833333, 31.5)]
+    for channel in (0, 1):
+        row, col = np.unravel_index(np.argmax(query[..., channel]), query.shape[:2])
+        np.testing.assert_allclose([col, row], expected_query[channel], atol=0.75)
+        row, col = np.unravel_index(np.argmax(refs[0, ..., channel]), refs.shape[1:3])
+        np.testing.assert_allclose([col, row], expected_refs[channel], atol=0.75)
+    for actual, expected in zip((query, circles, valid), views[views.tile_count]):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_background_query_keeps_positive_full_source_examples():
+    image = np.zeros((96, 96, 3), np.uint8)
+    image[16, 16] = [255, 40, 20]
+    views = _scene_views(image, [[16, 16, 4]], size=32, count=1)
+    index = views.tiles.index((64, 64))
+    query, circles, valid, refs, mask, radii = views.episode(index)
+    assert data.targets(circles, valid)["center"].sum() == 0
+    assert valid.all()
+    np.testing.assert_array_equal(mask, [True, False])
+    np.testing.assert_allclose(radii, [4, 0])
+    assert refs[0, ..., 0].max() > query[..., 0].max() + 100
+    row, col = np.unravel_index(np.argmax(refs[0, ..., 0]), refs.shape[1:3])
+    np.testing.assert_allclose([col, row], [31.5, 31.5], atol=0.5)
+
+
+def test_episode_reproducibility_epoch_changes_and_one_or_two_examples(tmp_path):
+    manifest, circles, image = _fixture(tmp_path)
+    first = _scene_views(image, circles, count=16, seed=17)
+    second = _scene_views(image, circles, count=16, seed=17)
+    example_counts = set()
+    for index in range(len(first)):
+        episode = first.episode(index)
+        for actual, expected in zip(episode, second.episode(index)):
+            np.testing.assert_array_equal(actual, expected)
+        _, moved, _, refs, mask, radii = episode
+        assert refs.shape == (2, 64, 64, 3) and refs.dtype == np.uint8
+        assert mask.shape == (2,) and mask.dtype == bool
+        assert radii.dtype == np.float32
+        assert np.all(np.isclose(radii[mask, None], moved[:, 2]).any(axis=1))
+        assert not refs[~mask].any() and not radii[~mask].any()
+        example_counts.add(int(mask.sum()))
+    assert example_counts == {1, 2}
+    original = first.episode(first.tile_count)
+    first.set_epoch(1)
+    second.set_epoch(1)
+    changed = first.episode(first.tile_count)
+    assert not np.array_equal(original[1], changed[1])
+    assert not np.array_equal(original[3], changed[3])
+    for actual, expected in zip(changed, second.episode(second.tile_count)):
+        np.testing.assert_array_equal(actual, expected)
+
+
+def test_runtime_examples_keep_original_radii_and_require_one_or_two_marks():
+    image = np.zeros((80, 100, 3), np.uint8)
+    image[20, 20] = [250, 80, 40]
+    image[50, 70] = [40, 120, 250]
+    refs, mask, radii = data.extract_examples(image, [[20, 20, 5], [70, 50, 8]])
+    assert refs.shape == (2, 64, 64, 3)
+    np.testing.assert_array_equal(mask, [True, True])
+    np.testing.assert_array_equal(radii, [5, 8])
+    assert refs[0, 31:33, 31:33, 0].max() > 100
+    assert refs[1, 31:33, 31:33, 2].max() > 100
+    for circles in ([], [[20, 20, 5]] * 3, [[101, 20, 5]]):
+        with pytest.raises(ValueError):
+            data.extract_examples(image, circles)
