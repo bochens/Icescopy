@@ -161,6 +161,14 @@ The user has now authorized one detector that learns where to place circles
 and when to reject them, with positives and negatives in the same training run.
 The prepared scorer-only extension above remains unrun.
 
+The active images and labels are together under the ignored
+`training-data/water-droplets` folder. The five instrument folders retain their
+original images and saved sessions; `synthetic-v1` holds the 40 synthetic images;
+`annotations/real-reviewed-v2.json` contains the reviewed real labels.
+`ACTIVE-DATASET.json` identifies the current manifests and hashes. Earlier
+copies remain in their original output folders. Training uses the combined
+dataset paths; model outputs and derived caches remain in a fresh output folder.
+
 The design combines two established ideas: exemplar matching, as described in
 [Learning To Count Everything](https://arxiv.org/abs/2104.08391), and direct
 center, offset and size prediction from
