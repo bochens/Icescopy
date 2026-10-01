@@ -1,25 +1,30 @@
 # Automatic cell detection
 
-Experimental, setup-specific droplet detection for Icescopy. No trained model is currently retained. Training is paused.
+Experimental droplet detection for Icescopy. The current task is preparing separate training and evaluation recordings before rebuilding one small model per setup. Training has not restarted.
 
 ## Folder layout
 
-- `code/`: the current untrained neural prototype and its required modules.
-- `data/train/<setup>/`: your labeled images and `.icescopy` sessions. These are the only authoritative training labels.
-- `data/evaluation/`: separate recordings reserved for evaluation. Never use crops from a training recording as independent evaluation.
-- `data/augmented/`: visible cropped, rotated, flipped, and lighting-adjusted training images with matching transformed labels. Currently empty.
+- `code/`: implementation files; currently empty after the experimental code was removed.
+- `data/train/<setup>/`: manually labeled images and their `.icescopy` sessions.
+- `data/evaluation/<setup>/`: images from separate recordings. Label availability is recorded explicitly.
+- `data/augmented/`: future training crops and their transformed labels; currently empty.
 - `data/synthetic/`: preserved synthetic images, excluded from the next training run.
-- `data/archive/`: previous input collections and obsolete image-region splits; not active training inputs.
 - `pretrained/`: the original downloaded MobileNetV3-Small weights.
-- `results/`: current experiment outputs and the cleanup record. No app builds, environments, or training images belong here.
-- `archive/`: superseded experiments and saved workflow scripts, kept as reference because the user requested retaining the code.
+- `results/`: trained weights, measurements, and detection previews; currently empty.
+- `.venv/`: local Python dependencies, excluded from Git.
 
-## Current code
+Private images, labels, weights, and results are excluded from Git. Keep training data here, not in the application's `output/` directory.
 
-`code/per_setup_neural.py` contains the new direct-supervision prototype. `joint_model.py`, `neural_model.py`, and `detector.py` are its current dependencies. Their reuse does not imply that previous model weights or accuracy results were acceptable. This prototype has not been trained or validated.
+## Data rules
 
-The intended workflow trains one small model for one setup. User circles define the desired positions and sizes; unmarked valid image locations are negative. No manually marked negatives and no circle-finding gate are required. Transform the image and labels together. Only padding is unknown.
+- The private `data/datasets.json` records original sources, file hashes, relative local paths, recording assignments, and label status. `data/README.md` summarizes the available recordings.
+- Only manually marked circles define training targets. Other valid image locations are negative. No separately marked negative regions are required.
+- Keep every frame and transformation from a recording in the same partition. Never describe a crop of the training image as an independent evaluation image.
+- Crop, rotate, flip, scale uniformly, and adjust lighting. Transform circles with the image and save the actual training PNGs with matching labels.
+- An unlabeled evaluation image is not a labeled accuracy test. Do not invent labels or copy them between timestamps without checking them.
+- Session image links are relative to the session directory. Resource paths in code must also be portable; do not add aliases or path-search fallbacks.
+- Some CSU images are 16-bit grayscale PNGs. Decode their full intensity range; converting them directly to 8-bit RGB with clipping can turn them white.
 
-Use separate source recordings for training and evaluation. The NC/CIF data contain Experiment 1 and Experiment 2. CSU IS has another recording in the isothermal data folder. Keep every frame and transformation from a recording in the same partition.
+## Handoff
 
-The old top-level `training-data/` path has been removed. Paths in the five relocated sessions were updated directly; their circles and other saved analysis content were preserved. No aliases or fallback path logic were added.
+The evaluation inventory is being completed before augmentation or fitting. The local Python environment needs repair after an interrupted Torch installation. No new detector has been trained, and existing app trainer code does not establish neural detection quality. The next implementation should remain small and demonstrate results before further UI work. Previous experiments remain in Git history; do not restore their folder tree.
