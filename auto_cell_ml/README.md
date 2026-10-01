@@ -51,9 +51,25 @@ On the same PCR training image with 160 labels, using one-to-one center matches 
 
 These runs used different training procedures. They do not establish an intrinsic ranking of model types. The ANN_MLP remains inadequate despite the longer fit. Its model is about 226 KB; fitting took 9.6 or 94.9 seconds, respectively. Baseline artifacts remain in `results/random-forest-v1/` and `results/opencv-nn-v1/`.
 
+The example-guided pretrained model has now completed two Apple-GPU runs: three synthetic passes followed by either 10 or 40 passes through newly augmented real views. The longer run took 362 seconds, has 214,332 parameters, and produces a roughly 0.93 MB model. With two fixed marked examples and a fixed 0.5 score threshold, the training-image checks were:
+
+| Setup | Remaining labeled cells | Found after 10 passes | Found after 40 passes | Extras after 40 passes |
+| --- | ---: | ---: | ---: | ---: |
+| CSU cold stage | 48 | 40 | 45 | 0 |
+| CSU IS PCR | 158 | 138 | 150 | 0 |
+| PKU | 88 | 49 | 81 | 0 |
+| TAMU | 14 | 12 | 13 | 0 |
+| CIF | 103 | 52 | 78 | 0 |
+
+Each row excludes the two supplied examples. Matches require one-to-one centers within max(3.5 pixels, 35% of labeled radius); this does not measure circle-boundary accuracy. These are training diagnostics, not independent accuracy. Separate-recording overlays still show missed droplets, especially CIF. The independent images produced 40, 167, 13, and 59 new selections respectively, plus two supplied examples each; those counts are not accuracy scores. GPU inference took 0.03–0.46 seconds per image in the longer-run evaluation, excluding model loading.
+
+Single-example training checks also ran without retraining: CSU cold stage 45/49, PCR 150/159, PKU 81/89, TAMU 14/15, and CIF 82/104 remaining labels matched, with no extras in those checks. Results depend on the selected example; more examples do not guarantee better output.
+
+Results are preserved in `results/example-guided-general-v1/` and `results/example-guided-general-v1-longer/`. The latter contains `evaluation/overview.jpg`, detailed overlays, `summary.json`, and `one-example-check.json`. No user source image or saved session was overwritten.
+
 ## Handoff
 
-Current goal: train and evaluate one developer-managed, example-guided general model, with no user-training UI. The official MobileNetV3-Small ImageNet weights were restored under `pretrained/` and verified by SHA-256 and strict state loading. The image encoder, example comparison, and prediction layers train together; synthetic and real stages update the same weights. The previous plain-detector draft must not be used for the real run.
+Current goal: improve remaining misses in the tested, developer-managed, example-guided general model. End-user training UI is removed. The official MobileNetV3-Small ImageNet weights under `pretrained/` were verified by SHA-256 and strict state loading. The image encoder, example comparison, and prediction layers train together; synthetic and real stages update the same weights. Model format is `icescopy-droplet-mobilenet-examples-v4`; no plain-detector fallback.
 
 All five labeled training setups are selected for the general model. The 20 synthetic fit scenes contain 835 targets and 433 explicitly empty circles; synthetic validation/calibration scenes remain excluded. Synthetic source paths in old metadata are stale: use the verified adjacent scene-ID PNG contract only. Training views cover each entire source image and each marked circle per epoch, with aligned rotation, reflection, uniform scaling, and lighting changes. No extra generated image files are needed.
 

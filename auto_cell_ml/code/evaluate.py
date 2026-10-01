@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 if __package__:
     from . import data, infer
@@ -76,7 +77,33 @@ def evaluate(manifest, examples, model, output, *, device='cpu', threshold=0.5):
             result.update(partition='independent', dataset=name)
             report['results'].append(result)
         (output / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
+    write_overview(output, report)
     return report
+
+
+def write_overview(output, report):
+    """A compact visual result, with supplied examples distinct from new circles."""
+    rows = [row for row in report['results'] if row['partition'] == 'independent']
+    if not rows:
+        return
+    output = Path(output)
+    destination = output / 'overview.jpg'
+    if destination.exists():
+        raise FileExistsError(destination)
+    width, height = 800, 650
+    canvas = Image.new('RGB', (width * 2, height * ((len(rows) + 1) // 2)), 'white')
+    draw = ImageDraw.Draw(canvas)
+    for index, row in enumerate(rows):
+        x, y = (index % 2) * width, (index // 2) * height
+        draw.text((x + 12, y + 10), row['dataset'], fill='black', font_size=22)
+        draw.text((x + 12, y + 42), f"{row['count']} new selections + {len(row['examples'])} examples",
+                  fill='black', font_size=18)
+        draw.text((x + 12, y + 67), 'Green: new | Cyan: supplied examples | No complete evaluation labels',
+                  fill='black', font_size=16)
+        with Image.open(output / 'independent' / (row['dataset'] + '.jpg')) as preview:
+            preview.thumbnail((width - 24, height - 108))
+            canvas.paste(preview, (x + (width - preview.width) // 2, y + 100))
+    canvas.save(destination, quality=93)
 
 
 def main():
