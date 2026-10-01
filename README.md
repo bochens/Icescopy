@@ -43,7 +43,7 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 Draw individual cells with **Add Cell**, or place a row-and-column array with **Grid Tool**. Adjust the size, spacing, and angle to fit the image. Click **Apply** to create the cells.
 
-![Grid Tool placing circles over wells](resources/readme/2026-09-29/grid-annotation-native.png)
+![Grid Tool preview beside numbered cells](resources/readme/2026-09-30/grid-annotation-full-plate.png)
 
 A **cell** is the circle whose brightness Icescopy measures. If the image moves, save corrected cell positions at different frames (**keyframes**). See [drawing and editing cells](wiki/Annotation-Workflow.md).
 
@@ -53,7 +53,7 @@ A **cell** is the circle whose brightness Icescopy measures. If the image moves,
 
 Assign selected cells to a **Sample ID** in **Tool Options**, then enter details such as dilution and well volume in **Sample Catalog Manager**. Add your own sample fields, choose which appear in exports, or share a value across all samples.
 
-![Numbered wells and their sample information](resources/readme/2026-09-29/well-plate-sample-review-native.png)
+![Cells with sample-colored labels and editable sample information](resources/readme/2026-09-30/sample-assignment-full-plate.png)
 
 ### 3. Automatically detect freeze frames
 
@@ -67,7 +67,7 @@ Choose **Analysis → Run Analysis** to start. Rerun analysis if you change the 
 
 Select a cell to see its **Grayscale Plot**, which shows brightness over time. **Show Two Images** or **Show Three Images** displays neighboring frames in separate panes, with each frame’s cell positions and sizes. Pan or zoom in any pane to compare the same area across frames. Select or edit cells in the **Current** pane.
 
-![Neighboring frames and the selected cell's brightness plot](resources/readme/2026-09-29/droplet-frame-comparison-native.png)
+![Previous, Current, and Next frames with the selected cell's brightness plot](resources/readme/2026-09-30/linked-frame-review.png)
 
 For missed or incorrect detections, open **Preferences → Analysis → Freeze Finding**:
 
