@@ -14,7 +14,7 @@ remains paused while the user labels the images.
 
 ## User labels
 
-The private `output/water-droplet-labeling-20260930-v2` folder contains one
+The private `training-data/water-droplets` folder contains one
 unmarked early image for each of five setups: CSU cold stage, CSU IS PCR wells,
 PKU, TAMU and CIF. The PCR image was supplied specifically to include filled
 and empty wells. Previous data and labeling folders are preserved.
