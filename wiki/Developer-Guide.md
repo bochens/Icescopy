@@ -16,7 +16,7 @@ icescopy
 With an existing suitable environment, install from the repository root:
 
 ```sh
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev,training]'
 icescopy-validate
 ```
 

@@ -25,12 +25,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+training = [
+  "scikit-learn>=1.5,<2",
+]
 dev = [
   "PyInstaller>=6.11,<7",
 ]
 
 [project.scripts]
 icescopy = "Icescopy:main"
+icescopy-train = "icescopy_droplet_trainer:main"
 icescopy-validate = "icescopy_validate:main"
 
 [project.urls]
@@ -51,6 +55,10 @@ py-modules = [
   "icescopy_cell_items",
   "icescopy_dialogs",
   "icescopy_dock",
+  "icescopy_droplet_detection",
+  "icescopy_droplet_tools",
+  "icescopy_droplet_trainer",
+  "icescopy_droplet_training_io",
   "icescopy_event_navigation",
   "icescopy_frame_source",
   "icescopy_frameslider",

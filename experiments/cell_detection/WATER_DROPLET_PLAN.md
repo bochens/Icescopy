@@ -1,6 +1,32 @@
 # Small water-droplet experiment
 
-## Current work: reject empty wells with the custom model
+## Current work: a small detector users can train
+
+The user chose a lightweight trainable program and stopped further neural
+model work. Use a random forest, a collection of small decision trees, to
+classify image regions directly from local intensity, contrast, edge and texture
+features. Detection must not depend on a preliminary circle finder finding
+every droplet. Convert matching image regions into ordinary circular cells.
+
+Training input is one or more saved `.icescopy` sessions and their linked media.
+The user explicitly requires no separately labeled negatives: every desired
+droplet must be marked in each chosen training frame; other circles/background
+are negative examples. Boundary bands and padding remain ignored. Do not use
+our separately reviewed empty/invalid annotations to train this benchmark;
+they are evaluation evidence only. Keep augmentation labels aligned.
+
+The trainer saves numeric tree data in an `.icescopy-model.json` file. Icescopy
+loads the file and detects cells on its current image/video frame. Keep this
+experimental, support cancellation and one-step undo, protect existing cells,
+and preserve original sessions/images. Report missed/offset droplets, reviewed
+empty selections, other extras, training time, model size and inference time.
+
+The custom model's six-pass empty-well penalty continuation has finished. Its
+validation loss improved, but the reserved PCR region still has all eight
+reviewed empty wells selected. Do not treat that run as a solved detector or
+integrate it into the app. FamNet work remains stopped.
+
+## Custom model continuation
 
 Current direction: focus on the custom joint model. The unchanged FamNet
 comparison is complete and its files are preserved. The user stopped the

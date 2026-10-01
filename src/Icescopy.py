@@ -80,6 +80,7 @@ from icescopy_paths import preferences_read_path
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
 from icescopy_cell_controller import CellEditController
+from icescopy_droplet_tools import DropletDetectionTools
 from icescopy_temperature_import import (
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
@@ -309,6 +310,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.edit_group_rotation_delta = 0.0
         
         super().__init__()
+        self.droplet_tools = DropletDetectionTools(self)
         self.cell_state = CellStateManager(self)
         self.cell_controller = CellEditController(self)
         self.undo_stack = QUndoStack(self)
@@ -3528,6 +3530,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         file_menu.addAction(self.sort_images_action)
 
         analysis_menu.addAction(self.run_analysis_action)
+        analysis_menu.addSeparator()
+        self.droplet_tools.install_menu(analysis_menu)
         analysis_menu.addSeparator()
         import_temperature_menu = analysis_menu.addMenu("Import Temperature Data")
         import_temperature_menu.addAction(self.import_temperature_csv_action)
@@ -7273,6 +7277,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.viewer_triple_action.setEnabled(interactive)
         self.viewer_orientation_toggle_action.setEnabled(interactive and self.viewer_image_count in (2, 3))
         self.image_edit_action.setEnabled(has_frames and not self.output_state)
+        self.droplet_tools.update_actions()
 
         if session_active:
             self.set_undo_status()
@@ -11322,6 +11327,24 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.zoom_slider_set_maximum()
 
     def closeEvent(self, event):
+        if self.droplet_tools.trainer_is_running():
+            self.droplet_tools.cancel_training()
+            QMessageBox.information(
+                self,
+                "Droplet Trainer",
+                "Cancelling model training. Close Icescopy again when it finishes.",
+            )
+            event.ignore()
+            return
+        if self.droplet_tools.is_running():
+            self.droplet_tools.cancel_detection()
+            QMessageBox.information(
+                self,
+                "Droplet Detection",
+                "Cancelling droplet detection. Close Icescopy again when it finishes.",
+            )
+            event.ignore()
+            return
         worker = getattr(self, "worker", None)
         if getattr(self, "output_state", False) or (worker is not None and worker.isRunning()):
             QMessageBox.information(
