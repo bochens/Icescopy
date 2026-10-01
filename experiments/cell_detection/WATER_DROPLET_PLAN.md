@@ -58,3 +58,53 @@ diagnostics. Report synthetic test results separately. PKU enters training, so
 its older evaluation results cannot serve as independent validation of this new
 model. Future real evaluation needs separately labeled recordings; keep their
 images and all derived variants out of fitting and cutoff selection.
+
+## First completed run
+
+The fixed four-pass run completed in 229 seconds. Pass three had the lowest
+synthetic validation loss, 0.016775 versus 0.020262 for the parent. Every one of
+the 421 manual positives contributed to an update. Eleven convolution weight
+arrays changed; the earlier layers and stored normalization statistics stayed
+unchanged. The original checkpoint, source images and saved sessions were
+verified unchanged.
+
+With the same scoring-model fitting procedure for both networks, recovery of
+marked targets with two supplied examples increased from 97.2% to 98.8%.
+Extra selections remained substantial. The table shows the range across the
+two fixed example pairs for each training photo; supplied examples are excluded
+from the target counts.
+
+| Setup | Marked targets found | Extra selections |
+| --- | --- | --- |
+| CSU cold stage | 48 / 48 | 1 |
+| CSU IS PCR wells | 158 / 158 | 49–64 |
+| PKU | 82–86 / 88 | 16–50 |
+| TAMU | 14 / 14 | 0 |
+| CIF | 102 / 103 | 5–6 |
+
+None of the explicitly labeled negative locations was selected in these
+two-example trials. That does **not** establish correct detection elsewhere:
+visual inspection found many extra circles between PCR wells and PKU holes,
+beside droplets, or on a bright background feature. Most are poorly centered
+selections, even when the marked targets are also found. Incomplete labels do
+not support an overall precision estimate, and these training photos do not
+measure performance on unseen recordings.
+
+Full current-frame calls on the PKU photo took 8.96 seconds for the parent and
+9.16 seconds for the updated model, including preprocessing and selection but
+excluding model/file loading. Both calls reproduced the cached comparison
+selections. The optional structured synthetic comparison was stopped because
+small radius differences caused many extra feature computations; its partial
+files are retained and no aggregate result is reported.
+
+A separate full PCR-frame call took 11.18 seconds and reproduced the reported
+selections. Repeating it added no cells. A brightness-changed frame preserved
+all existing IDs and positions without duplicating them, while adding one new
+selection. File input and decoded RGB/BGR frame arrays produced identical
+preprocessed pixels for all five source images. This checks the experimental
+current-frame API, not an integration into the app's video workflow.
+
+The next experiment should label the misleading patches near droplets as
+explicit negatives and improve recognition of the droplet center. Simply
+rejecting every closely spaced circle could remove distinct nearby droplets.
+Keep the current model experimental; it is not ready for app integration.

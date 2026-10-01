@@ -35,6 +35,28 @@ class WaterMetricTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'separate'):
             calibrate_f2([{'scene': {'split': 'fit', 'recording': 'manual', 'complete_labels': False}}], 0, {})
 
+    def test_exact_f2_sweep_keeps_targets_and_rejects_lower_score_extra(self):
+        truth = [Circle(x, 0, 3) for x in (0, 40, 80)]
+        circles = truth+[Circle(120, 0, 3)]
+        candidate = np.asarray([[1., 0.]]*3+[[-1., 0.]])
+        example = np.asarray([[1., 0.]]*3)
+        def bank(vectors):
+            return {'gray': vectors, 'edges': vectors, 'embedding': vectors,
+                    'profiles': np.zeros((len(vectors), 4))}
+        item = {'truth': truth, 'circles': circles,
+                'distance': np.abs(np.asarray([c.x for c in circles])[:, None]-np.asarray([c.x for c in truth])[None]),
+                'banks': (bank(candidate),), 'examples': (bank(example),),
+                'scene': {'id': 'calibration', 'group': 'reserved', 'split': 'calibration',
+                          'recording': 'neural-synthetic-contract', 'complete_labels': True,
+                          'rendering': {'family': 'contract'}}}
+        head = {'mean': [0]*5, 'scale': [1]*5, 'weights': [0, 0, 0, 0, 10], 'bias': 0}
+        result = calibrate_f2([item], 0, head)
+        self.assertEqual(result['f2'], 1.)
+        self.assertEqual(result['found'], result['remaining'])
+        self.assertEqual(result['false_detections'], 0)
+        self.assertGreater(result['threshold'], .99)
+        self.assertGreater(result['search']['verified_trials'], 0)
+
     def test_equal_group_weights_ignore_repeated_identical_variants(self):
         def fixture(repeats):
             records = []; vectors = []
