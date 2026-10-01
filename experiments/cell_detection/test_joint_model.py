@@ -19,7 +19,9 @@ class JointModelTests(unittest.TestCase):
         mask = heat.clone(); mask[0, 0, 1, 1] = 1
         target = {'heat': heat, 'mask': mask, 'center_mask': heat,
                   'offset': torch.zeros((1, 2, 3, 3)), 'radius': torch.zeros_like(heat),
-                  'reviewed_negative_mask': mask.clone()}
+                  'reviewed_negative_mask': mask.clone(),
+                  'reviewed_empty_regions': torch.zeros_like(heat),
+                  'reviewed_invalid_points': torch.tensor([[[1, 1]]])}
         predicted = {'logits': logits, 'offset': torch.zeros((1, 2, 3, 3)), 'log_radius': torch.zeros_like(heat)}
         with_bce, parts = joint_loss(predicted, target)
         without_bce, _ = joint_loss(predicted, target, dict(CONFIG, reviewed_negative_bce_weight=0.))
@@ -47,7 +49,9 @@ class JointModelTests(unittest.TestCase):
         center_mask = heat.clone()
         target = {'heat': heat, 'mask': torch.ones_like(heat), 'center_mask': center_mask,
                   'offset': torch.full_like(first['offset'], .25), 'radius': torch.zeros_like(first['log_radius']),
-                  'reviewed_negative_mask': torch.zeros_like(heat)}
+                  'reviewed_negative_mask': torch.zeros_like(heat),
+                  'reviewed_empty_regions': torch.zeros_like(heat),
+                  'reviewed_invalid_points': torch.full((1, 1, 2), -1)}
         optimizer = optimizer_for(network, CONFIG); loss, _ = joint_loss(first, target)
         loss.backward(); optimizer.step()
         self.assertFalse(torch.equal(before, network.backbone[10].state_dict()['block.0.0.weight']))

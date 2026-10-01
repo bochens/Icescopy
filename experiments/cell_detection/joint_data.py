@@ -19,7 +19,7 @@ from joint_spatial import FORMAT as SPATIAL_FORMAT, check_spatial_manifest
 from neural_train import check_manifest
 from water_center_data import check_center_manifest
 
-SUPERVISION_VERSION = 2
+SUPERVISION_VERSION = 3
 
 def active_scenes(real_path, synthetic_path):
     real_manifest = json.loads(Path(real_path).read_text())
@@ -108,6 +108,15 @@ def circle_usable(row, valid):
     return bool(valid[yy, xx].all())
 
 
+def center_in_valid_core(row, valid):
+    """An annotation is covered only when its center is real source/core pixels."""
+    x, y = row['x'], row['y']
+    if not (HALO <= x < HALO+CORE and HALO <= y < HALO+CORE):
+        return False
+    ix, iy = int(np.rint(x)), int(np.rint(y))
+    return bool(0 <= ix < TILE and 0 <= iy < TILE and valid[iy, ix])
+
+
 def targets_for(scene, matrix, valid):
     """Offsets/radii supervise known centers; invalid points supervise no center.
 
@@ -129,20 +138,26 @@ def targets_for(scene, matrix, valid):
     positives = transformed(scene['targets'], matrix)
     positive_ids = []
     invalid_ids = []
+    ignored_partial = np.zeros_like(heat, bool)
     # Ignore a partial object's neighborhood before marking any known centers.
     for row in positives:
-        if not circle_usable(row, valid):
-            mask[(STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 < (1.3*row['radius'])**2] = 0
+        if not circle_usable(row, valid) or not center_in_valid_core(row, valid):
+            ignored_partial |= ((STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 < (1.3*row['radius'])**2)
+    usable_pixels *= ~ignored_partial
+    mask *= usable_pixels
     old_negative_ids = []
-    for row in transformed(scene.get('negatives', []), matrix):
+    empty_rows = transformed(scene.get('negatives', []), matrix)
+    for row in empty_rows:
         disk = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= row['radius']**2
         mask[disk] = usable_pixels[disk]
         if scene['domain'] == 'real': reviewed_negative[disk] = usable_pixels[disk]
-        if (disk*usable_pixels).any():
+        x, y = int(row['x']//STRIDE), int(row['y']//STRIDE)
+        if center_in_valid_core(row, valid) and usable_pixels[y, x]:
             old_negative_ids.append(int(row.get('id', row.get('slot'))))
-    for row in transformed(scene.get('center_negatives', []), matrix):
+    invalid_rows = transformed(scene.get('center_negatives', []), matrix)
+    for row in invalid_rows:
         x, y = int(math.floor(row['x']/STRIDE)), int(math.floor(row['y']/STRIDE))
-        if 0 <= x < size and 0 <= y < size and usable_pixels[y, x]:
+        if center_in_valid_core(row, valid) and usable_pixels[y, x]:
             mask[y, x] = 1
             if scene['domain'] == 'real': reviewed_negative[y, x] = 1
             invalid_ids.append(int(row['id']))
@@ -168,11 +183,26 @@ def targets_for(scene, matrix, valid):
         positive_ids.append(int(row.get('id', row.get('slot'))))
     # A sampled invalid point coinciding with a true center's supervision is
     # contradictory at this output resolution. Do not count it as updated.
-    invalid_ids = [int(row['id']) for row in transformed(scene.get('center_negatives', []), matrix)
+    invalid_ids = [int(row['id']) for row in invalid_rows
                    if int(row['id']) in invalid_ids and heat[int(row['y']//STRIDE), int(row['x']//STRIDE)] == 0]
+    old_negative_ids = [int(row.get('id', row.get('slot'))) for row in empty_rows
+                        if int(row.get('id', row.get('slot'))) in old_negative_ids
+                        and heat[int(row['y']//STRIDE), int(row['x']//STRIDE)] == 0]
+    # Preserve one channel for each annotation, even when disks overlap. No
+    # connected-component approximation can merge separate reviewed regions.
+    empty_regions = np.zeros((len(empty_rows), size, size), np.uint8)
+    invalid_points = []
+    if scene['domain'] == 'real':
+        for index, row in enumerate(empty_rows):
+            disk = (STRIDE*xx-row['x'])**2+(STRIDE*yy-row['y'])**2 <= row['radius']**2
+            empty_regions[index] = disk*usable_pixels*(heat == 0)
+        invalid_points = [[int(row['x']//STRIDE), int(row['y']//STRIDE)]
+                          for row in invalid_rows if int(row['id']) in invalid_ids]
     return {'heat': heat[None], 'mask': (mask*usable_pixels)[None], 'offset': offset,
             'radius': radius, 'center_mask': center_mask[None],
-            'reviewed_negative_mask': (reviewed_negative*usable_pixels*(heat == 0))[None]}, positive_ids, invalid_ids, old_negative_ids
+            'reviewed_negative_mask': (reviewed_negative*usable_pixels*(heat == 0))[None],
+            'reviewed_empty_regions': empty_regions,
+            'reviewed_invalid_points': np.asarray(invalid_points, np.int16).reshape(-1, 2)}, positive_ids, invalid_ids, old_negative_ids
 
 
 def make_tile(scene, image, focus, rng, augment=True):
@@ -196,12 +226,13 @@ def make_tile(scene, image, focus, rng, augment=True):
     examples = np.array([[row['x']/STRIDE, row['y']/STRIDE, row['radius']/STRIDE] for row in selected], np.float32)
     record = {'scene_id': scene['id'], 'group': scene['group'], 'domain': scene['domain'], 'split': scene['split'],
               'matrix': matrix.tolist(), 'query_ids': [int(row.get('id', row.get('slot'))) for row in selected],
-              'positive_ids': positive_ids, 'invalid_center_ids': invalid_ids, 'old_negative_ids': old_negative_ids}
+              'positive_ids': positive_ids, 'invalid_center_ids': invalid_ids, 'old_negative_ids': old_negative_ids,
+              'empty_region_annotation_ids': [int(row.get('id', row.get('slot'))) for row in scene.get('negatives', [])]}
     return (photometric(tile, rng) if augment else tile.astype(np.float32)), targets, examples, record
 
 
 def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation_count=10, seed=71003,
-              real_validation_count=24):
+              real_validation_count=40):
     """Balanced fixed bank; first tiles greedily cover exact known real centers."""
     if any(s['split'] not in {'fit', 'validation'} for s in scenes):
         raise ValueError('Only fitting and validation regions can enter the tile cache.')
@@ -213,16 +244,25 @@ def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation
               shape=(count, channels, TILE//STRIDE, TILE//STRIDE))
               for name, channels in [('heat', 1), ('mask', 1), ('offset', 2), ('radius', 1), ('center_mask', 1),
                                      ('reviewed_negative_mask', 1)]}
+    maximum_empty = max(1, max((len(s.get('negatives', [])) for s in scenes if s['domain'] == 'real'), default=0))
+    maximum_invalid = max(1, max((len(s.get('center_negatives', [])) for s in scenes if s['domain'] == 'real'), default=0))
+    arrays['reviewed_empty_regions'] = np.lib.format.open_memmap(folder/'reviewed_empty_regions.npy', mode='w+',
+                        dtype=np.uint8, shape=(count, maximum_empty, TILE//STRIDE, TILE//STRIDE))
+    arrays['reviewed_invalid_points'] = np.lib.format.open_memmap(folder/'reviewed_invalid_points.npy', mode='w+',
+                        dtype=np.int16, shape=(count, maximum_invalid, 2))
     queries = np.lib.format.open_memmap(folder/'queries.npy', mode='w+', dtype=np.float32, shape=(count, 2, 3))
     rng = np.random.default_rng(seed); records = []; index = 0
     for scene, amount in plans:
         image = read_image(scene['source']); unseen = {int(row.get('id', row.get('slot'))) for row in scene['targets']}
         invalid = {row['id'] for row in scene.get('center_negatives', [])}
+        empty_unseen = {int(row.get('id', row.get('slot'))) for row in scene.get('negatives', [])}
         focuses = scene['targets']+scene.get('center_negatives', [])+scene.get('negatives', [])
         for variant in range(amount):
-            # Cover positives first, then invalid points; subsequent tiles replay
-            # them with fresh label-aware geometry and ordinary lighting changes.
+            # Cover positives, reviewed empty centers, then invalid points;
+            # subsequent tiles replay fresh geometry and lighting changes.
             pool = [row for row in scene['targets'] if int(row.get('id', row.get('slot'))) in unseen]
+            if not pool:
+                pool = [row for row in scene.get('negatives', []) if int(row.get('id', row.get('slot'))) in empty_unseen]
             if not pool:
                 pool = [row for row in scene.get('center_negatives', []) if row['id'] in invalid]
             if not pool:
@@ -236,13 +276,25 @@ def tile_bank(scenes, folder, real_count=120, synthetic_fit_count=30, validation
                 raise ValueError('No whole positive query can fit in this tile.')
             tile, targets, examples, record = result
             pixels[index] = np.rint(tile*255).astype(np.uint8)
-            for name, values in targets.items(): arrays[name][index] = values
+            for name, values in targets.items():
+                if name == 'reviewed_empty_regions':
+                    arrays[name][index] = 0
+                    # Synthetic empty labels remain in the original focal
+                    # loss; the explicit reviewed-region term is real only.
+                    if scene['domain'] == 'real': arrays[name][index, :len(values)] = values
+                elif name == 'reviewed_invalid_points':
+                    arrays[name][index] = -1
+                    arrays[name][index, :len(values)] = values
+                else:
+                    arrays[name][index] = values
             queries[index] = examples
             record.update(index=index, variant=variant); records.append(record); index += 1
             unseen -= set(record['positive_ids']); invalid -= set(record['invalid_center_ids'])
-        print('Joint tiles', scene['id'], amount, 'uncovered positives', len(unseen), 'invalid centers', len(invalid), flush=True)
-        if scene['domain'] == 'real' and unseen:
-            raise RuntimeError('Tile bank failed to cover every manual positive; no training is started.')
+            empty_unseen -= set(record['old_negative_ids'])
+        print('Joint tiles', scene['id'], amount, 'uncovered positives', len(unseen),
+              'reviewed empty centers', len(empty_unseen), 'invalid centers', len(invalid), flush=True)
+        if scene['domain'] == 'real' and (unseen or empty_unseen):
+            raise RuntimeError('Tile bank failed to cover every manual positive and reviewed empty center in '+scene['id']+'; no training is started.')
     for values in [pixels, queries, *arrays.values()]: values.flush()
     (folder/'tile-index.json').write_text(json.dumps(records)+'\n')
     return records
@@ -302,3 +354,7 @@ class TileSchedule:
 
     def all_positives_updated(self):
         return all(row['positives'] == row['updated_positives'] for row in self.coverage().values())
+
+    def all_required_updated(self):
+        return all(row['positives'] == row['updated_positives'] and row['old_negatives'] == row['updated_old_negatives']
+                   for row in self.coverage().values())

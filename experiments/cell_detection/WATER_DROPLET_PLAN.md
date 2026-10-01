@@ -1,18 +1,38 @@
 # Small water-droplet experiment
 
-## Current work: separate training regions and a pretrained comparison
+## Current work: reject empty wells with the custom model
 
 Current direction: focus on the custom joint model. The unchanged FamNet
 comparison is complete and its files are preserved. The user stopped the
 proposed FamNet fine-tuning before any training or optimizer update began.
-Do not start that experiment. Investigate the custom model's false detections
-on reviewed empty wells using fitting and validation regions before another run.
+Do not start that experiment.
+
+The current custom model has a specific failure: on the PCR fitting region,
+filled and empty wells have almost the same strongest confidence response. The
+old validation tile bank also covered only two of eight reviewed empty wells.
+The next bounded continuation keeps the model and inference unchanged. It
+penalizes the strongest false response in each reviewed empty region, keeps
+invalid center points separate, and requires every positive and reviewed empty
+center to appear in both fitting and validation caches. The two negative
+categories share the existing total weight, so adding easy background pixels
+cannot dilute a false well response.
+
+Continue from the preserved spatial fit-v2 weights for six passes of 60 updates.
+Keep the same positive, offset and radius losses, learning rates and batch
+normalization. Select against the initial checkpoint using the fully covered
+validation set. Preserve the old model if no trained checkpoint improves that
+score. Use fresh output/cache folders; retain all original annotations and
+earlier results. Compare detections with the existing cutoff before any separate
+synthetic calibration. Reserved regions have already been inspected and are
+diagnostics, not a fresh blinded test.
+
+## Previous experiments
 
 The first joint model reduced some extra selections on PKU but performed worse
 on PCR: only 25 of 158 remaining droplets were accurately centered in the first
 two-example trial, with 61 additional selections. Do not adopt that model.
 
-Two experiments now run separately:
+Two experiments were run separately:
 
 - Test the authors' pretrained FamNet without further training or image-specific
   adaptation. Report its estimated count separately from individual detections.

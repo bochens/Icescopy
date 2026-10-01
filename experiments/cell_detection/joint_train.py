@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from hybrid_data import sha256
 from joint_data import SUPERVISION_VERSION, TileSchedule, active_scenes, tile_bank
-from joint_model import ARCHITECTURE, STRIDE, TILE, JointNetwork, input_tensor, save_joint
+from joint_model import ARCHITECTURE, VERSION, STRIDE, TILE, JointNetwork, input_tensor, save_joint
 from joint_spatial import FORMAT as SPATIAL_FORMAT
 from neural_model import batchnorm_buffers, changed_tensors, prefix_state, tensor_hash
 
@@ -22,18 +22,50 @@ from neural_model import batchnorm_buffers, changed_tensors, prefix_state, tenso
 CONFIG = {'seed': 71003, 'threads': 4, 'passes': 4, 'steps_per_pass': 60,
           'batch_tiles': 4, 'real_tiles_per_instrument': 240, 'synthetic_fit_tiles_per_scene': 30,
           'synthetic_validation_tiles_per_scene': 10, 'backbone_learning_rate': 5e-5,
-          'real_validation_tiles_per_scene': 24,
+          'real_validation_tiles_per_scene': 40,
           'decoder_learning_rate': 2e-4, 'weight_decay': 1e-4, 'negative_loss_weight': 2.,
           'supervision_version': SUPERVISION_VERSION, 'reviewed_negative_bce_weight': 1.,
+          'reviewed_negative_rule': 'Mean max-logit BCE per reviewed empty annotation; mean BCE per invalid-center annotation; average available category means.',
           'augmentation_version': 2,
           'padding': 'Constant ImageNet mean RGB; outside-source pixels and halo excluded from loss. No mirrored objects.',
           'augmentation': 'Uniform rotation -180..180 degrees, isotropic scale0.75..1.25, full-core crop translation, flips and bounded lighting/blur.',
           'tile_sampling': 'Cover labels first, then visit each distinct crop before replaying it.',
           'offset_loss_weight': 1., 'radius_loss_weight': .1, 'gradient_clip': 5.,
-          'selection': 'Lowest validation loss, averaged equally over domains and scenes, after all fitting positives receive updates.',
+          'selection': 'Lowest validation loss versus initial weights, equally over domains/scenes; trained checkpoints require all fitting positives and reviewed empty centers updated.',
+          'required_real_cache_coverage': 'Every fitting and validation positive and reviewed empty center; disk-edge intersection alone does not count.',
           'conditioning': 'Actual shared-image features pooled at one or two supplied positive circles.',
           'input_normalization': 'Source whole-frame1/99 normalization then ImageNet channel normalization; no per-tile percentile normalization.',
           'calibration': 'Separate synthetic calibration uses centered F1; no real output selects weights or cutoff.'}
+
+
+def reviewed_region_bce(logits, target):
+    """Each annotated empty region contributes its worst pixel exactly once.
+
+    Adding easy negative pixels cannot dilute a region's false peak. Invalid
+    points remain individual annotation centers, rather than empty disks. The
+    two category means share total weight one, so many invalid points cannot
+    drown a small number of reviewed empty wells. Unknown/padded pixels and
+    positive Gaussian conflicts contribute no gradient.
+    """
+    allowed = (target['mask'] > 0) & (target['heat'] == 0)
+    regions = target['reviewed_empty_regions'].bool() & allowed
+    present = regions.flatten(2).any(-1)
+    empty = logits.sum()*0
+    if present.any():
+        peaks = logits.expand_as(regions).masked_fill(~regions, -torch.inf).flatten(2).amax(-1)
+        empty = F.softplus(peaks[present]).mean()
+    points = target['reviewed_invalid_points'].long()
+    h, w = logits.shape[-2:]; x, y = points[..., 0], points[..., 1]
+    valid = (x >= 0) & (y >= 0) & (x < w) & (y < h)
+    indices = y.clamp(0, h-1)*w+x.clamp(0, w-1)
+    valid &= allowed.flatten(2)[:, 0].gather(1, indices)
+    invalid = logits.sum()*0
+    if valid.any():
+        values = logits.flatten(2)[:, 0].gather(1, indices)
+        invalid = F.softplus(values[valid]).mean()
+    terms = ([empty] if present.any() else [])+([invalid] if valid.any() else [])
+    combined = torch.stack(terms).mean() if terms else logits.sum()*0
+    return combined, empty, invalid, int(present.sum()), int(valid.sum())
 
 
 def joint_loss(predicted, target, cfg=CONFIG):
@@ -46,10 +78,7 @@ def joint_loss(predicted, target, cfg=CONFIG):
     positive_loss = -(F.logsigmoid(logits)*(1-probability).pow(2)*positive).sum()/count
     negative_loss = -(F.logsigmoid(-logits)*probability.pow(2)*(1-heat).pow(4)*negative).sum()/count
     confidence = positive_loss+cfg['negative_loss_weight']*negative_loss
-    # Explicit real empty regions/invalid points deserve a direct penalty even
-    # at modest confidence. Focal negatives alone weaken roughly as p^3.
-    reviewed = target['reviewed_negative_mask']*mask*(heat == 0)
-    reviewed_bce = (F.softplus(logits)*reviewed).sum()/reviewed.sum().clamp_min(1)
+    reviewed_bce, empty_bce, invalid_bce, empty_count, invalid_count = reviewed_region_bce(logits, target)
     centers = target['center_mask']
     offset = (F.smooth_l1_loss(predicted['offset'], target['offset'], reduction='none')*centers).sum()/(2*count)
     radius = (F.smooth_l1_loss(predicted['log_radius'], target['radius'], reduction='none')*centers).sum()/count
@@ -57,7 +86,10 @@ def joint_loss(predicted, target, cfg=CONFIG):
     return total, {'total': float(total.detach()), 'confidence': float(confidence.detach()),
                    'positive': float(positive_loss.detach()), 'negative': float(negative_loss.detach()),
                    'offset': float(offset.detach()), 'radius': float(radius.detach()),
-                   'reviewed_negative_bce': float(reviewed_bce.detach())}
+                   'reviewed_negative_bce': float(reviewed_bce.detach()),
+                   'reviewed_empty_peak_bce': float(empty_bce.detach()),
+                   'reviewed_invalid_point_bce': float(invalid_bce.detach()),
+                   'reviewed_empty_regions': empty_count, 'reviewed_invalid_points': invalid_count}
 
 
 def cache_features(network, folder, records):
@@ -83,7 +115,8 @@ class CachedTiles:
     def __init__(self, folder):
         self.maps = [np.load(folder/f'prefix-{i}.npy', mmap_mode='r') for i in range(4)]
         self.targets = {name: np.load(folder/(name+'.npy'), mmap_mode='r')
-                        for name in ('heat', 'mask', 'offset', 'radius', 'center_mask', 'reviewed_negative_mask')}
+                        for name in ('heat', 'mask', 'offset', 'radius', 'center_mask', 'reviewed_negative_mask',
+                                     'reviewed_empty_regions', 'reviewed_invalid_points')}
         self.queries = np.load(folder/'queries.npy', mmap_mode='r')
 
     def batch(self, indices):
@@ -98,6 +131,36 @@ def optimizer_for(network, cfg):
     decoder = [p for name, p in network.named_parameters() if not name.startswith('backbone.')]
     return torch.optim.AdamW([{'params': late, 'lr': cfg['backbone_learning_rate']},
                               {'params': decoder, 'lr': cfg['decoder_learning_rate']}], weight_decay=cfg['weight_decay'])
+
+
+def initialize_resume(network, checkpoint, source):
+    """Continue only a compatible spatial fit, keeping the synthetic prefix."""
+    saved = torch.load(checkpoint, map_location='cpu', weights_only=True)
+    if saved.get('version') != VERSION or saved.get('architecture') != ARCHITECTURE:
+        raise ValueError('Unsupported joint resume checkpoint.')
+    metadata = saved['metadata']; previous = metadata['source']
+    required = ('real_manifest_sha256', 'synthetic_manifest_sha256', 'parent_encoder_sha256',
+                'scene_hashes', 'scene_groups', 'cached_scene_splits')
+    if (not source.get('spatial_split') or not previous.get('spatial_split')
+            or any(previous.get(k) != source.get(k) for k in required)
+            or any(split not in ('fit', 'validation') for split in previous['cached_scene_splits'].values())):
+        raise ValueError('Resume checkpoint must use the same spatial manifests and fitting/validation sources.')
+    expected = prefix_state(network.backbone)
+    preserved = {name: saved['state_dict']['backbone.'+name] for name in expected}
+    prefix_hash = tensor_hash(expected)
+    if tensor_hash(preserved) != prefix_hash or metadata['frozen_prefix_sha256'] != prefix_hash:
+        raise ValueError('Resume checkpoint prefix differs from the preserved synthetic parent.')
+    expected_bn = batchnorm_buffers(network.backbone)
+    saved_bn = {name: saved['state_dict']['backbone.'+name] for name in expected_bn}
+    if tensor_hash(saved_bn) != tensor_hash(expected_bn):
+        raise ValueError('Resume checkpoint changed preserved BatchNorm statistics.')
+    network.load_state_dict(saved['state_dict'], strict=True); network.eval()
+    return {'path': str(Path(checkpoint).resolve()), 'sha256': sha256(checkpoint),
+            'selected_pass': metadata['selected_pass'], 'frozen_prefix_sha256': prefix_hash,
+            'inherited_selected_actual_update_coverage': metadata.get('selected_actual_update_coverage'),
+            'inherited_supervision_version': metadata['config']['supervision_version'],
+            'inherited_coverage_note': 'Prior-run coverage is preserved separately; new cache/update coverage uses current center-based semantics.',
+            'optimizer_state_resumed': False, 'initialization': 'Preserved selected joint weights; fresh optimizer.'}
 
 
 def tiny_update_check(network, cache, index, folder, cfg):
@@ -121,6 +184,14 @@ def tiny_update_check(network, cache, index, folder, cfg):
     print('Joint disposable update', round(report['seconds'], 3), 'seconds', flush=True)
 
 
+def select_validation_weights(network, initial_state, initial_loss, trained_loss, trained_pass):
+    """Preserve initial weights unless a trained checkpoint improves validation."""
+    if trained_loss < initial_loss:
+        return trained_pass, trained_loss, True
+    network.load_state_dict(initial_state); network.eval()
+    return 0, initial_loss, False
+
+
 def train(network, cache, records, scenes, folder, source, cfg):
     rng = np.random.default_rng(cfg['seed']); schedule = TileSchedule(records, scenes)
     validation = {}
@@ -129,6 +200,7 @@ def train(network, cache, records, scenes, folder, source, cfg):
             validation.setdefault(record['domain'], {}).setdefault(record['scene_id'], []).append(record['index'])
     if not validation: raise ValueError('Separate fixed validation tiles are required.')
     before = {n: v.detach().cpu().clone() for n, v in network.backbone.state_dict().items()}
+    initial_state = {n: v.detach().cpu().clone() for n, v in network.state_dict().items()}
     prefix_hash = tensor_hash(prefix_state(network.backbone)); bn_hash = tensor_hash(batchnorm_buffers(network.backbone))
     optimizer = optimizer_for(network, cfg)
 
@@ -163,7 +235,7 @@ def train(network, cache, records, scenes, folder, source, cfg):
             optimizer.step(); schedule.mark_updated(indices); losses.append(parts)
             update_indices.append({'pass': epoch, 'step': step+1, 'tile_indices': indices.tolist()})
             if (step+1) % 20 == 0: print('Joint pass', epoch, 'step', step+1, '/', cfg['steps_per_pass'], flush=True)
-        validation_loss = validate(); eligible = schedule.all_positives_updated()
+        validation_loss = validate(); eligible = schedule.all_required_updated()
         row = {'pass': epoch, 'train_loss': {name: float(np.mean([r[name] for r in losses])) for name in losses[0]},
                'validation_loss': validation_loss, 'seconds': time.perf_counter()-epoch_start,
                'checkpoint_eligible': eligible, 'actual_update_coverage': schedule.coverage()}
@@ -173,23 +245,34 @@ def train(network, cache, records, scenes, folder, source, cfg):
         if eligible and validation_loss['total'] < best_loss:
             best_loss = validation_loss['total']; best_pass = epoch
             best_state = {name: value.detach().cpu().clone() for name, value in network.state_dict().items()}
-    if best_state is None: raise RuntimeError('Fixed training budget did not update every manual positive.')
+    if best_state is None: raise RuntimeError('Fixed training budget did not update every manual positive and reviewed empty center.')
     network.load_state_dict(best_state); network.eval()
-    changes = changed_tensors(before, network.backbone.state_dict())
+    trained_changes = changed_tensors(before, network.backbone.state_dict())
+    improved = best_loss < initial['total']
     metadata = {'config': cfg, 'architecture': ARCHITECTURE, 'source': source, 'selected_pass': best_pass,
                 'initial_validation': initial, 'selected_validation_loss': best_loss,
                 'history': history, 'training_seconds': time.perf_counter()-start,
                 'frozen_prefix_sha256': prefix_hash, 'batchnorm_statistics_sha256': bn_hash,
                 'frozen_prefix_unchanged': prefix_hash == tensor_hash(prefix_state(network.backbone)),
                 'batchnorm_statistics_unchanged': bn_hash == tensor_hash(batchnorm_buffers(network.backbone)),
-                'changed_backbone_tensor_l2_norms': changes,
-                'changed_convolution_tensors': {name: value for name, value in changes.items() if before[name].ndim == 4},
+                'changed_backbone_tensor_l2_norms': trained_changes,
+                'changed_convolution_tensors': {name: value for name, value in trained_changes.items() if before[name].ndim == 4},
                 'selected_actual_update_coverage': history[best_pass-1]['actual_update_coverage'],
+                'best_trained_pass': best_pass, 'best_trained_validation_loss': best_loss,
+                'best_trained_actual_update_coverage': history[best_pass-1]['actual_update_coverage'],
+                'final_actual_update_coverage': schedule.coverage(), 'improved_over_initial_validation': improved,
                 'real_images_are_training_diagnostics': not source.get('spatial_split', False),
                 'real_heldout_images': 0, 'real_heldout_regions': source.get('real_heldout_regions', 0),
                 'note': 'One jointly trained center/offset/radius model. Unknown real pixels are not negative labels. No handcrafted circle proposals.'}
     if not metadata['frozen_prefix_unchanged'] or not metadata['batchnorm_statistics_unchanged'] or not metadata['changed_convolution_tensors']:
         raise RuntimeError('Joint update invariants failed.')
+    save_joint(folder/'best-trained.pt', network, metadata)
+    selected_pass, selected_loss, improved = select_validation_weights(network, initial_state, initial['total'], best_loss, best_pass)
+    if not improved:
+        metadata = dict(metadata, selected_pass=0, selected_validation_loss=initial['total'],
+                        selected_actual_update_coverage=None, changed_backbone_tensor_l2_norms={},
+                        changed_convolution_tensors={},
+                        note='No trained checkpoint beat initial validation. The selected model preserves initial weights; best-trained.pt retains actual updated weights.')
     save_joint(folder/'joint.pt', network, metadata)
     (folder/'training-report.json').write_text(json.dumps(metadata, indent=2)+'\n')
     return metadata
@@ -201,6 +284,7 @@ def main():
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--cache-only', action='store_true')
     parser.add_argument('--prepared-cache', type=Path)
+    parser.add_argument('--resume-joint', type=Path, help='Initialize from a compatible spatial joint checkpoint; keep the synthetic parent prefix.')
     parser.add_argument('--new-cache', type=Path, help='Save a new tile cache with the training data; must not exist.')
     parser.add_argument('--passes', type=int, default=CONFIG['passes'])
     args = parser.parse_args(); cfg = dict(CONFIG)
@@ -222,6 +306,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output/'config.json').write_text(json.dumps(cfg, indent=2)+'\n')
     network = JointNetwork(args.parent_checkpoint)
+    if args.resume_joint:
+        source['resume_joint'] = initialize_resume(network, args.resume_joint, source)
     folder = args.prepared_cache or args.new_cache or args.output/'tile-cache'
     if args.prepared_cache:
         provenance = json.loads((folder/'cache-source.json').read_text())
@@ -249,6 +335,8 @@ def main():
     source['tile_cache'] = str(folder.resolve()); source['tile_cache_hashes'] = provenance['cache_hashes']
     train(network, cache, records, scenes, args.output, source, cfg)
     if sha256(args.parent_checkpoint) != parent_hash: raise RuntimeError('Preserved parent changed during training.')
+    if args.resume_joint and sha256(args.resume_joint) != source['resume_joint']['sha256']:
+        raise RuntimeError('Preserved resume checkpoint changed during training.')
 
 
 if __name__ == '__main__': main()
