@@ -55,10 +55,7 @@ Installing a new app does not bundle or move your source images/videos. Do not d
 
 A checksum is a number calculated from a file's bytes. Matching the release checksum verifies that the download is unchanged; it does not replace trusting the release's source.
 
-Download the matching checksum:
-
-- Windows 2.5.0: [Icescopy-windows-installer.exe.sha256](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-windows-installer.exe.sha256).
-- macOS 2.5.0: [Icescopy-macos-arm64.zip.sha256](https://github.com/bochens/Icescopy/releases/download/v2.5.0/Icescopy-macos-arm64.zip.sha256).
+On the [release page](https://github.com/bochens/Icescopy/releases/tag/v2.5.0), expand **Assets** and copy the SHA-256 value beside the file you downloaded. No separate checksum download is needed.
 
 On Windows, open PowerShell in the download folder:
 
@@ -66,15 +63,13 @@ On Windows, open PowerShell in the download folder:
 Get-FileHash .\Icescopy-windows-installer.exe -Algorithm SHA256
 ```
 
-Compare the hash with the installer's entry in `Icescopy-windows-installer.exe.sha256`, ignoring letter case.
-
-On macOS, with the ZIP and checksum in the same folder:
+On macOS, open Terminal in the download folder:
 
 ```bash
-shasum -a 256 -c Icescopy-macos-arm64.zip.sha256
+shasum -a 256 Icescopy-macos-arm64.zip
 ```
 
-Expected result: `Icescopy-macos-arm64.zip: OK`. If it does not match, download both files from the same release again before installing.
+Compare the command's hash with GitHub's value, ignoring letter case and the `sha256:` prefix. If they differ, download the file from that release again before installing.
 
 ## Start an analysis
 

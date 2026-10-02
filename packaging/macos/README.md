@@ -33,12 +33,12 @@ Use `ditto` so the app's symbolic links and metadata survive packaging:
 
 ```sh
 ditto -c -k --sequesterRsrc --keepParent dist/Icescopy.app Icescopy-macos-arm64.zip
-shasum -a 256 Icescopy-macos-arm64.zip > Icescopy-macos-arm64.zip.sha256
+shasum -a 256 Icescopy-macos-arm64.zip
 ditto -x -k Icescopy-macos-arm64.zip archive-check
 codesign --verify --deep --strict archive-check/Icescopy.app
 ```
 
-Also check ZIP integrity and confirm that the archive contains only the app, not test settings, logs, or local research files. Upload the archive and its checksum to the matching existing release. Preserve the Windows installer and its checksum asset; do not move the release tag to a later documentation/test commit.
+Also check ZIP integrity and confirm that the archive contains only the app, not test settings, logs, or local research files. Upload the archive to the matching existing release and compare its GitHub SHA-256 value with the local command's output. GitHub provides checksums for uploaded assets; do not upload separate checksum files. Preserve the Windows installer and other release assets; do not move the release tag to a later documentation/test commit.
 
 ## v2.3.7 validation and limitations
 
