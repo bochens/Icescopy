@@ -33,7 +33,7 @@ To adjust the recording:
 
 Both controls apply to the whole recording. Sliders preview while dragged and apply when released. Numeric edits apply directly; there is no separate Apply button for exposure or contrast. Scrolling over these sliders does not change them.
 
-Use **Edit → Undo** to reverse a committed adjustment. If you are also using Uniform Exposure, set the global exposure and contrast first, then calculate that correction.
+Use **Edit → Undo** to reverse a committed adjustment. Uniform Exposure is calculated from original pixels, so you can adjust global exposure and contrast before or after it.
 
 ## Read the histogram
 
@@ -70,19 +70,19 @@ Cell coordinates continue to refer to the source image; Icescopy maps their outl
 
 ## Correct changes in illumination
 
-**Uniform Exposure** uses a stable **control area** to estimate a brightness correction for each frame. It compares the average brightness in that same area with its brightness in the frame selected when you click **Run**. The resulting correction applies to the whole frame.
+**Uniform Exposure** uses a stable **control area** to estimate a brightness correction for each frame. It compares the average original brightness in that same area with its brightness in the frame selected when you click **Run**. The resulting correction applies to the whole frame, before global exposure and contrast. This matches illumination across frames; it does not even out shadows within an image.
 
 Use it for changes shared across the image, such as gradual illumination drift. It cannot distinguish illumination changes from real changes inside the chosen control area.
 
 ### Choose a control area
 
-Choose a region that stays visible and should not change during the recording. Avoid a droplet or well that freezes, moving objects, changing reflections, and regions that become nearly black. Otherwise, the correction can transfer the control area's own changes to every measured cell.
+Choose a region that stays visible and should not change during the recording. Avoid a droplet or well that freezes, moving objects, changing reflections, and regions that become nearly black or saturated white. Otherwise, the correction can transfer the control area's own changes to every measured cell.
 
 Check the area across the full recording, including frames outside your analysis start/end markers. Uniform Exposure reads all frames.
 
 ### Calculate and inspect the correction
 
-1. Set the global **Exposure** and **Contrast**.
+1. Open **Image Edit**.
 2. Go to a frame whose brightness you want to use as the reference. This is the frame shown in the **Current** pane.
 3. Under **Uniform Exposure**, click **Set Area**.
 4. Move and resize the rectangle over the control area in any available pane. The same area appears in the other panes.
@@ -97,7 +97,7 @@ The correction is based on a ratio of control-area brightness values and is limi
 
 - To change the control area, use **Set Area**, adjust it, click **Done**, and **Run** again.
 - To change the reference frame, navigate to the new frame and **Run** again.
-- After changing global exposure or contrast, **Run** again so the correction matches those settings.
+- Changing global exposure or contrast does not require recalculating the correction. If you calculated it with an older app version, click **Run** once to replace the saved correction with the current calculation.
 - To remove the correction and its control area, use **Reset** in the **Uniform Exposure** section.
 
 Changing the area alone does not calculate a new correction. Use the Uniform Exposure Run button, then rerun image analysis. The separate **Analysis → Run Analysis** command measures cells and finds freezing; it does not choose a new illumination reference for you.

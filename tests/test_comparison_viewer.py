@@ -1,4 +1,5 @@
 import copy
+import math
 import os
 import sys
 import tempfile
@@ -1605,6 +1606,48 @@ class ComparisonViewerTests(unittest.TestCase):
             uniform_exposure={"area": {"x": 100, "y": 100, "width": 200, "height": 200}, "offsets": offsets}
         ))
         self.assertEqual([self.panel_pixel(panel) for panel in self.panels()], [120, 80, 50])
+
+    def test_uniform_exposure_calculation_precedes_global_adjustments(self):
+        area = {"x": 100, "y": 100, "width": 200, "height": 200}
+        # These frames differ only by illumination. Contrast must not amplify
+        # the calculated correction; clipped display pixels are not measurements.
+        for exposure, contrast in ((0, 50), (0, -100), (3, 0), (-4, 100), (0, 0)):
+            with self.subTest(exposure=exposure, contrast=contrast):
+                self.window.apply_image_edit_state(self.window.compose_image_edit_state(
+                    exposure=exposure, contrast=contrast,
+                    uniform_exposure={"area": area, "offsets": {}},
+                ))
+                offsets, _ = self.window.compute_image_edit_uniform_exposure_solution(area, 2)
+                for index, level in enumerate(self.brightness):
+                    self.assertAlmostEqual(offsets.get(self.window.frame_key(index), 0), math.log2(80 / level))
+                reference_pixel = self.panel_pixel(self.viewer.current)
+                self.window.apply_image_edit_state(self.window.compose_image_edit_state(
+                    uniform_exposure={"area": area, "offsets": offsets},
+                ))
+                for panel in self.panels():
+                    self.assertAlmostEqual(self.panel_pixel(panel), reference_pixel, delta=1)
+
+    def test_uniform_exposure_run_repeat_and_undo(self):
+        warning = patch("Icescopy.QMessageBox.warning", side_effect=AssertionError("Uniform Exposure failed"))
+        warning.start()
+        self.addCleanup(warning.stop)
+        self.enter_image_edit()
+        area = {"x": 100, "y": 100, "width": 200, "height": 200}
+        self.window.apply_image_edit_state(self.window.compose_image_edit_state(
+            contrast=50, uniform_exposure={"area": area, "offsets": {}},
+        ))
+        before = self.window.current_image_edit_uniform_exposure_state()
+        self.window.run_image_edit_uniform_exposure()
+        self.assertEqual(self.window.image_index, 2)
+        after = self.window.current_image_edit_uniform_exposure_state()
+        for panel in self.panels():
+            self.assertAlmostEqual(self.panel_pixel(panel), 56, delta=1)
+        self.window.undo_stack.undo()
+        self.assertEqual(self.window.current_image_edit_uniform_exposure_state(), before)
+        self.window.undo_stack.redo()
+        self.assertEqual(self.window.current_image_edit_uniform_exposure_state(), after)
+        self.window.run_image_edit_uniform_exposure()
+        self.assertEqual(self.window.current_image_edit_uniform_exposure_state(), after)
 
     def test_crop_draft_cancel_apply_and_undo_update_all_panels(self):
         self.enter_image_edit()

@@ -3026,13 +3026,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             image_gray = self.active_frame_source().get_gray_array(index)
             if image_gray is None:
                 raise ValueError(f"Unable to read frame: {index}")
-            image_gray = apply_image_adjustments_to_uint8(
-                image_gray,
-                self.image_edit_exposure,
-                self.image_edit_contrast,
-                crop_state=None,
-                apply_crop=False,
-            )
+            # The offset is added to exposure BEFORE contrast in both display
+            # and analysis. Estimate its ratio from original pixels, too:
+            # contrast adds a constant and clipping loses brightness information,
+            # so ratios of adjusted pixels can amplify the original mismatch.
+            # Ignore previous uniform offsets so repeated runs do not compound.
             return image_gray
 
         def area_mean(image_gray, raw_area_state):
@@ -4262,7 +4260,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         image_edit_uniform_exposure_button_layout.addWidget(self.image_edit_uniform_exposure_reset_button)
         self.image_edit_tool_page.column_layout.addWidget(self.image_edit_uniform_exposure_button_row)
         self.image_edit_uniform_exposure_hint = self.image_edit_tool_page.add_hint(
-            "Use the current frame as the reference. Set one control area, then Run to match each image's area brightness to that frame."
+            "Use the current frame as the reference. Set a stable background area that does not freeze, move, or turn black or white, then Run. The correction uses original pixels, before Exposure and Contrast."
         )
         self.image_edit_uniform_exposure_separator = self.image_edit_tool_page.add_separator()
 
