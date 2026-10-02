@@ -328,12 +328,18 @@ def compute_convolution_center_offset(
     convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
     convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS,
 ):
+    """Map the first valid-convolution sample to the pattern's signal center."""
     kernel = build_convolution_kernel(
         signal_length,
         convolution_half_window_points=convolution_half_window_points,
         convolution_ramp_points=convolution_ramp_points,
     )
-    return 0.5 * (len(kernel) - 1)
+    # In a full convolution, output index j is centered at j - (M-1)/2
+    # for a pattern of length M. NumPy's 'valid' slice starts at min(N,M)-1,
+    # including when the pattern is longer than the N-point signal (window 0).
+    # Using (M-1)/2 alone is correct only when N >= M.
+    valid_start = min(int(signal_length), len(kernel)) - 1
+    return valid_start - 0.5 * (len(kernel) - 1)
 
 
 def compute_convolution_timeseries(
