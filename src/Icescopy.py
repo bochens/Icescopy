@@ -1897,7 +1897,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.last_temperature_import_path = None
         self.last_temperature_calibration_path = None
         self.last_temperature_reset_temperature = None
-        self.last_temperature_blank_sample_names = []
         self.last_standard_temperature_image_timestamp_source = IMAGE_TIMESTAMP_SOURCE_FILENAME
         self.last_standard_temperature_image_timestamp_style = TIMESTAMP_STYLE_AUTO
         self.last_standard_temperature_temperature_timestamp_style = TIMESTAMP_STYLE_AUTO
@@ -5631,7 +5630,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if refreshed_sample_totals:
             summary["sample_total_cells"] = refreshed_sample_totals
             summary["matched_samples"] = matched_samples
-            summary["matched_blank_samples"] = matched_blank_samples
+            # Preserve the provenance of corrected tables saved by older versions.
+            if "matched_blank_samples" in summary:
+                summary["matched_blank_samples"] = matched_blank_samples
 
         self.freeze_count_timeseries_summary = summary
         if headers_changed:
@@ -5777,7 +5778,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
-            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
             "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
             "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
             "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
@@ -5816,7 +5816,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
-            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
             "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
             "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
             "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
@@ -5853,7 +5852,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
-            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
             "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
             "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
             "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
@@ -5938,7 +5936,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "last_temperature_import_path": self.last_temperature_import_path,
             "last_temperature_calibration_path": self.last_temperature_calibration_path,
             "last_temperature_reset_temperature": self.last_temperature_reset_temperature,
-            "last_temperature_blank_sample_names": list(self.last_temperature_blank_sample_names),
             "last_standard_temperature_image_timestamp_source": self.last_standard_temperature_image_timestamp_source,
             "last_standard_temperature_image_timestamp_style": self.last_standard_temperature_image_timestamp_style,
             "last_standard_temperature_temperature_timestamp_style": self.last_standard_temperature_temperature_timestamp_style,
@@ -6124,7 +6121,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.last_temperature_import_path = state.get("last_temperature_import_path")
             self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
             self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
-            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
             self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
             self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
             self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
@@ -6427,7 +6423,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.last_temperature_import_path = state.get("last_temperature_import_path")
             self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
             self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
-            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
             self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
             self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
             self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
@@ -6637,7 +6632,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     "last_temperature_import_path",
                     "last_temperature_calibration_path",
                     "last_temperature_reset_temperature",
-                    "last_temperature_blank_sample_names",
                     "last_standard_temperature_image_timestamp_source",
                     "last_standard_temperature_image_timestamp_style",
                     "last_standard_temperature_temperature_timestamp_style",
@@ -6661,7 +6655,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.last_temperature_import_path = state.get("last_temperature_import_path")
                 self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
                 self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
-                self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
                 self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
                 self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
                 self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
@@ -6826,7 +6819,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.last_temperature_import_path = state.get("last_temperature_import_path")
             self.last_temperature_calibration_path = state.get("last_temperature_calibration_path")
             self.last_temperature_reset_temperature = state.get("last_temperature_reset_temperature")
-            self.last_temperature_blank_sample_names = list(state.get("last_temperature_blank_sample_names", []))
             self.last_standard_temperature_image_timestamp_source = state.get("last_standard_temperature_image_timestamp_source", IMAGE_TIMESTAMP_SOURCE_FILENAME)
             self.last_standard_temperature_image_timestamp_style = state.get("last_standard_temperature_image_timestamp_style", TIMESTAMP_STYLE_AUTO)
             self.last_standard_temperature_temperature_timestamp_style = state.get("last_standard_temperature_temperature_timestamp_style", TIMESTAMP_STYLE_AUTO)
@@ -7435,15 +7427,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             return
 
-        available_sample_names = self.available_sample_choices()
         video_mode = self.is_video_source()
 
         dialog = StandardTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
-            available_sample_names,
             getattr(self, "last_temperature_reset_temperature", None),
-            getattr(self, "last_temperature_blank_sample_names", []),
             (
                 IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS
                 if video_mode
@@ -7463,7 +7452,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         dialog_values = dialog.get_values()
         file_path = dialog_values["file_path"]
         reset_temperature = dialog_values["reset_temperature"]
-        blank_sample_names = dialog_values["blank_sample_names"]
         image_timestamp_source = dialog_values["image_timestamp_source"]
         image_timestamp_style = dialog_values["image_timestamp_style"]
         temperature_timestamp_style = dialog_values["temperature_timestamp_style"]
@@ -7480,7 +7468,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             headers, rows, summary = self.build_standard_freeze_count_timeseries_results(
                 parsed_timeseries,
-                blank_sample_names=blank_sample_names,
                 image_timestamp_source=image_timestamp_source,
                 image_timestamp_style=image_timestamp_style,
                 generated_start_text=generated_start_text,
@@ -7516,7 +7503,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             reset_temperature
         )
         self.last_temperature_calibration_path = ""
-        self.last_temperature_blank_sample_names = list(blank_sample_names)
         self.last_standard_temperature_image_timestamp_source = str(image_timestamp_source)
         self.last_standard_temperature_image_timestamp_style = str(image_timestamp_style)
         self.last_standard_temperature_temperature_timestamp_style = str(temperature_timestamp_style)
@@ -7527,8 +7513,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
-        matched_blank_samples = summary.get("matched_blank_samples", [])
-        unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
         frame_label = "Frames" if video_mode else "Images"
@@ -7563,10 +7547,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature column unit: " + str(summary.get("temperature_unit", "")))
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if out_of_range_image_count:
             message_lines.append(
                 f"{frame_label} outside the timeseries range: {out_of_range_image_count}"
@@ -7592,10 +7572,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"Standard temperature grouping mode: {grouping_label}")
         if matched_samples:
             self.log("Standard temperature output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            self.log("Standard temperature water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            self.log("Standard temperature unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_utk_temperature_csv(self, checked=False):
         if not self.has_frames():
@@ -7606,14 +7582,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
             return
 
-        available_sample_names = self.available_sample_choices()
         video_mode = self.is_video_source()
         dialog = UTKTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
-            available_sample_names,
             getattr(self, "last_temperature_reset_temperature", None),
-            getattr(self, "last_temperature_blank_sample_names", []),
             video_mode,
             self,
         )
@@ -7621,7 +7594,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return
         dialog_values = dialog.get_values()
         file_path = dialog_values["file_path"]
-        blank_sample_names = dialog_values["blank_sample_names"]
         reset_temperature = dialog_values["reset_temperature"]
 
         try:
@@ -7643,7 +7615,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
             headers, rows, summary = self.build_standard_freeze_count_timeseries_results(
                 parsed_timeseries,
-                blank_sample_names=blank_sample_names,
                 image_timestamp_source=image_timestamp_source,
                 image_timestamp_style=image_timestamp_style,
                 generated_start_text=generated_start_text,
@@ -7677,12 +7648,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
         self.last_temperature_calibration_path = ""
-        self.last_temperature_blank_sample_names = list(blank_sample_names)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
-        matched_blank_samples = summary.get("matched_blank_samples", [])
-        unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
         in_range_image_count = int(summary.get("in_range_image_count", 0))
@@ -7712,10 +7680,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature column: PV(C)1")
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if out_of_range_image_count:
             message_lines.append(f"{frame_label} outside the timeseries range: {out_of_range_image_count}")
         if unparsed_image_count:
@@ -7735,10 +7699,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"UTK grouping mode: {grouping_label}")
         if matched_samples:
             self.log("UTK output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            self.log("UTK water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            self.log("UTK unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_csu_is_dat(self, checked=False):
         if not self.has_frames():
@@ -7748,11 +7708,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             QMessageBox.information(self, "CSU .dat import", "The CSU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_choices()
         dialog = CSUTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
-            available_sample_names,
             getattr(self, "last_temperature_reset_temperature", None),
             self,
         )
@@ -7760,7 +7718,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return
         dialog_values = dialog.get_values()
         file_path = dialog_values["file_path"]
-        blank_sample_names = dialog_values["blank_sample_names"]
         reset_temperature = dialog_values["reset_temperature"]
         count_source = dialog_values["count_source"]
 
@@ -7768,7 +7725,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             parsed_data = parse_csu_is_dat(file_path)
             headers, rows, summary = self.build_csu_freeze_count_timeseries_results(
                 parsed_data,
-                blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
                 count_source=count_source,
             )
@@ -7796,14 +7752,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
-        self.last_temperature_blank_sample_names = list(blank_sample_names)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
-        matched_blank_samples = summary.get("matched_blank_samples", [])
         unmatched_app = summary.get("unmatched_app_samples", [])
         unmatched_dat = summary.get("unmatched_dat_samples", [])
-        unmatched_blank = summary.get("unmatched_blank_samples", [])
         matched_picture_rows = int(summary.get("matched_picture_rows", 0))
         total_picture_rows = int(summary.get("total_picture_rows", 0))
         cycle_count = int(summary.get("cycle_count", 1))
@@ -7823,14 +7776,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
             message_lines.append("Matched sample names: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_app:
             message_lines.append("No CSU column match for app sample(s): " + ", ".join(unmatched_app))
         if unmatched_dat:
             message_lines.append("No app sample match for CSU column(s): " + ", ".join(unmatched_dat))
-        if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not included: " + ", ".join(unmatched_blank))
         message_lines.extend("Warning: " + str(warning) for warning in warnings)
 
         self.show_detailed_information_dialog(
@@ -7846,14 +7795,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.log(f"CSU import warning: {warning}")
         if matched_samples:
             self.log("CSU matched samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            self.log("CSU water blank correction samples: " + ", ".join(matched_blank_samples))
         if unmatched_app:
             self.log("CSU unmatched app samples: " + ", ".join(unmatched_app))
         if unmatched_dat:
             self.log("CSU unmatched .dat samples: " + ", ".join(unmatched_dat))
-        if unmatched_blank:
-            self.log("CSU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def import_tamu_linkam_xlsx(self, checked=False):
         if not self.has_frames():
@@ -7863,15 +7808,12 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             QMessageBox.information(self, "TAMU Linkam .xlsx import", "The TAMU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_choices()
 
         dialog = TAMUTemperatureImportDialog(
             self,
             self.last_temperature_import_path,
-            available_sample_names,
             getattr(self, "last_temperature_calibration_path", ""),
             getattr(self, "last_temperature_reset_temperature", None),
-            getattr(self, "last_temperature_blank_sample_names", []),
             self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -7880,7 +7822,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         file_path = dialog_values["file_path"]
         calibration_path = dialog_values["calibration_path"]
         reset_temperature = dialog_values["reset_temperature"]
-        blank_sample_names = dialog_values["blank_sample_names"]
 
         try:
             parsed_timeseries = parse_tamu_linkam_xlsx(file_path)
@@ -7892,7 +7833,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             headers, rows, summary = self.build_tamu_freeze_count_timeseries_results(
                 parsed_timeseries,
                 calibration_by_well=calibration_by_well,
-                blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
             )
         except (OSError, TemperatureImportError) as err:
@@ -7920,12 +7860,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_calibration_path = str(calibration_path or "")
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
-        self.last_temperature_blank_sample_names = list(blank_sample_names)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
-        matched_blank_samples = summary.get("matched_blank_samples", [])
-        unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
         in_range_image_count = int(summary.get("in_range_image_count", 0))
@@ -7949,10 +7886,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             message_lines.append(f"Calibration applied to {calibrated_cell_count} cell(s).")
         if out_of_range_image_count:
@@ -7974,10 +7907,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"TAMU grouping mode: {grouping_label}")
         if matched_samples:
             self.log("TAMU output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            self.log("TAMU water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            self.log("TAMU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
         if calibration_path:
             self.log(f"TAMU calibration applied to {calibrated_cell_count} cell(s): {calibration_path}")
 
@@ -7989,14 +7918,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             QMessageBox.information(self, "PKU Linksys32 .iml import", "The PKU importer requires image files and is not available for video sources.")
             return
 
-        available_sample_names = self.available_sample_choices()
 
         dialog = PKUTemperatureImportDialog(
             main_window=self,
             initial_path=self.last_temperature_import_path,
-            sample_names=available_sample_names,
             initial_reset_temperature=getattr(self, "last_temperature_reset_temperature", None),
-            initial_blank_sample_names=getattr(self, "last_temperature_blank_sample_names", []),
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
@@ -8004,13 +7930,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         dialog_values = dialog.get_values()
         file_path = dialog_values["file_path"]
         reset_temperature = dialog_values["reset_temperature"]
-        blank_sample_names = dialog_values["blank_sample_names"]
 
         try:
             parsed_timeseries = parse_linksys32_iml(file_path)
             headers, rows, summary = self.build_pku_linksys32_freeze_count_timeseries_results(
                 parsed_timeseries,
-                blank_sample_names=blank_sample_names,
                 reset_temperature=reset_temperature,
             )
         except (OSError, TemperatureImportError) as err:
@@ -8037,12 +7961,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.last_temperature_import_path = str(file_path)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
-        self.last_temperature_blank_sample_names = list(blank_sample_names)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
         matched_samples = summary.get("matched_samples", [])
-        matched_blank_samples = summary.get("matched_blank_samples", [])
-        unmatched_blank = summary.get("unmatched_blank_samples", [])
         parsed_image_count = int(summary.get("parsed_image_count", 0))
         total_images = int(summary.get("total_images", 0))
         tagged_temperature_count = int(summary.get("tagged_temperature_count", 0))
@@ -8066,10 +7987,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
             message_lines.append("Output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            message_lines.append("Water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            message_lines.append("Selected water blank sample(s) not matched to app samples: " + ", ".join(unmatched_blank))
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
@@ -8087,10 +8004,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"PKU grouping mode: {grouping_label}")
         if matched_samples:
             self.log("PKU output samples: " + ", ".join(matched_samples))
-        if matched_blank_samples:
-            self.log("PKU water blank correction samples: " + ", ".join(matched_blank_samples))
-        if unmatched_blank:
-            self.log("PKU unmatched selected water blank samples: " + ", ".join(unmatched_blank))
 
     def export_grayscale_results_for_external_tool(self):
         if not self.grayscale_results_headers or not self.grayscale_results_rows:

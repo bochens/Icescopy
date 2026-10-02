@@ -76,7 +76,7 @@ CSV means comma-separated values: a text table. See [Output Reference](Output-Re
 
 Rows beginning with `#` describe the file, session, and samples. The numeric table follows. Sample fields are controlled by the session's field definitions and **Export** settings.
 
-The application exports counts, not a final particle concentration. Fraction frozen can be calculated from a valid, nonzero **number total** and its corresponding **number frozen**. Blank correction can change both counts; use the definitions in [Output Reference](Output-Reference.md), rather than substituting the number of drawn circles for a corrected total.
+The application exports counts, not a final particle concentration. Fraction frozen can be calculated from a valid, nonzero **number total** and its corresponding **number frozen**. Blank samples retain their own counts. Apply blank correction in downstream analysis. See [Output Reference](Output-Reference.md) for count definitions and older saved results.
 
 Missing values are not zero. Missing sample information, unmatched temperature, and an unused correction field are different situations.
 

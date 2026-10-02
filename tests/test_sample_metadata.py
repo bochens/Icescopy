@@ -368,7 +368,6 @@ class SampleMetadataTests(unittest.TestCase):
             "last_temperature_import_path": "",
             "last_temperature_calibration_path": "",
             "last_temperature_reset_temperature": None,
-            "last_temperature_blank_sample_names": [],
             "last_standard_temperature_image_timestamp_source": "filename",
             "last_standard_temperature_image_timestamp_style": "auto",
             "last_standard_temperature_temperature_timestamp_style": "auto",

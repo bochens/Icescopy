@@ -11,9 +11,11 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QLabel  # noqa: E402
 import Icescopy as icescopy_module  # noqa: E402
-from icescopy_dialogs import CSUTemperatureImportDialog  # noqa: E402
+from icescopy_dialogs import (CSUTemperatureImportDialog, StandardTemperatureImportDialog,
+                              UTKTemperatureImportDialog, TAMUTemperatureImportDialog,
+                              PKUTemperatureImportDialog)  # noqa: E402
 from icescopy_temperature_import import (  # noqa: E402
     CSU_COUNT_SOURCE_COMBINED,
     CSU_COUNT_SOURCE_IMAGES,
@@ -28,10 +30,25 @@ class CSUImportDialogTests(unittest.TestCase):
 
     def make_dialog(self, **kwargs):
         dialog = CSUTemperatureImportDialog(
-            SimpleNamespace(), "", ["Sample_0"], **kwargs
+            SimpleNamespace(), "", **kwargs
         )
         self.addCleanup(dialog.deleteLater)
         return dialog
+
+    def test_all_import_dialogs_have_no_blank_selector_or_remembered_choice(self):
+        for cls in (CSUTemperatureImportDialog, StandardTemperatureImportDialog,
+                    UTKTemperatureImportDialog, TAMUTemperatureImportDialog, PKUTemperatureImportDialog):
+            with self.subTest(dialog=cls.__name__):
+                dialog = cls(SimpleNamespace(), "", initial_reset_temperature=0)
+                self.addCleanup(dialog.deleteLater)
+                dialog.show()
+                self.qt_app.processEvents()
+                self.assertFalse(hasattr(dialog, "blank_sample_list"))
+                self.assertNotIn("blank_sample_names", dialog.get_values())
+                self.assertEqual(dialog.get_values()["reset_temperature"], 0)
+                self.assertFalse(any("blank" in label.text().lower() for label in dialog.findChildren(QLabel)))
+                self.assertEqual(dialog.scroll_area.horizontalScrollBar().maximum(), 0)
+                dialog.close()
 
     def test_existing_combined_method_remains_the_default(self):
         dialog = self.make_dialog()
@@ -82,7 +99,6 @@ class CSUImportDialogTests(unittest.TestCase):
         dialog.exec.return_value = QDialog.Accepted
         dialog.get_values.return_value = {
             "file_path": "/synthetic/cold-stage.dat",
-            "blank_sample_names": [],
             "reset_temperature": None,
             "count_source": CSU_COUNT_SOURCE_INSTRUMENT,
         }
@@ -91,7 +107,7 @@ class CSUImportDialogTests(unittest.TestCase):
             icescopy_module.IceScopy.import_csu_is_dat(window)
 
         builder.assert_called_once_with(
-            parsed, blank_sample_names=[], reset_temperature=None,
+            parsed, reset_temperature=None,
             count_source=CSU_COUNT_SOURCE_INSTRUMENT,
         )
         details = window.show_detailed_information_dialog.call_args.args[2]

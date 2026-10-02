@@ -182,24 +182,56 @@ class CSUCountSourceTests(unittest.TestCase):
         self.assertEqual(summary["freeze_review_cycle_metadata"]["cycle_ids"], [0, 0, 0, 1, 1, 1])
         self.assertEqual(window.cell_records_by_id[0].freeze_event_indices, [1, 2, 4, 5])
 
-    def test_water_blank_correction_uses_selected_count_source(self):
+    def test_blank_samples_keep_their_own_uncorrected_counts_in_all_sources(self):
         window = CountWindow(["a.png", "b.png", "c.png"],
-                             [("Sample_0", [[0], [1], [2]]), ("Sample_1", [[1]])])
+                             [("Sample_0", [[0], [1], [2]]), ("Sample_blank", [[1]])])
         data = make_data([-1, -2, -3], {0: "a.png", 1: "b.png", 2: "c.png"},
-                         {"Sample_0": [1, 2, 3], "Sample_1": [0, 0, 1]})
-        for source, correction, totals, frozen in (
-            (CSU_COUNT_SOURCE_IMAGES, [0, 1, 1], [3, 2, 2], [1, 1, 2]),
-            (CSU_COUNT_SOURCE_INSTRUMENT, [0, 0, 1], [3, 3, 2], [1, 2, 2]),
+                         {"Sample_0": [1, 2, 3], "Sample_blank": [0, 0, 1]})
+        for source, blank_frozen in (
+            (CSU_COUNT_SOURCE_IMAGES, [0, 1, 1]),
+            (CSU_COUNT_SOURCE_INSTRUMENT, [0, 0, 1]),
+            (CSU_COUNT_SOURCE_COMBINED, [0, 1, 1]),
         ):
             with self.subTest(source=source):
                 headers, rows, summary = window.build_csu_freeze_count_timeseries_results(
-                    data, blank_sample_names=["1"], count_source=source
+                    data, count_source=source
                 )
-                self.assertEqual(values(headers, rows, "water blank correction count"), correction)
-                self.assertEqual(values(headers, rows, "Sample_0 number total"), totals)
-                self.assertEqual(values(headers, rows, "Sample_0 number frozen"), frozen)
-                self.assertNotIn("Sample_1 number frozen", headers)
-                self.assertEqual(summary["matched_blank_samples"], ["Sample_1"])
+                self.assertNotIn("water blank correction count", headers)
+                self.assertEqual(values(headers, rows, "Sample_0 number total"), [3, 3, 3])
+                self.assertEqual(values(headers, rows, "Sample_0 number frozen"), [1, 2, 3])
+                self.assertEqual(values(headers, rows, "Sample_blank number total"), [1, 1, 1])
+                self.assertEqual(values(headers, rows, "Sample_blank number frozen"), blank_frozen)
+                self.assertEqual(summary["matched_samples"], ["Sample_0", "Sample_blank"])
+                self.assertTrue(all(item["role"] == "sample" for item in summary["sample_total_cells"]))
+
+    def test_frame_imports_keep_blank_counts_and_reset_each_sample_independently(self):
+        start = datetime(2026, 1, 1, 12)
+        times = [start + timedelta(seconds=index) for index in range(4)]
+        temperatures = [-1, -2, 0.5, -2]
+        names = [time.strftime("%Y-%m-%d-%H-%M-%S-%f.png") for time in times]
+        window = CountWindow(names, [("Dust", [[1, 3], [3]]), ("Water blank", [[0, 3]])])
+        window.is_video_source = lambda: False
+        window.imagePaths = names
+        window.imageNames = names
+        # An old session's remembered choice must have no effect on new counts.
+        window.last_temperature_blank_sample_names = ["1"]
+        parsed = SimpleNamespace(
+            start_timestamp=start, timeseries_datetimes=times,
+            timeseries_seconds=[0, 1, 2, 3], temperature_values=temperatures,
+            image_records=[SimpleNamespace(timestamp=t, temperature_value=v)
+                           for t, v in zip(times, temperatures)],
+        )
+        for builder in (window.build_standard_freeze_count_timeseries_results,
+                        window.build_tamu_freeze_count_timeseries_results,
+                        window.build_pku_linksys32_freeze_count_timeseries_results):
+            with self.subTest(builder=builder.__name__):
+                headers, rows, summary = builder(parsed, reset_temperature=0)
+                self.assertNotIn("water blank correction count", headers)
+                self.assertEqual(values(headers, rows, "Dust number total"), [2, 2, 2, 2])
+                self.assertEqual(values(headers, rows, "Dust number frozen"), [0, 1, 0, 2])
+                self.assertEqual(values(headers, rows, "Water blank number total"), [1, 1, 1, 1])
+                self.assertEqual(values(headers, rows, "Water blank number frozen"), [1, 1, 0, 1])
+                self.assertEqual(summary["matched_samples"], ["Dust", "Water blank"])
 
     def test_out_of_order_images_are_rejected_in_all_modes(self):
         data = make_data([-1, -2], {0: "a.png", 1: "b.png"}, {"Sample_0": [0, 1]})

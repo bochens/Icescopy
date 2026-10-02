@@ -11,7 +11,7 @@ A `.icescopy` file is a ZIP with `session.json` and any populated result tables 
 
 ### `build_session_payload`
 
-[Source](../src/icescopy_session_io.py#L158)
+[Source](../src/icescopy_session_io.py#L160)
 
 ```python
 def build_session_payload(main_window):
@@ -19,7 +19,7 @@ def build_session_payload(main_window):
 
 ### `migrate_session_payload`
 
-[Source](../src/icescopy_session_io.py#L215)
+[Source](../src/icescopy_session_io.py#L299)
 
 ```python
 def migrate_session_payload(payload):
@@ -27,7 +27,7 @@ def migrate_session_payload(payload):
 
 ### `build_restore_state`
 
-[Source](../src/icescopy_session_io.py#L290)
+[Source](../src/icescopy_session_io.py#L373)
 
 ```python
 def build_restore_state(main_window, payload, grayscale_table, freeze_table, freeze_count_timeseries_table):
@@ -35,7 +35,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
 
 ### `save_session_bundle`
 
-[Source](../src/icescopy_session_io.py#L394)
+[Source](../src/icescopy_session_io.py#L476)
 
 ```python
 def save_session_bundle(file_path, payload, grayscale_headers, grayscale_rows, freeze_headers, freeze_rows, freeze_count_timeseries_headers, freeze_count_timeseries_rows):
@@ -43,7 +43,7 @@ def save_session_bundle(file_path, payload, grayscale_headers, grayscale_rows, f
 
 ### `load_session_bundle`
 
-[Source](../src/icescopy_session_io.py#L447)
+[Source](../src/icescopy_session_io.py#L555)
 
 ```python
 def load_session_bundle(file_path):
@@ -51,7 +51,7 @@ def load_session_bundle(file_path):
 
 ### `build_freeze_count_timeseries_csv_text`
 
-[Source](../src/icescopy_session_io.py#L88)
+[Source](../src/icescopy_session_io.py#L90)
 
 ```python
 def build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=None, summary=None):
@@ -59,7 +59,7 @@ def build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=No
 
 ### `serialize_sample_catalog_payload`
 
-[Source](../src/icescopy_session_io.py#L63)
+[Source](../src/icescopy_session_io.py#L65)
 
 ```python
 def serialize_sample_catalog_payload(catalog, sample_metadata_schema=None):
@@ -67,7 +67,7 @@ def serialize_sample_catalog_payload(catalog, sample_metadata_schema=None):
 
 ### `deserialize_sample_catalog_payload`
 
-[Source](../src/icescopy_session_io.py#L75)
+[Source](../src/icescopy_session_io.py#L77)
 
 ```python
 def deserialize_sample_catalog_payload(payload, sample_metadata_schema=None):

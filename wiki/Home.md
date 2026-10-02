@@ -23,7 +23,7 @@ Follow this order for a new analysis. Each guide explains its controls and check
 2. [Prepare the image](Image-Editing.md), then [draw and edit cells](Annotation-Workflow.md). A cell is the circular area measured for one droplet or well.
 3. [Assign samples and enter metadata](Sample-Metadata.md). A sample groups related cells; metadata describes that sample.
 4. [Set analysis intervals and find freeze events](Analysis-and-Results.md). Review the detections, tune the settings, rerun, and then make manual corrections.
-5. [Import temperature records](Temperature-Import.md). Check time matching, sample groups, and any blank correction or repeated cycles.
+5. [Import temperature records](Temperature-Import.md). Check time matching, sample groups (including blanks), and repeated cycles.
 6. [Save the session and export results](Sessions-Export-and-Preferences.md). Use the [Output Reference](Output-Reference.md) to interpret the tables.
 
 Keep the original images or videos: a saved session refers to those files rather than containing them. Use **Save Session As...** and a new export folder when comparing alternative analyses.

@@ -139,12 +139,12 @@ Do not replace every `nan` with zero.
 
 - In metadata, it usually means information was not supplied.
 - In a temperature column, it can mean a frame could not be matched.
-- In correction columns, it can mean that correction was not used.
+- In older saved tables, a `nan` blank-correction value means that correction was not used.
 - In the current reset-temperature metadata field, an exact numeric **0 °C** is exported as `nan`; cycle calculation still uses zero. Keep a separate record of that import choice.
 
 Check Sample IDs, nonempty sample names, and the **Unassigned cells** group. In normal temperature-count grouping, samples with blank names can be omitted.
 
-Blank correction subtracts the selected blanks' **frozen count at that row** from both the non-blank sample total and its frozen count, with bounds applied. It does not simply subtract the blanks' total number of cells. The `cell_number` metadata still describes the annotated sample group. See [Output Reference](Output-Reference.md) before comparing these quantities.
+New imports do not apply blank correction. Blank samples retain their own **number total** and **number frozen** columns. Previously saved tables keep their original values; reimport temperatures to build a new uncorrected table. See [Output Reference](Output-Reference.md).
 
 ## A result panel is missing
 

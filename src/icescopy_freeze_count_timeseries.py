@@ -17,9 +17,7 @@ from icescopy_temperature_import import (
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
-    apply_blank_correction_counts,
     build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
-    compute_blank_correction_by_index,
     detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
     normalize_sample_name,
     normalize_temperature_reset_threshold as normalize_temperature_reset_threshold_value,
@@ -187,15 +185,10 @@ class FreezeCountTimeseriesMixin:
             return sample_groups, "all_cells"
         return {}, "samples"
 
-    def build_freeze_count_timeseries_blank_selection(self, sample_groups, blank_sample_names=None):
+    def build_freeze_count_timeseries_output_samples(self, sample_groups):
         metadata_field_names = export_sample_metadata_field_keys(
             getattr(self, "sample_metadata_schema", None)
         )
-        blank_identifier_set = {
-            str(sample_identifier).strip()
-            for sample_identifier in (blank_sample_names or [])
-            if str(sample_identifier or "").strip()
-        }
         matched_samples = []
         for group_key, group in sample_groups.items():
             group_key_text = str(group_key)
@@ -215,10 +208,6 @@ class FreezeCountTimeseriesMixin:
                     },
                     "total_cells": int(group.get("total_cells", 0)),
                     "cell_ids": list(group.get("cell_ids", [])),
-                    "is_blank": (
-                        group_key_text in blank_identifier_set
-                        or (sample_id_text and sample_id_text in blank_identifier_set)
-                    ),
                     "sort_index": int(group.get("sort_index", 0) or 0),
                 }
             )
@@ -235,20 +224,7 @@ class FreezeCountTimeseriesMixin:
                 str(sample.get("group_key", "")),
             )
         )
-        blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
-        output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
-        matched_identifiers = {
-            identifier
-            for sample in matched_samples
-            for identifier in (sample.get("group_key", ""), sample.get("sample_id", ""))
-            if str(identifier or "").strip()
-        }
-        unmatched_blank_samples = sorted(
-            sample_identifier
-            for sample_identifier in blank_identifier_set
-            if sample_identifier not in matched_identifiers
-        )
-        return matched_samples, blank_samples, output_samples, unmatched_blank_samples
+        return matched_samples
 
     def normalize_temperature_reset_threshold(self, reset_temperature):
         return normalize_temperature_reset_threshold_value(reset_temperature)
@@ -578,7 +554,6 @@ class FreezeCountTimeseriesMixin:
     def build_standard_freeze_count_timeseries_results(
         self,
         parsed_timeseries,
-        blank_sample_names=None,
         image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
         image_timestamp_style=TIMESTAMP_STYLE_AUTO,
         generated_start_text="",
@@ -588,12 +563,7 @@ class FreezeCountTimeseriesMixin:
         reset_temperature=None,
     ):
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
+        matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_standard_image_timing_context(
             parsed_timeseries,
             image_timestamp_source=image_timestamp_source,
@@ -613,11 +583,6 @@ class FreezeCountTimeseriesMixin:
             sample_groups,
             image_cycle_ids,
         )
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
 
         timeseries_seconds = np.asarray(
             list(timing_context["timeseries_seconds"]),
@@ -629,9 +594,9 @@ class FreezeCountTimeseriesMixin:
         )
         parsed_image_timestamps = timing_context["parsed_image_timestamps"]
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
         sample_column_metadata = []
-        for sample in output_samples:
+        for sample in matched_samples:
             sample_name = str(sample.get("sample_name", ""))
             headers.append(f"{sample_name} number total")
             headers.append(f"{sample_name} number frozen")
@@ -674,24 +639,16 @@ class FreezeCountTimeseriesMixin:
                 if image_cycle_ids[image_index] is None
                 else str(int(image_cycle_ids[image_index])),
                 basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
             ]
-            for sample in output_samples:
+            for sample in matched_samples:
                 group_key = sample["group_key"]
                 total_cells = int(sample.get("total_cells", 0))
                 frozen_count = image_counts_by_sample.get(group_key, {}).get(
                     image_index,
                     0,
                 )
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
+                output_row.append(str(total_cells))
+                output_row.append(str(int(frozen_count)))
             rows.append(output_row)
 
         if in_range_image_count <= 0:
@@ -703,14 +660,13 @@ class FreezeCountTimeseriesMixin:
         summary = {
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "standard_csv",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "matched_samples": [sample["sample_name"] for sample in matched_samples],
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
                     "sample_name": str(sample.get("sample_name", "")),
                     "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
+                    "role": "sample",
                 }
                 for sample in matched_samples
             ],
@@ -732,7 +688,6 @@ class FreezeCountTimeseriesMixin:
             "out_of_range_image_count": int(out_of_range_image_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "unmatched_blank_samples": unmatched_blank_samples,
             "image_timestamp_source": str(image_timestamp_source),
             "image_timestamp_style": str(image_timestamp_style),
             "temperature_timestamp_style": str(temperature_timestamp_style),
@@ -741,7 +696,7 @@ class FreezeCountTimeseriesMixin:
         return headers, rows, summary
 
     def build_csu_freeze_count_timeseries_results(
-        self, parsed_data, blank_sample_names=None, reset_temperature=None,
+        self, parsed_data, reset_temperature=None,
         count_source=CSU_COUNT_SOURCE_COMBINED,
     ):
         count_source_labels = {
@@ -765,11 +720,6 @@ class FreezeCountTimeseriesMixin:
         for group in sample_groups.values():
             normalized_name = normalize_sample_name(group.get("sample_name", ""))
             groups_by_normalized_name.setdefault(normalized_name, []).append(group)
-        blank_identifier_set = {
-            str(sample_identifier).strip()
-            for sample_identifier in (blank_sample_names or [])
-            if str(sample_identifier or "").strip()
-        }
 
         matched_samples = []
         for dat_column in (dat_sample_columns if count_source != CSU_COUNT_SOURCE_IMAGES else []):
@@ -804,10 +754,6 @@ class FreezeCountTimeseriesMixin:
                     },
                     "cell_ids": list(group.get("cell_ids", [])),
                     "total_cells": int(group["total_cells"]),
-                    "is_blank": (
-                        group_key in blank_identifier_set
-                        or (sample_id and sample_id in blank_identifier_set)
-                    ),
                 }
             )
 
@@ -837,8 +783,6 @@ class FreezeCountTimeseriesMixin:
                     },
                     "cell_ids": list(group.get("cell_ids", [])),
                     "total_cells": int(group.get("total_cells", 0)),
-                    "is_blank": (group_key in blank_identifier_set
-                                 or str(group.get("sample_id", "") or "") in blank_identifier_set),
                 }
             )
 
@@ -855,16 +799,6 @@ class FreezeCountTimeseriesMixin:
             column_name
             for normalized_name, column_name in dat_columns_by_name.items()
             if count_source != CSU_COUNT_SOURCE_IMAGES and normalized_name not in groups_by_normalized_name
-        )
-        unmatched_blank_samples = sorted(
-            sample_identifier
-            for sample_identifier in blank_identifier_set
-            if sample_identifier not in {
-                identifier
-                for sample in matched_samples
-                for identifier in (sample.get("group_key", ""), sample.get("sample_id", ""))
-                if str(identifier or "").strip()
-            }
         )
 
         parsed_rows = list(parsed_data.get("rows", []))
@@ -1027,17 +961,9 @@ class FreezeCountTimeseriesMixin:
         if not matched_samples:
             warnings.append("No cell groups were included. Draw and assign cells, then import again; choose Icescopy detections when the file has no sample counts.")
 
-        blank_samples = [sample for sample in matched_samples if sample["is_blank"]]
-        output_samples = [sample for sample in matched_samples if not sample["is_blank"]]
-        blank_correction_by_row = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            corrected_counts_by_sample,
-            len(parsed_rows),
-        )
-
-        headers = ["timestamp", "temperature_C", "cycle", "picture", "water blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "picture"]
         sample_column_metadata = []
-        for sample in output_samples:
+        for sample in matched_samples:
             sample_name = str(sample["sample_name"])
             headers.append(f"{sample_name} number total")
             headers.append(f"{sample_name} number frozen")
@@ -1048,26 +974,19 @@ class FreezeCountTimeseriesMixin:
         rows = []
         for row in parsed_rows:
             row_index = int(row.row_index)
-            blank_correction = blank_correction_by_row[row_index] if row_index < len(blank_correction_by_row) else 0
             output_row = [
                 str(getattr(row, "timestamp_text", "") or ""),
                 "" if getattr(row, "avg_temp", None) is None else f"{float(row.avg_temp):.3f}",
                 str(int(row_cycle_ids[row_index])) if row_index < len(row_cycle_ids) else "0",
                 str(getattr(row, "picture_name", "") or ""),
-                "nan" if blank_correction is None else str(int(blank_correction)),
             ]
-            for sample in output_samples:
+            for sample in matched_samples:
                 group_key = sample["group_key"]
                 total_cells = int(sample["total_cells"])
                 sample_counts = corrected_counts_by_sample.get(group_key, [])
                 frozen_value = sample_counts[row_index] if row_index < len(sample_counts) else 0
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_value,
-                    blank_correction,
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
+                output_row.append(str(total_cells))
+                output_row.append(str(int(frozen_value)))
             rows.append(output_row)
 
         summary = {
@@ -1077,23 +996,21 @@ class FreezeCountTimeseriesMixin:
             "temperature_column": str(parsed_data.get("temperature_column", "Avg_Temp")),
             "warnings": warnings,
             "unmatched_image_count": len(unmatched_image_indexes),
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "matched_samples": [sample["sample_name"] for sample in matched_samples],
             "sample_total_cells": [
                 {
                     "sample_id": str(sample["sample_id"] or ""),
                     "sample_name": str(sample["sample_name"]),
                     "total_cells": int(sample["total_cells"]),
-                    "role": "blank" if bool(sample["is_blank"]) else "sample",
+                    "role": "sample",
                 }
                 for sample in matched_samples
             ],
             "sample_column_metadata": sample_column_metadata,
             "unmatched_app_samples": unmatched_app_samples,
             "unmatched_dat_samples": unmatched_dat_samples,
-            "unmatched_blank_samples": unmatched_blank_samples,
             "matched_picture_rows": int(picture_rows_matched),
-            "matched_sample_count": int(len(output_samples)),
+            "matched_sample_count": int(len(matched_samples)),
             "total_picture_rows": int(sum(1 for row in parsed_rows if getattr(row, "picture_name", ""))),
             "cycle_count": int(max(row_cycle_ids) + 1) if row_cycle_ids else 1,
             "freeze_review_cycle_metadata": capture_cycle_metadata(
@@ -1107,26 +1024,15 @@ class FreezeCountTimeseriesMixin:
         self,
         parsed_timeseries,
         calibration_by_well=None,
-        blank_sample_names=None,
         reset_temperature=None,
     ):
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
+        matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_tamu_image_timing_context(parsed_timeseries, reset_temperature=reset_temperature)
         cycle_start_seconds = timing_context["cycle_start_seconds"]
         image_elapsed_seconds = timing_context["image_elapsed_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
 
         timeseries_seconds = np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float)
         temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
@@ -1135,14 +1041,14 @@ class FreezeCountTimeseriesMixin:
 
         calibrated_cell_ids = set()
         if calibration_by_well:
-            for group in output_samples:
+            for group in matched_samples:
                 for cell_id in group.get("cell_ids", []):
                     if int(cell_id) in calibration_by_well:
                         calibrated_cell_ids.add(int(cell_id))
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
         sample_column_metadata = []
-        for sample in output_samples:
+        for sample in matched_samples:
             sample_name = str(sample.get("sample_name", ""))
             if include_corrected_temperature:
                 headers.append(f"{sample_name} corrected temperature_C")
@@ -1180,11 +1086,8 @@ class FreezeCountTimeseriesMixin:
                 "" if raw_temperature is None else f"{raw_temperature:.3f}",
                 "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
                 basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
             ]
-            for sample in output_samples:
+            for sample in matched_samples:
                 group_key = sample["group_key"]
                 if include_corrected_temperature:
                     corrected_temperature = self.corrected_temperature_for_group(
@@ -1195,13 +1098,8 @@ class FreezeCountTimeseriesMixin:
                     output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
                 total_cells = int(sample.get("total_cells", 0))
                 frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
+                output_row.append(str(total_cells))
+                output_row.append(str(int(frozen_count)))
             rows.append(output_row)
 
         if in_range_image_count <= 0:
@@ -1212,14 +1110,13 @@ class FreezeCountTimeseriesMixin:
         summary = {
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "tamu",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "matched_samples": [sample["sample_name"] for sample in matched_samples],
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
                     "sample_name": str(sample.get("sample_name", "")),
                     "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
+                    "role": "sample",
                 }
                 for sample in matched_samples
             ],
@@ -1240,23 +1137,16 @@ class FreezeCountTimeseriesMixin:
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
-            "unmatched_blank_samples": unmatched_blank_samples,
         }
         return headers, rows, summary
 
     def build_pku_linksys32_freeze_count_timeseries_results(
         self,
         parsed_timeseries,
-        blank_sample_names=None,
         reset_temperature=None,
     ):
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
-        matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            self.build_freeze_count_timeseries_blank_selection(
-                sample_groups,
-                blank_sample_names=blank_sample_names,
-            )
-        )
+        matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_pku_linksys32_image_timing_context(
             parsed_timeseries,
             reset_temperature=reset_temperature,
@@ -1266,15 +1156,10 @@ class FreezeCountTimeseriesMixin:
         parsed_image_timestamps = timing_context["parsed_image_timestamps"]
         image_record_temperatures = timing_context["image_record_temperatures"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-        blank_correction_by_image = compute_blank_correction_by_index(
-            [sample["group_key"] for sample in blank_samples],
-            image_counts_by_sample,
-            self.frame_count(),
-        )
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"]
+        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
         sample_column_metadata = []
-        for sample in output_samples:
+        for sample in matched_samples:
             sample_name = str(sample.get("sample_name", ""))
             headers.append(f"{sample_name} number total")
             headers.append(f"{sample_name} number frozen")
@@ -1305,34 +1190,25 @@ class FreezeCountTimeseriesMixin:
                 "" if raw_temperature is None else f"{raw_temperature:.3f}",
                 "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
                 basename,
-                "nan"
-                if blank_correction_by_image[image_index] is None
-                else str(int(blank_correction_by_image[image_index])),
             ]
-            for sample in output_samples:
+            for sample in matched_samples:
                 group_key = sample["group_key"]
                 total_cells = int(sample.get("total_cells", 0))
                 frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                adjusted_total, adjusted_frozen = apply_blank_correction_counts(
-                    total_cells,
-                    frozen_count,
-                    blank_correction_by_image[image_index],
-                )
-                output_row.append(str(int(adjusted_total)))
-                output_row.append(str(int(adjusted_frozen)))
+                output_row.append(str(total_cells))
+                output_row.append(str(int(frozen_count)))
             rows.append(output_row)
 
         summary = {
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "pku_linksys32_iml",
-            "matched_samples": [sample["sample_name"] for sample in output_samples],
-            "matched_blank_samples": [sample["sample_name"] for sample in blank_samples],
+            "matched_samples": [sample["sample_name"] for sample in matched_samples],
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
                     "sample_name": str(sample.get("sample_name", "")),
                     "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "blank" if bool(sample.get("is_blank")) else "sample",
+                    "role": "sample",
                 }
                 for sample in matched_samples
             ],
@@ -1353,6 +1229,5 @@ class FreezeCountTimeseriesMixin:
             "tagged_temperature_count": int(tagged_temperature_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "unmatched_blank_samples": unmatched_blank_samples,
         }
         return headers, rows, summary
