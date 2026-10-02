@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel  # noqa: E402
 import Icescopy as icescopy_module  # noqa: E402
 from icescopy_dialogs import (CSUTemperatureImportDialog, StandardTemperatureImportDialog,
                               UTKTemperatureImportDialog, TAMUTemperatureImportDialog,
-                              PKUTemperatureImportDialog)  # noqa: E402
+                              PKUTemperatureImportDialog, temperature_import_summary_text)  # noqa: E402
 from icescopy_temperature_import import (  # noqa: E402
     CSU_COUNT_SOURCE_COMBINED,
     CSU_COUNT_SOURCE_IMAGES,
@@ -77,6 +77,9 @@ class CSUImportDialogTests(unittest.TestCase):
         warning = "A recorded count decreased; review the count source."
         summary = {
             "count_source_label": "Icescopy + .dat",
+            "count_source": CSU_COUNT_SOURCE_COMBINED,
+            "total_cell_count": 5,
+            "sample_total_cells": [{"total_cells": 5}],
             "temperature_column": "Sample_Temp",
             "matched_samples": ["All cells"],
             "total_cell_group_count": 1,
@@ -126,6 +129,61 @@ class CSUImportDialogTests(unittest.TestCase):
         self.assertIn("Temperature column: Sample_Temp", details)
         self.assertIn(warning, details)
         window.log.assert_any_call(f"CSU import warning: {warning}")
+
+
+class TemperatureImportSummaryTests(unittest.TestCase):
+    def timing_summary(self):
+        return {
+            "matched_samples": ["All cells"],
+            "sample_total_cells": [{"total_cells": 12}],
+            "total_cell_count": 12,
+            "total_images": 10,
+            "parsed_image_count": 8,
+            "in_range_image_count": 6,
+            "out_of_range_image_count": 2,
+            "unparsed_image_count": 2,
+            "cycle_count": 1,
+        }
+
+    def test_time_matching_shows_partial_coverage_for_images_and_video(self):
+        for video_mode, label in ((False, "Images"), (True, "Frames")):
+            with self.subTest(video_mode=video_mode):
+                message = temperature_import_summary_text(self.timing_summary(), 10, video_mode=video_mode)
+                self.assertIn("Cells: 12 total; 12 included.", message)
+                self.assertIn(f"{label} with temperatures: 6/10.", message)
+                self.assertIn(f"{label} with readable timestamps: 8/10.", message)
+                self.assertIn("outside the temperature record", message)
+                self.assertIn("no readable timestamp", message)
+                self.assertIn("blank temperature fields", message)
+                self.assertIn("Output rows: 10.", message)
+                self.assertNotIn("synchronized", message)
+
+    def test_pku_describes_record_order_without_claiming_filename_matching(self):
+        summary = self.timing_summary()
+        summary.update(source_type="pku_linksys32_iml", image_record_count=10,
+                       tagged_temperature_count=10, parsed_image_count=10, unparsed_image_count=0)
+        message = temperature_import_summary_text(summary, 10)
+        self.assertIn("Images paired with .iml records (by order): 10/10.", message)
+        self.assertIn("Images with temperatures: 10/10.", message)
+        self.assertNotIn("outside", message)
+        self.assertNotIn("blank temperature", message)
+
+    def test_excluded_cells_are_visible_without_opening_details(self):
+        summary = self.timing_summary()
+        summary["total_cell_count"] = 15
+        message = temperature_import_summary_text(summary, 10)
+        self.assertIn("Cells: 15 total; 12 included.", message)
+        self.assertIn("3 cell(s) are not included", message)
+
+    def test_image_only_dat_import_does_not_claim_sample_matching(self):
+        summary = self.timing_summary()
+        summary.update(count_source=CSU_COUNT_SOURCE_IMAGES, count_source_label="Icescopy only",
+                       sample_count_matching_used=False, total_image_count=10, matched_image_count=10)
+        message = temperature_import_summary_text(summary, 20)
+        self.assertNotIn("sample-count matching", message)
+        self.assertIn("Loaded images matched: 10/10.", message)
+        self.assertIn("Output rows: 20.", message)
+        self.assertNotIn("sample-count columns matched:", message)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,63 @@ from icescopy_temperature_import import (
 )
 
 
+def temperature_import_summary_text(summary, row_count, *, video_mode=False):
+    """Describe output coverage without treating included cells as sample matches."""
+    groups = summary.get("matched_samples", [])
+    included_cells = sum(group["total_cells"] for group in summary["sample_total_cells"])
+    total_cells = summary["total_cell_count"]
+    lines = [
+        "Temperature import complete.",
+        "",
+        f"Cells: {total_cells} total; {included_cells} included.",
+        f"Included cell groups: {len(groups)}.",
+    ]
+    notices = []
+    excluded_cells = total_cells - included_cells
+    if excluded_cells:
+        notices.append(f"{excluded_cells} cell(s) are not included. Check sample names and assignments.")
+
+    if "count_source" in summary:
+        lines.append(f"Count source: {summary['count_source_label']}.")
+        if summary["sample_count_matching_used"]:
+            lines.append(
+                f".dat sample-count columns matched: "
+                f"{len(summary['dat_sample_matches'])}/{summary['total_dat_sample_count']}."
+            )
+        lines.append(
+            f"Loaded images matched: {summary['matched_image_count']}/{summary['total_image_count']}."
+        )
+        unmatched = summary["total_image_count"] - summary["matched_image_count"]
+        if unmatched:
+            notices.append(f"{unmatched} image(s) have no matching .dat Picture record.")
+    else:
+        frame_label = "Frames" if video_mode else "Images"
+        total = summary["total_images"]
+        if summary.get("source_type") == "pku_linksys32_iml":
+            lines.append(f"Images paired with .iml records (by order): {summary['image_record_count']}/{total}.")
+            temperature_count = summary["tagged_temperature_count"]
+        else:
+            temperature_count = summary["in_range_image_count"]
+            outside = summary["out_of_range_image_count"]
+            if outside:
+                notices.append(f"{outside} {frame_label.lower()} fall outside the temperature record.")
+        lines.append(f"{frame_label} with temperatures: {temperature_count}/{total}.")
+        lines.append(f"{frame_label} with readable timestamps: {summary['parsed_image_count']}/{total}.")
+        unreadable = summary["unparsed_image_count"]
+        if unreadable:
+            notices.append(f"{unreadable} {frame_label.lower()} have no readable timestamp.")
+        if temperature_count < total:
+            notices.append("Rows without temperatures are kept in the table with blank temperature fields.")
+
+    lines.append(f"Output rows: {row_count}. Cooling cycles: {summary.get('cycle_count', 1)}.")
+    if summary.get("warnings"):
+        notices.append(f"Review {len(summary['warnings'])} warning(s) in Show Details before exporting.")
+    if notices:
+        lines.extend(["", *notices])
+    lines.extend(["", "Save using Output Results → Freeze Count Timeseries CSV."])
+    return "\n".join(lines)
+
+
 TEMPERATURE_RESET_LABEL = "Reset After Warmed To (°C)"
 TEMPERATURE_RESET_DESCRIPTION = (
     "If reset is enabled, a new cycle starts once temperature warms back to the selected threshold."

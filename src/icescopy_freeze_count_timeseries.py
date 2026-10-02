@@ -661,6 +661,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "standard_csv",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
@@ -1006,6 +1007,7 @@ class FreezeCountTimeseriesMixin:
                 for sample in matched_samples if sample["dat_column"] is not None
             ],
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample["sample_id"] or ""),
@@ -1120,6 +1122,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "tamu",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
@@ -1212,6 +1215,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "pku_linksys32_iml",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),

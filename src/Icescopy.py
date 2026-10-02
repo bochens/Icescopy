@@ -34,6 +34,7 @@ from icescopy_cell import CellStateManager
 from icescopy_cell_items import CellCircle, CellSnapshot
 from icescopy_dialogs import (
     CSUTemperatureImportDialog,
+    temperature_import_summary_text,
     NewSessionMetadataDialog,
     OutputResultsDialog,
     PKUTemperatureImportDialog,
@@ -7531,8 +7532,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
+            f"{frame_label} with readable timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7546,26 +7547,25 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature timestamp style: " + str(summary.get("temperature_timestamp_style", "")))
         message_lines.append("Temperature column unit: " + str(summary.get("temperature_unit", "")))
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if out_of_range_image_count:
             message_lines.append(
-                f"{frame_label} outside the timeseries range: {out_of_range_image_count}"
+                f"{frame_label} outside the temperature record: {out_of_range_image_count}"
             )
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
                 message_lines.append(
-                    f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})"
+                    f"{frame_label} without readable timestamps: {unparsed_image_count} ({preview})"
                 )
             else:
                 message_lines.append(
-                    f"{frame_label} with unparseable timestamps: {unparsed_image_count}"
+                    f"{frame_label} without readable timestamps: {unparsed_image_count}"
                 )
 
         self.show_detailed_information_dialog(
             "Standard temperature CSV import",
-            "Standard temperature CSV import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
+            temperature_import_summary_text(summary, len(rows), video_mode=video_mode),
             "\n".join(message_lines),
         )
         self.log(f"Imported standard temperature CSV: {file_path}")
@@ -7664,8 +7664,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
+            f"{frame_label} with readable timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7679,20 +7679,19 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature timestamp style: UTK Time column")
         message_lines.append("Temperature column: PV(C)1")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if out_of_range_image_count:
-            message_lines.append(f"{frame_label} outside the timeseries range: {out_of_range_image_count}")
+            message_lines.append(f"{frame_label} outside the temperature record: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "UTK CSV import",
-            "UTK CSV import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
+            temperature_import_summary_text(summary, len(rows), video_mode=video_mode),
             "\n".join(message_lines),
         )
         self.log(f"Imported UTK CSV file: {file_path}")
@@ -7763,7 +7762,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         match_summary = (
             f".dat sample-count columns matched: {len(dat_matches)}/{summary['total_dat_sample_count']}."
             if summary["sample_count_matching_used"]
-            else ".dat sample-count matching: not used (Icescopy only)."
+            else None
         )
         image_summary = (
             f"Loaded images matched: {summary['matched_image_count']}/{summary['total_image_count']}."
@@ -7782,13 +7781,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             f"Count source: {count_source_label}",
             f"Temperature column: {temperature_column}",
             group_summary,
-            match_summary,
             image_summary,
             f"Picture records matched to loaded images: {matched_picture_rows}/{total_picture_rows}",
             f"Detected cycles: {cycle_count}",
         ]
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
+        if match_summary:
+            message_lines.append(match_summary)
         if dat_matches:
             message_lines.append("Sample matches: " + "; ".join(
                 f"{match['sample_name']} → {match['dat_column']}" for match in dat_matches
@@ -7803,9 +7803,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.show_detailed_information_dialog(
             "CSU .dat import",
-            f"Imported using {count_source_label}.\n\n"
-            f"{group_summary}\n{match_summary}\n{image_summary}"
-            + (f"\n\nReview {len(warnings)} warning(s) in the details before exporting." if warnings else ""),
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported CSU .dat file: {file_path}")
@@ -7895,8 +7893,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"Images with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Images with readable timestamps: {parsed_image_count}/{total_images}",
+            f"Images with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7904,22 +7902,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if calibration_path:
             message_lines.append(f"Calibration applied to {calibrated_cell_count} cell(s).")
         if out_of_range_image_count:
-            message_lines.append(f"Images outside the timeseries range: {out_of_range_image_count}")
+            message_lines.append(f"Images outside the temperature record: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "TAMU Linkam .xlsx import",
-            "TAMU Linkam .xlsx import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed image timestamps.",
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported TAMU Linkam workbook: {file_path}")
@@ -7995,9 +7992,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"Matched .iml image records: {image_record_count}/{total_images}",
-            f"Images with .iml timestamps: {parsed_image_count}/{total_images}",
-            f"Images with .iml tagged temperatures: {tagged_temperature_count}/{total_images}",
+            f"Images paired with .iml records (by order): {image_record_count}/{total_images}",
+            f"Images with readable timestamps: {parsed_image_count}/{total_images}",
+            f"Images with temperatures: {tagged_temperature_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -8005,18 +8002,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "PKU Linksys32 .iml import",
-            "PKU Linksys32 .iml import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} .iml image timestamps.",
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported PKU Linksys32 .iml file: {file_path}")
