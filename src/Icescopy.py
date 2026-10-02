@@ -7754,7 +7754,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
-        matched_samples = summary.get("matched_samples", [])
+        output_groups = summary.get("matched_samples", [])
         unmatched_app = summary.get("unmatched_app_samples", [])
         unmatched_dat = summary.get("unmatched_dat_samples", [])
         matched_picture_rows = int(summary.get("matched_picture_rows", 0))
@@ -7768,24 +7768,25 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines = [
             f"Count source: {count_source_label}",
             f"Temperature column: {temperature_column}",
-            f"Matched samples: {len(matched_samples)}",
-            f"Matched picture rows: {matched_picture_rows}/{total_picture_rows}",
+            f"Included cell groups: {len(output_groups)}",
+            f"Picture records matched to loaded images: {matched_picture_rows}/{total_picture_rows}",
             f"Detected cycles: {cycle_count}",
         ]
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
-        if matched_samples:
-            message_lines.append("Matched sample names: " + ", ".join(matched_samples))
+        if output_groups:
+            message_lines.append("Included group names: " + ", ".join(output_groups))
         if unmatched_app:
-            message_lines.append("No CSU column match for app sample(s): " + ", ".join(unmatched_app))
+            message_lines.append("Samples without a matching .dat count column (not included): " + ", ".join(unmatched_app))
         if unmatched_dat:
-            message_lines.append("No app sample match for CSU column(s): " + ", ".join(unmatched_dat))
+            message_lines.append(".dat count columns without a matching Icescopy sample (not used): " + ", ".join(unmatched_dat))
         message_lines.extend("Warning: " + str(warning) for warning in warnings)
 
         self.show_detailed_information_dialog(
             "CSU .dat import",
             f"Imported using {count_source_label}.\n\n"
-            f"Matched {len(matched_samples)} sample(s) across {matched_picture_rows}/{total_picture_rows} picture rows."
+            f"Included cell groups: {len(output_groups)}.\n"
+            f"Matched {matched_picture_rows}/{total_picture_rows} Picture records to loaded images."
             + (f"\n\nReview {len(warnings)} warning(s) in the details before exporting." if warnings else ""),
             "\n".join(message_lines),
         )
@@ -7793,8 +7794,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"CSU count source: {count_source_label}; temperature column: {temperature_column}")
         for warning in warnings:
             self.log(f"CSU import warning: {warning}")
-        if matched_samples:
-            self.log("CSU matched samples: " + ", ".join(matched_samples))
+        if output_groups:
+            self.log("CSU included cell groups: " + ", ".join(output_groups))
         if unmatched_app:
             self.log("CSU unmatched app samples: " + ", ".join(unmatched_app))
         if unmatched_dat:

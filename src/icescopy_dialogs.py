@@ -252,7 +252,7 @@ class CSUTemperatureImportDialog(QDialog):
         descriptions = {
             CSU_COUNT_SOURCE_IMAGES: (
                 "Use freeze events found or edited in Icescopy. You can use any sample names; "
-                "CSU count columns are not required."
+                "CSU count columns are not required. Unassigned cells are included as one group."
             ),
             CSU_COUNT_SOURCE_INSTRUMENT: (
                 "Use CSU's recorded counts, including any decreases. They do not identify individual "
@@ -262,7 +262,7 @@ class CSUTemperatureImportDialog(QDialog):
             CSU_COUNT_SOURCE_COMBINED: (
                 "Use Icescopy counts at image times and CSU counts between images. Run image "
                 "analysis first. Name the samples in Icescopy to match the .dat columns, "
-                "such as Sample_0."
+                "such as Sample_0. Unassigned cells use only Icescopy freeze events."
             ),
         }
         self.count_source_help.setText(
