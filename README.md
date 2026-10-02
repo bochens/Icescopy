@@ -51,9 +51,7 @@ A **cell** is the circle whose brightness Icescopy measures. Draw cells with **A
 
 ![Two selected examples guide droplet detection; the app adds fourteen cells with normal red outlines and reports the model version and counts](resources/readme/2026-10-01-workflow/droplet-selection.png)
 
-*Texas A&M University (TAMU), droplet stage. In this example, the two blue circles are selected guidance examples, and the fourteen red circles were added automatically. The Console shows the model version and counts.*
-
-Automatic and manually drawn cells use the same red outlines in the application.
+*Texas A&M University (TAMU), droplet stage. In this example, the two blue circles are selected guidance examples, and the fourteen red circles were added automatically. (Automatic and manually drawn cells use the same red outlines in the application.) The Console shows the model version and counts.*
 
 The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
 
