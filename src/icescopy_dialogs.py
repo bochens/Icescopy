@@ -53,6 +53,8 @@ def temperature_import_summary_text(summary, row_count, *, video_mode=False):
         f"Cells: {total_cells} total; {included_cells} included.",
         f"Included cell groups: {len(groups)}.",
     ]
+    if summary.get("analysis_required"):
+        lines.append("Frozen counts: Analysis required (blank until events are available).")
     notices = []
     excluded_cells = total_cells - included_cells
     if excluded_cells:

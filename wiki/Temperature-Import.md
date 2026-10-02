@@ -22,11 +22,19 @@ The dialog can set a reset temperature for repeated cooling cycles. TAMU also of
 
 ## Before importing
 
-1. For image-derived counts, finish automatic detection and manual corrections. Importing uses the current event list, including manual events outside analysis intervals.
+1. Import temperatures before or after finding freeze events. The count table uses the current event list, including manual events outside analysis intervals. If analysis has not run and no events are marked, frozen counts remain blank and the dialog says **Analysis required**.
 2. Assign cells to samples and give each sample a nonempty name. Use distinct names for easier checking; CSU matching requires names it can distinguish.
 3. Check recording order. Sorting the temperature record does not fix an incorrectly ordered image sequence.
 4. Confirm that the frame clock and temperature logger use the same time basis. A successful import does not prove that the clocks agree.
 5. Save the session under a new name if you want to compare imports or retain an earlier result.
+
+## Automatic updates after import
+
+Editing a freeze event, toggling its flag, changing sample assignments, or completing analysis updates the count table automatically. The console reports **Freeze Count Timeseries updated.** Changed values are briefly highlighted when the table layout stays the same. Moving the timeline alone does not recalculate counts. Undo and redo restore the corresponding counts.
+
+Imported temperature records, settings, and calibration are saved inside new `.icescopy` sessions. The original temperature file is not needed for later event edits. Changing cell geometry can still require new image analysis; temperatures are retained and frozen counts remain blank until events are available. If an update fails, the console explains why and stale counts are removed from export.
+
+Reimport when replacing the temperature data, changing import settings, or changing the loaded frames, their paths, or their order. Older sessions without retained import inputs require one new import to enable automatic updates. Previously exported CSV files are never updated automatically.
 
 ## Standard temperature CSV
 
@@ -113,7 +121,7 @@ Time<TAB><TAB>Sample_Temp<TAB>Sample_0<TAB>Picture
 `<TAB>` above represents a tab character; it is not literal file content. Dates use month/day/two-digit-year and times use hours:minutes:seconds, with supported fractional seconds.
 
 1. Load the corresponding images without changing their filenames. Use natural filename order for numbered images, so `Image_2.png` precedes `Image_10.png`.
-2. Draw cells and assign samples. Run and review analysis before importing.
+2. Draw cells and assign samples. You can import temperatures before or after running analysis.
 3. Choose **CSU .dat import...**, select the file, and choose a **Count source** from the table below. Set a reset temperature only for repeated cooling cycles.
 4. Check the matched pictures, included samples, count source, and warnings before exporting.
 
@@ -136,7 +144,7 @@ Samples in Icescopy are groups of cells assigned to the same sample. For **Icesc
 
 Missing or invalid counts stop combined imports for the affected matched samples; choose **Icescopy only** to ignore those columns. All-zero counts do not establish whether the instrument detector was enabled.
 
-Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. With no stored cell events, image counts are zero and can override positive instrument counts in combined mode; finish and review image analysis before importing.
+Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. If analysis has not run and no events are marked, frozen counts stay blank. After analysis, zero detected events produce zero image counts, which can override positive instrument counts in combined mode. Review the events before exporting.
 
 The import summary reports total and included cell groups, matched `.dat` sample-count columns, and matched loaded images. Details list excluded sample groups and unused `.dat` columns.
 

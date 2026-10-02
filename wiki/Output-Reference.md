@@ -118,7 +118,7 @@ The **number total** and metadata field `cell_number` both give the number of ce
 ### Which samples appear
 
 - Cells with sample assignments are grouped by sample ID, not just by name.
-- Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name and reimport.
+- Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name to refresh the counts (reimport for older sessions without retained temperature inputs).
 - Unassigned cells form an **Unassigned cells** group, including when no cells have sample assignments.
 - Blank samples appear with their own total and frozen counts, like other samples.
 - **Icescopy only** includes all cell groups. **Icescopy + .dat** includes named groups matching `.dat` sample columns, plus unassigned cells using Icescopy events. Check the import summary for omissions.
@@ -203,4 +203,4 @@ This keeps the comment text in `metadata_lines` and reads the table into `counts
 
 To calculate fraction frozen, divide **number frozen** by a valid, nonzero **number total**. Apply any blank correction in downstream analysis; new imports export counts without blank correction. A count table alone does not supply concentration, confidence intervals, detection accuracy, or calibration uncertainty.
 
-Exports are a snapshot of the current stored results. Changing settings does not update an already written CSV. Recalculate or reimport as needed, then export to a new file or folder. A saved `.icescopy` session retains working state and internal result tables; the external count CSV additionally carries the comment metadata described here.
+Exports are a snapshot of the current stored results. Changing settings does not update an already written CSV. With retained temperature inputs, event and sample edits automatically refresh the in-app count table. Export again to a new file or folder to save those changes. A saved `.icescopy` session retains working state and internal result tables; the external count CSV additionally carries the comment metadata described here.

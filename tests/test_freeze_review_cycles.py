@@ -181,6 +181,67 @@ class CycleMetadataLifecycleTests(unittest.TestCase):
                 self.window.set_freeze_count_timeseries_results(headers, rows, summary)
                 self.assertEqual(self.window.freeze_review_cycle_ids(), ())
 
+    def test_flag_edits_undo_redo_and_saved_session_refresh_counts(self):
+        headers, rows, summary = self.window.build_standard_freeze_count_timeseries_results(
+            self.parsed_temperature(), reset_temperature=0,
+        )
+        self.window.set_freeze_count_timeseries_results(headers, rows, summary)
+        column = headers.index("Unassigned cells number frozen")
+        def counts():
+            return [row[column] for row in self.window.freeze_count_timeseries_rows]
+        self.assertEqual(counts(), ["0", "1", "0", "1"])
+        self.window.updateImage(1)
+        for item in self.window.scene.items():
+            if getattr(item, "cell_id", None) == self.cell_id:
+                item.setSelected(True)
+        self.assertTrue(self.window.toggle_selected_cells_freeze_at_current_frame())
+        self.assertEqual(counts(), ["0", "0", "0", "1"])
+        self.window.undo_stack.undo()
+        self.assertEqual(counts(), ["0", "1", "0", "1"])
+        self.window.undo_stack.redo()
+        self.assertEqual(counts(), ["0", "0", "0", "1"])
+        self.assertIn("Freeze Count Timeseries updated.", self.window.terminal.toPlainText())
+        path = self.root / "refresh.icescopy"
+        save_session_bundle(path, build_session_payload(self.window),
+                            self.window.grayscale_results_headers, self.window.grayscale_results_rows,
+                            self.window.freeze_results_headers, self.window.freeze_results_rows,
+                            self.window.freeze_count_timeseries_headers, self.window.freeze_count_timeseries_rows)
+        payload, grayscale, freeze, temperatures = load_session_bundle(path)
+        self.window.restore_session_state(build_restore_state(self.window, payload, grayscale, freeze, temperatures))
+        self.window.apply_manual_freeze_event_indices(self.cell_id, [0, 2])
+        self.assertEqual(counts(), ["1", "1", "1", "1"])
+
+    def test_undo_first_manual_event_restores_analysis_required_status(self):
+        self.window.ensure_cell_record(self.cell_id).freeze_event_indices = []
+        self.window.freeze_results_headers = []
+        self.window.freeze_results_rows = []
+        self.window.set_freeze_count_timeseries_results(
+            *self.window.build_standard_freeze_count_timeseries_results(self.parsed_temperature()))
+        self.assertTrue(self.window.freeze_count_timeseries_summary["analysis_required"])
+        for item in self.window.scene.items():
+            if getattr(item, "cell_id", None) == self.cell_id:
+                item.setSelected(True)
+        self.assertTrue(self.window.toggle_selected_cells_freeze_at_current_frame())
+        self.assertFalse(self.window.freeze_count_timeseries_summary["analysis_required"])
+        self.window.undo_stack.undo()
+        self.assertTrue(self.window.freeze_count_timeseries_summary["analysis_required"])
+        column = self.window.freeze_count_timeseries_headers.index("Unassigned cells number frozen")
+        self.assertEqual([row[column] for row in self.window.freeze_count_timeseries_rows], [""] * 4)
+
+    def test_completed_analysis_refreshes_from_new_events_not_previous_records(self):
+        self.window.set_freeze_count_timeseries_results(
+            *self.window.build_standard_freeze_count_timeseries_results(self.parsed_temperature()))
+        self.window.pending_analysis_before_state = None
+        self.window.worker = SimpleNamespace(
+            freeze_result_headers=["cell", "image_index", "image_name"],
+            freeze_result_rows=[[f"cell_{self.cell_id}", "2", self.window.frame_name(2)]],
+            grayscale_result_headers=[], grayscale_result_rows=[], deleteLater=lambda: None,
+        )
+        self.window.onThreadFinished()
+        column = self.window.freeze_count_timeseries_headers.index("Unassigned cells number frozen")
+        self.assertEqual([row[column] for row in self.window.freeze_count_timeseries_rows], ["0", "0", "1", "1"])
+        self.assertIn("Freeze Count Timeseries updated.", self.window.terminal.toPlainText())
+
     def test_count_invalidation_annotation_undo_and_data_restore_keep_correct_metadata(self):
         self.install_metadata()
         data_state = self.window.capture_data_state()

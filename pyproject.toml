@@ -76,6 +76,7 @@ py-modules = [
   "icescopy_session_io",
   "icescopy_stylesheet",
   "icescopy_temperature_import",
+  "icescopy_temperature_refresh",
   "icescopy_tool_options",
   "icescopy_validate",
   "icescopy_version",

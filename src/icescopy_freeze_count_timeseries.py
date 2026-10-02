@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import numpy as np
 
+from icescopy_temperature_refresh import make_temperature_refresh_context
 from icescopy_sample_metadata import export_sample_metadata_field_keys
 from icescopy_freeze_cycles import capture_cycle_metadata, cycle_ids_for_window
 from icescopy_temperature_import import (
@@ -561,10 +562,11 @@ class FreezeCountTimeseriesMixin:
         temperature_timestamp_style=TIMESTAMP_STYLE_AUTO,
         temperature_unit=TEMPERATURE_UNIT_CELSIUS,
         reset_temperature=None,
+        timing_context=None,
     ):
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
-        timing_context = self.build_standard_image_timing_context(
+        timing_context = timing_context or self.build_standard_image_timing_context(
             parsed_timeseries,
             image_timestamp_source=image_timestamp_source,
             image_timestamp_style=image_timestamp_style,
@@ -694,6 +696,17 @@ class FreezeCountTimeseriesMixin:
             "temperature_timestamp_style": str(temperature_timestamp_style),
             "temperature_unit": str(temperature_unit),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "standard", parsed_timeseries, dict(
+                image_timestamp_source=image_timestamp_source,
+                image_timestamp_style=image_timestamp_style,
+                generated_start_text=generated_start_text,
+                frame_interval_seconds=frame_interval_seconds,
+                temperature_timestamp_style=temperature_timestamp_style,
+                temperature_unit=temperature_unit, reset_temperature=reset_temperature,
+                timing_context=timing_context,
+            ),
+        )
         return headers, rows, summary
 
     def build_csu_freeze_count_timeseries_results(
@@ -1029,6 +1042,9 @@ class FreezeCountTimeseriesMixin:
             ),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "csu", parsed_data, dict(reset_temperature=reset_temperature, count_source=count_source),
+        )
         return headers, rows, summary
 
     def build_tamu_freeze_count_timeseries_results(
@@ -1150,6 +1166,9 @@ class FreezeCountTimeseriesMixin:
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "tamu", parsed_timeseries, dict(reset_temperature=reset_temperature, calibration_by_well=calibration_by_well),
+        )
         return headers, rows, summary
 
     def build_pku_linksys32_freeze_count_timeseries_results(
@@ -1243,4 +1262,7 @@ class FreezeCountTimeseriesMixin:
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "pku", parsed_timeseries, dict(reset_temperature=reset_temperature),
+        )
         return headers, rows, summary

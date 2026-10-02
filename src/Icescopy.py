@@ -55,6 +55,7 @@ from icescopy_frame_source import (
     normalize_video_grayscale_mode,
 )
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
+from icescopy_temperature_refresh import rebuild_temperature_counts
 from icescopy_freeze_cycles import restore_cycle_metadata, set_cycle_metadata
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
@@ -1189,6 +1190,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.invalidate_freeze_count_timeseries_results(
             "freeze frame annotations changed",
             refresh_table=refresh_freeze_count_table,
+            analysis_required=False,
         )
         if refresh_tables:
             self.refresh_freeze_annotation_views()
@@ -5508,13 +5510,26 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 if visible_count == 0:
                     self.results_tables_dock.hide()
 
-    def set_freeze_count_timeseries_results(self, headers, rows, summary=None):
+    def set_freeze_count_timeseries_results(self, headers, rows, summary=None, *, automatic=False):
+        previous_headers = self.freeze_count_timeseries_headers
+        previous_rows = self.freeze_count_timeseries_rows
+        if summary and summary.get("refresh_context") and not automatic:
+            summary["analysis_required"] = not (
+                getattr(self, "freeze_results_headers", [])
+                or any(getattr(record, "freeze_event_indices", [])
+                       for record in getattr(self, "cell_records_by_id", {}).values())
+            )
         self.freeze_count_timeseries_headers = [str(value) for value in (headers or [])]
         self.freeze_count_timeseries_rows = [
             ["" if value is None else str(value) for value in row]
             for row in (rows or [])
         ]
         self.freeze_count_timeseries_summary = dict(summary or {})
+        if self.freeze_count_timeseries_summary.get("analysis_required"):
+            for column, header in enumerate(self.freeze_count_timeseries_headers):
+                if header.endswith(" number frozen"):
+                    for row in self.freeze_count_timeseries_rows:
+                        row[column] = ""
         restore_cycle_metadata(self, {
             "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers,
             "freeze_count_timeseries_rows": self.freeze_count_timeseries_rows,
@@ -5524,8 +5539,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "sample_metadata_schema",
             self.serialize_sample_metadata_schema(),
         )
-        self.update_freeze_count_timeseries_table()
-        if self.freeze_count_timeseries_headers:
+        if automatic:
+            self.update_temperature_table_after_edit(previous_headers, previous_rows)
+        else:
+            self.update_freeze_count_timeseries_table()
+        if self.freeze_count_timeseries_headers and not automatic:
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(2)
             self.show_dock_widget(self.results_tables_dock)
@@ -5549,6 +5567,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return current_header
 
     def refresh_freeze_count_timeseries_metadata_from_sample_catalog(self, *, relabel_headers=False):
+        if getattr(self, "freeze_count_timeseries_summary", {}).get("refresh_context"):
+            return self.refresh_temperature_counts()
         if not self.freeze_count_timeseries_headers:
             return False
 
@@ -5643,7 +5663,82 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_session_actions_state()
         return True
 
-    def invalidate_freeze_count_timeseries_results(self, reason=None, refresh_table=True):
+    def update_temperature_table_after_edit(self, previous_headers, previous_rows):
+        """Keep the current table position and briefly mark changed values."""
+        table = getattr(self, "freeze_count_timeseries_table", None)
+        if table is None:
+            return
+        generation = getattr(self, "temperature_highlight_generation", 0) + 1
+        self.temperature_highlight_generation = generation
+        if (previous_headers != self.freeze_count_timeseries_headers
+                or len(previous_rows) != len(self.freeze_count_timeseries_rows)
+                or table.rowCount() != len(self.freeze_count_timeseries_rows)):
+            self.update_freeze_count_timeseries_table()
+            return
+        changed = []
+        table.setUpdatesEnabled(False)
+        try:
+            for row_index, row in enumerate(self.freeze_count_timeseries_rows):
+                for column, value in enumerate(row):
+                    item = table.item(row_index, column)
+                    if item is None:
+                        continue
+                    item.setBackground(QBrush())
+                    if value != previous_rows[row_index][column]:
+                        item.setText(value)
+                        item.setBackground(QColor(245, 190, 65, 90))
+                        changed.append((row_index, column))
+        finally:
+            table.setUpdatesEnabled(True)
+
+        def clear_highlights():
+            if generation != getattr(self, "temperature_highlight_generation", None):
+                return
+            for row_index, column in changed:
+                item = table.item(row_index, column)
+                if item is not None:
+                    item.setBackground(QBrush())
+        if changed:
+            QTimer.singleShot(900, table, clear_highlights)
+        self.update_results_table_visibility()
+
+    def refresh_temperature_counts(self, *, analysis_required=None):
+        previous_summary = self.freeze_count_timeseries_summary
+        context = previous_summary.get("refresh_context")
+        if not context:
+            return False
+        try:
+            headers, rows, summary = rebuild_temperature_counts(self, context)
+            summary["analysis_required"] = (
+                previous_summary.get("analysis_required", False)
+                if analysis_required is None else bool(analysis_required)
+            )
+            self.set_freeze_count_timeseries_results(headers, rows, summary, automatic=True)
+        except Exception as error:
+            # Never offer stale counts for export, but retain the inputs so a later
+            # correction can recover without reopening the temperature file.
+            self.freeze_count_timeseries_headers = []
+            self.freeze_count_timeseries_rows = []
+            self.freeze_count_timeseries_summary = dict(previous_summary, refresh_error=str(error))
+            self.update_freeze_count_timeseries_table()
+            self.update_session_actions_state()
+            self.log(f"Freeze Count Timeseries could not update: {error}")
+            return False
+        if summary["analysis_required"]:
+            self.log("Temperatures retained. Analysis required; frozen counts are blank.")
+        else:
+            self.log("Freeze Count Timeseries updated.")
+        for warning in summary.get("warnings", []):
+            if warning not in previous_summary.get("warnings", []):
+                self.log(f"Temperature import warning: {warning}")
+        return True
+
+    def invalidate_freeze_count_timeseries_results(
+        self, reason=None, refresh_table=True, *, analysis_required=None,
+    ):
+        if reason and self.freeze_count_timeseries_summary.get("refresh_context"):
+            self.refresh_temperature_counts(analysis_required=analysis_required)
+            return
         had_results = bool(self.freeze_count_timeseries_headers or self.freeze_count_timeseries_rows)
         self.freeze_count_timeseries_headers = []
         self.freeze_count_timeseries_rows = []
@@ -5673,7 +5768,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.freeze_results_rows = []
         self.clear_cell_analysis()
         self.update_results_tables()
-        self.invalidate_freeze_count_timeseries_results("analysis results changed")
+        self.invalidate_freeze_count_timeseries_results("analysis results changed", analysis_required=True)
         if had_results and reason:
             self.log(f"Analysis cleared: {reason}. Run Analysis again.")
 
@@ -5872,6 +5967,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_freeze_annotation_state(self):
         return {
+            "temperature_analysis_required": getattr(self, "freeze_count_timeseries_summary", {}).get("analysis_required", False),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
             "freeze_results_headers": self.freeze_results_headers.copy(),
             "freeze_results_rows": copy.deepcopy(self.freeze_results_rows),
@@ -6873,10 +6969,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.cell_records_by_id = self.deserialize_cell_records(restored_cell_records_payload)
             self.freeze_results_headers = state.get("freeze_results_headers", []).copy()
             self.freeze_results_rows = copy.deepcopy(state.get("freeze_results_rows", []))
-            self.freeze_count_timeseries_headers = []
-            self.freeze_count_timeseries_rows = []
-            self.freeze_count_timeseries_summary = {}
-            self.last_temperature_import_path = None
             self.ensure_cell_registry_matches_scene_cells()
             self.recompute_next_cell_id(preserve_if_larger=True)
             self.ensure_sample_catalog_matches_cell_records()
@@ -6889,7 +6981,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.replace_freeze_table_rows_for_cells(changed_cell_ids)
             elif hasattr(self, "freeze_table"):
                 self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
-            self.clear_freeze_count_timeseries_table_widget()
+            self.invalidate_freeze_count_timeseries_results(
+                "freeze frame annotations restored",
+                analysis_required=state.get("temperature_analysis_required", False),
+                refresh_table=False,
+            )
             self.update_results_table_visibility()
 
             desired_flag_frames = set(self.selected_cell_freeze_frames(selected_items=selected_items))
@@ -7417,7 +7513,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(1)
             self.show_dock_widget(self.results_tables_dock)
-        self.invalidate_freeze_count_timeseries_results("freeze results changed")
+        self.invalidate_freeze_count_timeseries_results("freeze results changed", analysis_required=False)
 
     def import_standard_temperature_csv(self, checked=False):
         if not self.has_frames():
@@ -10926,8 +11022,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grayscale_results_rows = getattr(worker, 'grayscale_result_rows', [])
         self.freeze_results_headers = getattr(worker, 'freeze_result_headers', [])
         self.freeze_results_rows = getattr(worker, 'freeze_result_rows', [])
-        self.invalidate_freeze_count_timeseries_results("analysis results changed")
         self.update_results_tables()
+        self.invalidate_freeze_count_timeseries_results("analysis results changed", analysis_required=False)
         if self.grayscale_results_headers or self.freeze_results_headers:
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(0 if self.grayscale_results_headers else 1)
