@@ -424,7 +424,7 @@
     },
     "icescopy_freeze_count_timeseries": {
       "summary": "Build sample-group freeze counts matched to temperature records.",
-      "details": "The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and correction helpers. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.",
+      "details": "The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and temperature-calibration helpers. Counts are exported without blank correction, including each blank sample as an ordinary output group. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.",
       "functions": [],
       "classes": {
         "FreezeCountTimeseriesMixin": {
@@ -791,8 +791,7 @@
         "resolve_image_timestamps",
         "parse_timestamp_text",
         "detect_cycle_start_indexes_from_temperatures",
-        "reconcile_counts_by_cycle",
-        "compute_blank_correction_by_index"
+        "reconcile_counts_by_cycle"
       ],
       "classes": {
         "TemperatureImportError": {

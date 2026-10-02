@@ -59,7 +59,7 @@ Manual corrections change events after visual review. A later automatic analysis
 
 ## Temperature and repeated cycles
 
-Temperature import combines reviewed events, sample assignments, timing, and importer-specific choices. Repeated-cycle settings determine when a warming stage resets the count for another cooling cycle. Blank correction changes counts according to the implemented correction rule. Neither replaces reviewing the recording and import summary.
+Temperature import combines reviewed events, sample assignments, timing, and importer-specific choices. Repeated-cycle settings determine when a warming stage resets the count for another cooling cycle. All included samples, including blanks, keep their own total and frozen counts. Apply blank correction in downstream analysis after reviewing the recording and import summary.
 
 Read [Temperature Import](Temperature-Import.md) for matching and reset rules, and [Output Reference](Output-Reference.md) for the meaning of exported counts.
 
@@ -75,7 +75,7 @@ This table explains how to produce a consistent new result. It does not mean eve
 | Brightness source or freeze-finding preferences | Rerun and review before reimporting temperatures |
 | A freeze event manually | Reimport temperatures and export again; do not rerun automatic detection if you want to retain the correction |
 | Cells' Sample IDs | Reimport temperatures to rebuild group counts, then export again |
-| Temperature input, timing, calibration, blank group, or cycle options | Reimport temperatures, inspect the table, and export again |
+| Temperature input, timing, calibration, or cycle options | Reimport temperatures, inspect the table, and export again |
 | Sample names or descriptive metadata | Save and export again; brightness measurement need not repeat |
 | Zoom, visible comparison frames, panel layout, annotation colors, or plot styling | No rerun is needed for appearance alone |
 

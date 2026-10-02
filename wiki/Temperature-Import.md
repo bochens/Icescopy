@@ -4,7 +4,7 @@ Temperature import matches the current freeze events to a temperature record and
 
 Review frame order, cell placement, freeze events, and sample assignments first. Then choose **Analysis → Import Temperature Data**. Reimport after changing events or sample assignments, or after rerunning analysis.
 
-Use the sections below to [choose an importer](#choose-the-importer), [prepare a standard CSV](#standard-temperature-csv), [handle blanks and cycles](#water-blanks-and-repeated-cycles), and [check the result](#review-and-export). [Output Reference](Output-Reference.md) describes the emitted columns.
+Use the sections below to [choose an importer](#choose-the-importer), [prepare a standard CSV](#standard-temperature-csv), [handle blanks](#blank-samples) and [repeated cycles](#repeated-cooling-cycles), and [check the result](#review-and-export). [Output Reference](Output-Reference.md) describes the emitted columns.
 
 ## Choose the importer
 
@@ -18,7 +18,7 @@ Choose by the file's actual format, not just its extension. Load the images or v
 | **PKU Linksys32 .iml import...** | Original Linksys32 file with image records | Yes | No | Loaded images matched by count and order to embedded image records. |
 | **UTK CSV import...** | Columns named `Time` and `PV(C)1` | Yes | Yes | Image filename timestamps, or the first video filename's start time plus elapsed video time. |
 
-The dialog can select water blank samples and a reset temperature for repeated cooling cycles. TAMU also offers an optional cell-calibration file. The detailed examples below use invented names and values.
+The dialog can set a reset temperature for repeated cooling cycles. TAMU also offers an optional cell-calibration file. The detailed examples below use invented names and values.
 
 ## Before importing
 
@@ -53,7 +53,7 @@ timestamp,temperature_C
 2. Choose how the app obtains frame timestamps using the sections below.
 3. Set the temperature **Timestamp style**. Clear **Use image style for temperature timestamps** if the frame and temperature formats differ.
 4. Select **Celsius** or **Kelvin**. Kelvin values are converted by subtracting 273.15; output temperatures are in °C.
-5. Select any water blank samples and set **Reset After Warmed To (°C)**, or leave it **Off** for a single cycle.
+5. Set **Reset After Warmed To (°C)**, or leave it **Off** for a single cycle.
 6. Import and check the summary: parsed frames, frames within the temperature range, unmatched frames, samples, and cycle count.
 
 Temperature at a frame is found by linear interpolation between neighboring temperature readings. In the example above, a frame at 12:00:01 has temperature −5.1 °C. The app does not extrapolate beyond the first or last reading. At least one frame must fall inside the temperature record; otherwise the import fails.
@@ -114,7 +114,7 @@ Time<TAB><TAB>Sample_Temp<TAB>Sample_0<TAB>Picture
 
 1. Load the corresponding images without changing their filenames. Use natural filename order for numbered images, so `Image_2.png` precedes `Image_10.png`.
 2. Draw cells and assign samples. Run and review analysis if using Icescopy detections or the combined method.
-3. Choose **CSU .dat import...**, select the file, and choose a **Count source** from the table below. Select blanks and a reset temperature only when needed.
+3. Choose **CSU .dat import...**, select the file, and choose a **Count source** from the table below. Set a reset temperature only for repeated cooling cycles.
 4. Check the matched pictures, included samples, count source, and warnings before exporting.
 
 Picture matching uses the filename without its folder and ignores letter case. Each matching row supplies that image's capture time and sample temperature. Image filenames do not need timestamps; filesystem dates and an assumed camera interval are not used. `CP_Sink_Temp` and electrical telemetry are not sample temperatures.
@@ -126,7 +126,7 @@ Use unique image names and keep the loaded images in the same order as the pictu
 | Count source | Use it when | How counts are built |
 | --- | --- | --- |
 | **Icescopy detections** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All sample groups in Icescopy are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
-| **CSU recorded counts** | You want the instrument's recorded sample counts. | Assign all cells to samples in Icescopy. Name each sample to match its `.dat` column, such as `Sample_0`. These assignments supply the total droplet count. Recorded values, including decreases, are retained before any selected blank correction. |
+| **CSU recorded counts** | You want the instrument's recorded sample counts. | Assign all cells to samples in Icescopy. Name each sample to match its `.dat` column, such as `Sample_0`. These assignments supply the total droplet count. Recorded values, including decreases, are retained. |
 | **Icescopy + CSU** | You want image counts to correct the instrument counts. | Image-derived counts set reference values at matched pictures. CSU counts fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
 
 CSU output has one row per instrument record, so many rows can have an empty `picture` field. The import does **not** create or change individual cells' freeze events: instrument sample totals do not identify which droplets froze.
@@ -135,7 +135,7 @@ Samples in Icescopy are groups of cells assigned to the same sample. For recorde
 
 Missing or invalid counts stop recorded and combined imports for the affected matched samples; choose **Icescopy detections** to ignore those columns. Recorded mode also stops if a count exceeds the sample's assigned cell total, rather than clipping the value. All-zero counts do not establish whether the instrument detector was enabled.
 
-Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. Blank correction, when selected, is applied after counts are built. With no stored cell events, image counts are zero and can override positive instrument counts in combined mode; use recorded mode if you intend to keep those instrument counts.
+Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. With no stored cell events, image counts are zero and can override positive instrument counts in combined mode; use recorded mode if you intend to keep those instrument counts.
 
 ## TAMU Linkam .xlsx
 
@@ -181,7 +181,7 @@ Calibration does not move freeze frames or change the raw temperature record use
 
 1. Load the images from the corresponding recording in their original export order.
 2. Choose **PKU Linksys32 .iml import...** and select the original `.iml` file.
-3. Choose blanks and a reset temperature if needed.
+3. Set a reset temperature for repeated cooling cycles if needed.
 4. Check the image-record count, assigned temperatures, samples, and cycles.
 
 The loaded image count must equal the number of embedded image records. Position 0 in the loaded sequence is paired with the first embedded image record, position 1 with the next, and so on. Count agreement does not verify that the pictures themselves are in the correct order.
@@ -205,26 +205,15 @@ The `Time` column also accepts forms such as `2026-01-01 12:00:00`, with no frac
 - **Images:** frame times come from automatically recognized image filename timestamps.
 - **Video:** the first clip's filename supplies the start time. For example, `2026_0101_120000_001.MP4` supplies 2026-01-01 12:00:00. The app then adds elapsed video time; subsequent clip filenames do not establish separate starts.
 
-UTK uses the same interpolation, blank correction, and per-cycle counting as Standard CSV. Check the video timing limitations above. If the first video filename lacks a recognized timestamp, prepare a two-column file and use **Standard CSV import...** to enter the first timestamp yourself.
+UTK uses the same interpolation and per-cycle counting as Standard CSV. Check the video timing limitations above. If the first video filename lacks a recognized timestamp, prepare a two-column file and use **Standard CSV import...** to enter the first timestamp yourself.
 
-## Water blanks and repeated cycles
+## Blank samples
 
-### Water blank correction
+Assign blank controls to their own named samples, just like other samples. Icescopy exports each included sample's **number total** and **number frozen**, including the blanks. There is no blank selector and no blank subtraction during import. CSU sample-name matching still applies when using recorded or combined counts.
 
-Select the control samples to use as water blanks in the import dialog. At each output row, the app sums their frozen counts into `B`, the **water blank correction count**. It removes those selected blank groups from the ordinary sample columns.
+Apply blank correction later in your INP analysis toolkit. Previously saved result tables retain their original values; reimport temperatures to produce an uncorrected table, and save a new session or export to preserve the earlier result.
 
-For each remaining sample with assigned total `N` and frozen count `F`, the exported counts are:
-
-- **number total:** `max(0, N − B)`.
-- **number frozen:** `min(number total, max(0, F − B))`.
-
-The same frozen-blank count is subtracted from both values. The app does not subtract the blank's entire cell total, scale by blank volume, or subtract a blank fraction. Several selected blanks contribute their summed frozen counts, not an average.
-
-For example, a sample with 20 cells and 8 frozen cells, at a row where 2 blank cells are frozen, exports **18 total** and **6 frozen**. If no blanks are selected, counts are unchanged and the correction column contains `nan`. If blanks are selected but none has frozen yet, the correction is **0**.
-
-This correction can change both the numerator and denominator over time. Check that the implemented count correction suits your experiment; further blank treatment or concentration calculations belong in your downstream analysis.
-
-### Repeated cooling cycles
+## Repeated cooling cycles
 
 Leave **Reset After Warmed To (°C)** **Off** for a single cycle. For repeated cycles, select a threshold reached during the warming stage and inspect the resulting cycle boundaries.
 
@@ -253,10 +242,10 @@ Before using the result, check:
 2. **Matching:** parsed and in-range frame counts, or CSU picture/sample matches. Investigate omissions rather than treating them as zero freezing.
 3. **Time and temperature:** beginning/end alignment, units, temperature range, and several known freeze frames.
 4. **Cycles:** number and timing of resets, including events near each boundary.
-5. **Corrections:** blank-adjusted totals and frozen counts; TAMU calibration coverage where used.
+5. **Calibration:** TAMU calibration coverage where used.
 
 Choose **File → Output Results**, then **Freeze Count Timeseries CSV**. Save to a new location when preserving an earlier export, and save the session to retain the imported table and remembered import choices. Record **Cycle Warm-Up Hysteresis** separately: the session does not save that global preference.
 
-The count table is not restricted to detected freeze frames or analysis intervals. Standard, UTK, TAMU, and PKU produce one row per loaded frame; CSU produces one row per instrument record. Missing temperatures are empty CSV fields, while `nan` has specific uses in correction and metadata fields. See [Output Reference](Output-Reference.md) before loading the table into other software.
+The count table is not restricted to detected freeze frames or analysis intervals. Standard, UTK, TAMU, and PKU produce one row per loaded frame; CSU produces one row per instrument record. Missing temperatures are empty CSV fields, while `nan` denotes missing metadata. See [Output Reference](Output-Reference.md) before loading the table into other software.
 
 Fraction frozen can be calculated as number frozen divided by a valid, nonzero number total. The app does not provide uncertainty estimates or calculate ice-nucleating-particle concentrations, and successful timestamp matching does not establish the accuracy of a freeze detection or temperature calibration.

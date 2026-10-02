@@ -359,11 +359,10 @@ class SessionIoTests(unittest.TestCase):
         fake_window.build_tamu_freeze_count_timeseries_sample_groups = (
             lambda: IceScopy.build_tamu_freeze_count_timeseries_sample_groups(fake_window)
         )
-        fake_window.build_freeze_count_timeseries_blank_selection = (
-            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+        fake_window.build_freeze_count_timeseries_output_samples = (
+            lambda sample_groups: IceScopy.build_freeze_count_timeseries_output_samples(
                 fake_window,
                 sample_groups,
-                blank_sample_names=blank_sample_names,
             )
         )
         fake_window.detect_cycle_start_indexes_from_temperatures = (
@@ -462,7 +461,7 @@ class SessionIoTests(unittest.TestCase):
 
         self.assertEqual(
             headers,
-            ["timestamp", "temperature_C", "cycle", "image_name", "water blank correction count"],
+            ["timestamp", "temperature_C", "cycle", "image_name"],
         )
         self.assertEqual(rows[0][:4], ["2025-02-17T18:25:38.895", "-10.000", "0", "frame_001.jpg"])
         self.assertEqual(rows[1][:4], ["2025-02-17T18:25:39.895", "-11.000", "0", "frame_002.jpg"])
@@ -504,7 +503,6 @@ class SessionIoTests(unittest.TestCase):
                 is_video_source=lambda: False,
                 last_temperature_import_path="/tmp/sample.iml",
                 last_temperature_reset_temperature=None,
-                last_temperature_blank_sample_names=[],
                 available_sample_choices=lambda: [
                     {
                         "sample_id": "1",
@@ -519,11 +517,7 @@ class SessionIoTests(unittest.TestCase):
             icescopy_module.PKUTemperatureImportDialog = original_dialog
 
         self.assertEqual(captured_kwargs["main_window"], fake_window)
-        self.assertEqual(
-            captured_kwargs["sample_names"],
-            [{"sample_id": "1", "sample_name": "Sample A", "label": "Sample A"}],
-        )
-        self.assertEqual(captured_kwargs["initial_blank_sample_names"], [])
+        self.assertNotIn("sample_names", captured_kwargs)
         self.assertEqual(captured_kwargs["parent"], fake_window)
         self.assertNotIn("initial_calibration_path", captured_kwargs)
 
@@ -1195,16 +1189,13 @@ class SessionIoTests(unittest.TestCase):
         )
         self.assertEqual(metadata["cell_number"], "1")
 
-        _matched_samples, blank_samples, output_samples, unmatched_blank_samples = (
-            IceScopy.build_freeze_count_timeseries_blank_selection(
+        output_samples = (
+            IceScopy.build_freeze_count_timeseries_output_samples(
                 fake_window,
                 groups,
-                blank_sample_names=["1"],
             )
         )
-        self.assertEqual([sample["sample_id"] for sample in blank_samples], ["1"])
-        self.assertEqual([sample["sample_id"] for sample in output_samples], ["2"])
-        self.assertEqual(unmatched_blank_samples, [])
+        self.assertEqual([sample["sample_id"] for sample in output_samples], ["1", "2"])
 
     def test_standard_import_rejects_zero_interpolated_frames(self):
         fake_window = SimpleNamespace(
@@ -1227,11 +1218,10 @@ class SessionIoTests(unittest.TestCase):
                 grouping_mode=grouping_mode,
             )
         )
-        fake_window.build_freeze_count_timeseries_blank_selection = (
-            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+        fake_window.build_freeze_count_timeseries_output_samples = (
+            lambda sample_groups: IceScopy.build_freeze_count_timeseries_output_samples(
                 fake_window,
                 sample_groups,
-                blank_sample_names=blank_sample_names,
             )
         )
         fake_window.detect_cycle_start_indexes_from_temperatures = (
@@ -1310,11 +1300,10 @@ class SessionIoTests(unittest.TestCase):
                 grouping_mode=grouping_mode,
             )
         )
-        fake_window.build_freeze_count_timeseries_blank_selection = (
-            lambda sample_groups, blank_sample_names=None: IceScopy.build_freeze_count_timeseries_blank_selection(
+        fake_window.build_freeze_count_timeseries_output_samples = (
+            lambda sample_groups: IceScopy.build_freeze_count_timeseries_output_samples(
                 fake_window,
                 sample_groups,
-                blank_sample_names=blank_sample_names,
             )
         )
         fake_window.detect_cycle_start_indexes_from_temperatures = (
@@ -1407,15 +1396,15 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(groups["__unassigned_cells__"]["cell_ids"], [11, 12])
         self.assertEqual(groups["__unassigned_cells__"]["total_cells"], 2)
 
-        matched_samples, _blank_samples, output_samples, _unmatched_blank_samples = (
-            IceScopy.build_freeze_count_timeseries_blank_selection(fake_window, groups)
+        output_samples = (
+            IceScopy.build_freeze_count_timeseries_output_samples(fake_window, groups)
         )
         self.assertEqual(
             [sample["sample_name"] for sample in output_samples],
             ["Sample_1", "Unassigned cells"],
         )
         self.assertEqual(
-            [sample["group_key"] for sample in matched_samples],
+            [sample["group_key"] for sample in output_samples],
             ["1", "__unassigned_cells__"],
         )
 
@@ -1490,15 +1479,14 @@ class SessionIoTests(unittest.TestCase):
                 "temperature_C",
                 "cycle",
                 "image_name",
-                "water blank correction count",
                 "Sample_1 number total",
                 "Sample_1 number frozen",
                 "Unassigned cells number total",
                 "Unassigned cells number frozen",
             ],
         )
-        self.assertEqual(rows[0][5:], ["1", "0", "1", "1"])
-        self.assertEqual(rows[1][5:], ["1", "1", "1", "1"])
+        self.assertEqual(rows[0][4:], ["1", "0", "1", "1"])
+        self.assertEqual(rows[1][4:], ["1", "1", "1", "1"])
         self.assertEqual(summary["matched_samples"], ["Sample_1", "Unassigned cells"])
         self.assertEqual(
             [metadata["sample_name"] for metadata in summary["sample_column_metadata"]],
@@ -1616,15 +1604,14 @@ class SessionIoTests(unittest.TestCase):
                 "temperature_C",
                 "cycle",
                 "picture",
-                "water blank correction count",
                 "Sample_1 number total",
                 "Sample_1 number frozen",
                 "Unassigned cells number total",
                 "Unassigned cells number frozen",
             ],
         )
-        self.assertEqual(rows[0][5:], ["1", "0", "1", "1"])
-        self.assertEqual(rows[1][5:], ["1", "1", "1", "1"])
+        self.assertEqual(rows[0][4:], ["1", "0", "1", "1"])
+        self.assertEqual(rows[1][4:], ["1", "1", "1", "1"])
         self.assertEqual(summary["matched_samples"], ["Sample_1", "Unassigned cells"])
         self.assertEqual(summary["unmatched_app_samples"], [])
         self.assertEqual(
@@ -1842,7 +1829,6 @@ class SessionIoTests(unittest.TestCase):
             last_temperature_import_path="",
             last_temperature_calibration_path="",
             last_temperature_reset_temperature=None,
-            last_temperature_blank_sample_names=[],
             last_standard_temperature_image_timestamp_source="filename",
             last_standard_temperature_image_timestamp_style="auto",
             last_standard_temperature_temperature_timestamp_style="auto",
@@ -1902,7 +1888,6 @@ class SessionIoTests(unittest.TestCase):
             "last_temperature_import_path": "",
             "last_temperature_calibration_path": "",
             "last_temperature_reset_temperature": None,
-            "last_temperature_blank_sample_names": [],
             "last_standard_temperature_image_timestamp_source": "filename",
             "last_standard_temperature_image_timestamp_style": "auto",
             "last_standard_temperature_temperature_timestamp_style": "auto",
@@ -1914,6 +1899,27 @@ class SessionIoTests(unittest.TestCase):
             "tool_mode": "grid",
             "console_history": "",
         }
+
+    def test_old_corrected_results_are_preserved_but_blank_import_choice_is_ignored(self):
+        payload = self.minimal_restore_payload()
+        payload["last_temperature_blank_sample_names"] = ["2"]
+        summary = {
+            "matched_samples": ["Dust"], "matched_blank_samples": ["Water blank"],
+            "sample_total_cells": [
+                {"sample_id": "1", "sample_name": "Dust", "total_cells": 20, "role": "sample"},
+                {"sample_id": "2", "sample_name": "Water blank", "total_cells": 5, "role": "blank"},
+            ],
+        }
+        payload["freeze_count_timeseries_summary"] = summary
+        headers = ["timestamp", "temperature_C", "cycle", "image_name",
+                   "water blank correction count", "Dust number total", "Dust number frozen"]
+        rows = [["2026-01-01T12:00:00", "-10", "0", "example.png", "2", "18", "6"]]
+        window = SimpleNamespace(default_tool_settings=lambda: {})
+        state = build_restore_state(window, payload, ([], []), ([], []), (headers, rows))
+        self.assertEqual(state["freeze_count_timeseries_headers"], headers)
+        self.assertEqual(state["freeze_count_timeseries_rows"], rows)
+        self.assertEqual(state["freeze_count_timeseries_summary"], summary)
+        self.assertNotIn("last_temperature_blank_sample_names", state)
 
     def test_build_restore_state_uses_default_tool_settings_when_json_is_missing_them(self):
         fake_window = SimpleNamespace(
@@ -1973,7 +1979,6 @@ class SessionIoTests(unittest.TestCase):
     def test_build_restore_state_migrates_v2_session_defaults_and_temperature_table(self):
         payload = self.minimal_restore_payload()
         for key in (
-            "last_temperature_blank_sample_names",
             "last_standard_temperature_image_timestamp_source",
             "last_standard_temperature_image_timestamp_style",
             "last_standard_temperature_temperature_timestamp_style",
@@ -1996,7 +2001,6 @@ class SessionIoTests(unittest.TestCase):
 
         state = build_restore_state(fake_window, payload, ([], []), ([], []), ([], []))
 
-        self.assertEqual(state["last_temperature_blank_sample_names"], [])
         self.assertEqual(state["last_standard_temperature_image_timestamp_source"], "filename")
         self.assertEqual(state["last_standard_temperature_frame_interval_seconds"], 1.0)
         self.assertEqual(state["freeze_count_timeseries_headers"], ["timestamp", "temperature_C"])

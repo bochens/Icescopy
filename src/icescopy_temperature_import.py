@@ -931,38 +931,6 @@ def write_linksys32_iml_temperature_csv(file_path, output_path):
     return parsed
 
 
-def compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count):
-    normalized_blank_keys = [
-        str(key).strip()
-        for key in (blank_sample_keys or [])
-        if str(key).strip()
-    ]
-    if not normalized_blank_keys:
-        return [None] * int(max(0, int(total_count)))
-    blank_correction_values = []
-    for row_index in range(int(max(0, int(total_count)))):
-        blank_correction = 0
-        for blank_key in normalized_blank_keys:
-            sample_counts = corrected_counts_by_sample.get(blank_key, [])
-            if row_index < len(sample_counts):
-                blank_correction += int(sample_counts[row_index])
-        blank_correction_values.append(int(blank_correction))
-    return blank_correction_values
-
-
-def apply_blank_correction_counts(total_cells, frozen_count, blank_correction):
-    total_cells = max(0, int(total_cells))
-    frozen_count = max(0, int(frozen_count))
-    if blank_correction is None:
-        adjusted_total = total_cells
-        adjusted_frozen = frozen_count
-    else:
-        adjusted_total = max(0, total_cells - int(blank_correction))
-        adjusted_frozen = max(0, frozen_count - int(blank_correction))
-    adjusted_frozen = min(adjusted_frozen, adjusted_total)
-    return adjusted_total, adjusted_frozen
-
-
 def parse_tamu_image_timestamp(image_name):
     stem = os.path.splitext(os.path.basename(str(image_name or "")))[0]
     match = TAMU_IMAGE_TIMESTAMP_RE.match(stem)

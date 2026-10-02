@@ -100,7 +100,7 @@ One point corresponds to one frame measurement. These controls use frames, not s
 
 The half-window is limited internally to the length of the processed stretch. If that effective half-window is `N`, the pattern has `2N` points, and the ramp is limited to at most `2N − 2` points. A large entered ramp therefore may have no further effect on a short window. Changing the window or ramp can change both prominence and width; review those thresholds again afterward.
 
-The same page includes **Cycle Warm-Up Hysteresis (°C)**, default **0.02**, range **0.00–10.00**. That setting affects cycle identification during temperature import, not freeze detection. See [repeated cycles](Temperature-Import.md#water-blanks-and-repeated-cycles).
+The same page includes **Cycle Warm-Up Hysteresis (°C)**, default **0.02**, range **0.00–10.00**. That setting affects cycle identification during temperature import, not freeze detection. See [repeated cycles](Temperature-Import.md#repeated-cooling-cycles).
 
 ## Review and tune freeze detection
 

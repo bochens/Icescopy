@@ -1,7 +1,6 @@
 import os
 
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -16,8 +15,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QRadioButton,
@@ -50,9 +47,6 @@ TEMPERATURE_RESET_LABEL = "Reset After Warmed To (°C)"
 TEMPERATURE_RESET_DESCRIPTION = (
     "If reset is enabled, a new cycle starts once temperature warms back to the selected threshold."
 )
-WATER_BLANK_CORRECTION_DESCRIPTION = (
-    "If water blank samples are selected, their frozen counts and total counts are subtracted from each non-blank output group."
-)
 
 
 def _setup_fixed_width_scrolling_dialog(dialog, *, width, initial_height, minimum_height):
@@ -80,76 +74,6 @@ def _setup_fixed_width_scrolling_dialog(dialog, *, width, initial_height, minimu
     scroll_area.setWidget(scroll_contents)
 
     return layout, scroll_area, scroll_contents, scroll_layout
-
-
-def _first_text_value(*values):
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
-
-
-def _normalize_sample_choices(sample_choices):
-    normalized = []
-    for sample_choice in sample_choices:
-        if isinstance(sample_choice, dict):
-            sample_id = _first_text_value(
-                sample_choice.get("sample_id"),
-                sample_choice.get("group_key"),
-                sample_choice.get("value"),
-            )
-            sample_name = str(sample_choice.get("sample_name", "") or "").strip()
-            value = sample_id or sample_name
-            label = str(sample_choice.get("label", "") or sample_name or value).strip()
-        else:
-            value = str(sample_choice or "").strip()
-            sample_name = value
-            label = value
-        if not value or not label:
-            continue
-        normalized.append(
-            {
-                "value": value,
-                "sample_name": sample_name,
-                "label": label,
-            }
-        )
-    return normalized
-
-
-def _selected_sample_values(initial_values):
-    if isinstance(initial_values, (str, bytes)):
-        values = [initial_values]
-    else:
-        values = list(initial_values or [])
-    return {str(value).strip() for value in values if str(value).strip()}
-
-
-def _populate_blank_sample_list(list_widget, sample_choices, selected_values, *, auto_select_blank=True):
-    selected_values = set(selected_values or [])
-    for sample_choice in _normalize_sample_choices(sample_choices):
-        item = QListWidgetItem(sample_choice["label"], list_widget)
-        item.setData(Qt.UserRole, sample_choice["value"])
-        sample_name = str(sample_choice.get("sample_name", "") or "")
-        if sample_name and sample_name != sample_choice["label"]:
-            item.setToolTip(sample_name)
-        if sample_choice["value"] in selected_values or (
-            auto_select_blank
-            and not selected_values
-            and "blank" in sample_name.casefold()
-        ):
-            item.setSelected(True)
-
-
-def _selected_blank_sample_values(list_widget):
-    values = []
-    for item in list_widget.selectedItems():
-        value = item.data(Qt.UserRole)
-        values.append(str(value if value is not None else item.text()))
-    return values
 
 
 class NewSessionMetadataDialog(QDialog):
@@ -226,7 +150,6 @@ class CSUTemperatureImportDialog(QDialog):
         self,
         main_window,
         initial_path,
-        sample_names,
         initial_reset_temperature=None,
         parent=None,
         *,
@@ -238,7 +161,7 @@ class CSUTemperatureImportDialog(QDialog):
         layout, self.scroll_area, self.scroll_contents, scroll_layout = _setup_fixed_width_scrolling_dialog(
             self,
             width=640,
-            initial_height=560,
+            initial_height=420,
             minimum_height=360,
         )
 
@@ -290,12 +213,6 @@ class CSUTemperatureImportDialog(QDialog):
         self.count_source_combo.currentIndexChanged.connect(self.update_count_source_help)
         self.update_count_source_help()
 
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setFixedHeight(132)
-        _populate_blank_sample_list(self.blank_sample_list, sample_names, set())
-        form.addRow("Water blank samples", self.blank_sample_list)
-
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
         self.reset_temperature_spinbox.setDecimals(1)
@@ -317,8 +234,7 @@ class CSUTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            "Water blanks are water-only controls. Their frozen counts are subtracted from "
-            "each other sample's total and frozen counts. For repeated cooling cycles, set a "
+            "For repeated cooling cycles, set a "
             "reset temperature; warming to this value marks a new cycle. "
             "Otherwise leave reset Off.",
             self,
@@ -400,7 +316,6 @@ class CSUTemperatureImportDialog(QDialog):
             reset_temperature = None
         return {
             "file_path": self.file_path_edit.text().strip(),
-            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "reset_temperature": reset_temperature,
             "count_source": self.count_source_combo.currentData(),
         }
@@ -411,9 +326,7 @@ class UTKTemperatureImportDialog(QDialog):
         self,
         main_window,
         initial_path,
-        sample_names,
         initial_reset_temperature=None,
-        initial_blank_sample_names=None,
         video_mode=False,
         parent=None,
     ):
@@ -424,7 +337,7 @@ class UTKTemperatureImportDialog(QDialog):
         layout, self.scroll_area, self.scroll_contents, scroll_layout = _setup_fixed_width_scrolling_dialog(
             self,
             width=640,
-            initial_height=460,
+            initial_height=360,
             minimum_height=360,
         )
 
@@ -461,13 +374,6 @@ class UTKTemperatureImportDialog(QDialog):
         file_row_widget.setLayout(file_row)
         form.addRow("UTK CSV file", file_row_widget)
 
-        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
-        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
-        form.addRow("Water blank samples", self.blank_sample_list)
-
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
         self.reset_temperature_spinbox.setDecimals(1)
@@ -489,7 +395,7 @@ class UTKTemperatureImportDialog(QDialog):
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            f"Water blank correction is applied within each cycle. {WATER_BLANK_CORRECTION_DESCRIPTION} {TEMPERATURE_RESET_DESCRIPTION}",
+            TEMPERATURE_RESET_DESCRIPTION,
             self,
         )
         hint_label.setWordWrap(True)
@@ -547,7 +453,6 @@ class UTKTemperatureImportDialog(QDialog):
             reset_temperature = None
         return {
             "file_path": self.file_path_edit.text().strip(),
-            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "reset_temperature": reset_temperature,
         }
 
@@ -557,10 +462,8 @@ class TAMUTemperatureImportDialog(QDialog):
         self,
         main_window,
         initial_path,
-        sample_names,
         initial_calibration_path="",
         initial_reset_temperature=None,
-        initial_blank_sample_names=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -574,8 +477,7 @@ class TAMUTemperatureImportDialog(QDialog):
         )
 
         intro_label = QLabel(
-            "Select the TAMU Linkam workbook. Image timestamps will be read from the PNG filenames and matched to the Linkam temperature timeseries by time interpolation. "
-            "You can also mark app samples that should be treated as water blank controls.",
+            "Select the TAMU Linkam workbook. Image timestamps will be read from the PNG filenames and matched to the Linkam temperature timeseries by time interpolation.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -623,13 +525,6 @@ class TAMUTemperatureImportDialog(QDialog):
         calibration_row_widget.setLayout(calibration_row)
         form.addRow("Calibration CSV", calibration_row_widget)
 
-        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
-        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
-        form.addRow("Water blank samples", self.blank_sample_list)
-
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
         self.reset_temperature_spinbox.setDecimals(1)
@@ -652,7 +547,6 @@ class TAMUTemperatureImportDialog(QDialog):
 
         hint_label = QLabel(
             "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. "
-            f"{WATER_BLANK_CORRECTION_DESCRIPTION} "
             f"{TEMPERATURE_RESET_DESCRIPTION}",
             self,
         )
@@ -738,7 +632,6 @@ class TAMUTemperatureImportDialog(QDialog):
             "file_path": self.file_path_edit.text().strip(),
             "calibration_path": self.calibration_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
         }
 
 
@@ -747,9 +640,7 @@ class PKUTemperatureImportDialog(QDialog):
         self,
         main_window,
         initial_path,
-        sample_names,
         initial_reset_temperature=None,
-        initial_blank_sample_names=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -763,8 +654,7 @@ class PKUTemperatureImportDialog(QDialog):
         )
 
         intro_label = QLabel(
-            "Select the PKU Linksys32 .iml file. Loaded images are matched to the .iml image records by current image order. "
-            "You can also mark app samples that should be treated as water blank controls.",
+            "Select the PKU Linksys32 .iml file. Loaded images are matched to the .iml image records by current image order.",
             self,
         )
         intro_label.setWordWrap(True)
@@ -795,13 +685,6 @@ class PKUTemperatureImportDialog(QDialog):
         file_row_widget.setLayout(file_row)
         form.addRow("PKU .iml file", file_row_widget)
 
-        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
-        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
-        form.addRow("Water blank samples", self.blank_sample_list)
-
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
         self.reset_temperature_spinbox.setDecimals(1)
@@ -824,7 +707,6 @@ class PKUTemperatureImportDialog(QDialog):
 
         hint_label = QLabel(
             "The .iml image record count must match the loaded image count so image order can be used without guessing. "
-            f"{WATER_BLANK_CORRECTION_DESCRIPTION} "
             f"{TEMPERATURE_RESET_DESCRIPTION}",
             self,
         )
@@ -882,7 +764,6 @@ class PKUTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
         }
 
 
@@ -891,9 +772,7 @@ class StandardTemperatureImportDialog(QDialog):
         self,
         main_window,
         initial_path,
-        sample_names,
         initial_reset_temperature=None,
-        initial_blank_sample_names=None,
         initial_image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME,
         initial_image_timestamp_style=TIMESTAMP_STYLE_AUTO,
         initial_temperature_timestamp_style=TIMESTAMP_STYLE_AUTO,
@@ -987,8 +866,6 @@ class StandardTemperatureImportDialog(QDialog):
         file_row.addWidget(browse_button, 0, Qt.AlignRight)
         file_row_widget = QWidget(self)
         file_row_widget.setLayout(file_row)
-
-        selected_blank_names = _selected_sample_values(initial_blank_sample_names)
 
         self.image_timestamp_source_combo = QComboBox(self)
         self.image_timestamp_source_combo.setMinimumContentsLength(18)
@@ -1098,21 +975,6 @@ class StandardTemperatureImportDialog(QDialog):
         unit_widget.setLayout(unit_row)
         self.temperature_form.addRow(make_form_label("Unit"), unit_widget)
 
-        blank_separator = QFrame(self)
-        blank_separator.setFrameShape(QFrame.HLine)
-        blank_separator.setFrameShadow(QFrame.Sunken)
-        self.temperature_form.addRow(blank_separator)
-
-        blank_section_label = QLabel("Water blank correction", self)
-        blank_section_label.setStyleSheet("font-weight: 600;")
-        self.temperature_form.addRow(blank_section_label)
-
-        self.blank_sample_list = QListWidget(self)
-        self.blank_sample_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.blank_sample_list.setMinimumHeight(132)
-        _populate_blank_sample_list(self.blank_sample_list, sample_names, selected_blank_names)
-        self.temperature_form.addRow(make_form_label("Water blank samples"), self.blank_sample_list)
-
         self.reset_temperature_spinbox = QDoubleSpinBox(self)
         self.reset_temperature_spinbox.setRange(-999.0, 200.0)
         self.reset_temperature_spinbox.setDecimals(1)
@@ -1139,7 +1001,6 @@ class StandardTemperatureImportDialog(QDialog):
             "YYYYMMDD_HHMMSS, YYYYMMDD HHMMSS, YYMMDD_HHMMSS, YYMMDD HHMMSS, YYMMDD HHMM, YYMMDD-HHMMSS, "
             "YY/MM/DD HH:MM:SS, and EXIF text YYYY:MM:DD HH:MM:SS.</li>"
             "<li>Use the explicit Unix epoch options for 10-digit seconds or 13-digit milliseconds since 1970-01-01 00:00:00 UTC.</li>"
-            f"<li>{WATER_BLANK_CORRECTION_DESCRIPTION}</li>"
             f"<li>{TEMPERATURE_RESET_DESCRIPTION}</li>"
             "</ul>",
             self,
@@ -1337,7 +1198,6 @@ class StandardTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
-            "blank_sample_names": _selected_blank_sample_values(self.blank_sample_list),
             "image_timestamp_source": self.selected_image_timestamp_source(),
             "image_timestamp_style": self.selected_image_timestamp_style(),
             "temperature_timestamp_style": self.selected_temperature_timestamp_style(),

@@ -97,7 +97,7 @@ You can also **modify individual freeze events**. Select a cell and edit **Freez
 
 ### 5. Add temperature and export
 
-Use **Analysis → Import Temperature Data** to match freeze events with CSV or supported instrument records. Options include water blank correction and repeated cooling cycles. See [supported temperature imports](wiki/Temperature-Import.md).
+Use **Analysis → Import Temperature Data** to match freeze events with CSV or supported instrument records. Repeated cooling cycles are supported. All samples, including blanks, retain their own total and frozen counts; blank correction belongs in downstream analysis. See [supported temperature imports](wiki/Temperature-Import.md).
 
 Save a `.icescopy` session to resume later. **File → Output Results** exports brightness measurements, freeze events, or temperature-based counts with sample information. Keep the original images or videos: the session refers to them.
 

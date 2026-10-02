@@ -47,7 +47,7 @@ def parse_utk_video_start_timestamp(video_path):
 
 ### `parse_csu_is_dat`
 
-[Source](../src/icescopy_temperature_import.py#L1166)
+[Source](../src/icescopy_temperature_import.py#L1134)
 
 ```python
 def parse_csu_is_dat(file_path):
@@ -55,7 +55,7 @@ def parse_csu_is_dat(file_path):
 
 ### `parse_tamu_linkam_xlsx`
 
-[Source](../src/icescopy_temperature_import.py#L1073)
+[Source](../src/icescopy_temperature_import.py#L1041)
 
 ```python
 def parse_tamu_linkam_xlsx(file_path):
@@ -63,7 +63,7 @@ def parse_tamu_linkam_xlsx(file_path):
 
 ### `parse_ice_array_calibration_csv`
 
-[Source](../src/icescopy_temperature_import.py#L1143)
+[Source](../src/icescopy_temperature_import.py#L1111)
 
 ```python
 def parse_ice_array_calibration_csv(file_path):
@@ -95,7 +95,7 @@ def parse_timestamp_text(text, style=TIMESTAMP_STYLE_AUTO):
 
 ### `detect_cycle_start_indexes_from_temperatures`
 
-[Source](../src/icescopy_temperature_import.py#L1351)
+[Source](../src/icescopy_temperature_import.py#L1319)
 
 ```python
 def detect_cycle_start_indexes_from_temperatures(temperatures, reset_temperature, warmup_hysteresis_c=0.02):
@@ -103,16 +103,8 @@ def detect_cycle_start_indexes_from_temperatures(temperatures, reset_temperature
 
 ### `reconcile_counts_by_cycle`
 
-[Source](../src/icescopy_temperature_import.py#L1423)
+[Source](../src/icescopy_temperature_import.py#L1391)
 
 ```python
 def reconcile_counts_by_cycle(raw_counts, anchor_counts, maximum_count, cycle_ids):
-```
-
-### `compute_blank_correction_by_index`
-
-[Source](../src/icescopy_temperature_import.py#L934)
-
-```python
-def compute_blank_correction_by_index(blank_sample_keys, corrected_counts_by_sample, total_count):
 ```

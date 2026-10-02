@@ -99,7 +99,6 @@ The first five columns are:
 | `temperature_C` | Temperature in °C, written to three decimal places when available. |
 | `cycle` | Zero-based temperature-cycle number. Cycle 0 is the first cycle. |
 | `image_name` | Frame name for Standard, UTK, TAMU, and PKU. |
-| `water blank correction count` | Sum of the selected blanks' frozen counts at that row, or `nan` when no blank correction is selected. |
 
 **CSU replaces `image_name` with `picture`.** A CSU row can have an empty picture field because the temperature logger can record more often than the camera.
 
@@ -107,21 +106,21 @@ Standard, UTK, and TAMU obtain frame temperatures by interpolation; PKU uses tag
 
 ### Columns for each output sample
 
-For each non-blank output group, the table adds:
+For each output group, including blank samples, the table adds:
 
 - `<sample name> number total`
 - `<sample name> number frozen`
 
 TAMU adds `<sample name> corrected temperature_C` immediately before that group's two count columns when the calibration file yields at least one parsed entry. A header-only file or one whose rows are all skipped adds no corrected columns. The value is the mean corrected temperature of the group's cells with usable calibration entries, including cells that have not frozen. It is not the temperature of an individual freezing cell. The leading `temperature_C` remains uncorrected.
 
-A sample with 20 assigned cells may have a smaller **number total** after blank correction. The separate metadata field `cell_number` remains its assigned cell count. See [the correction formula](#blank-corrected-counts).
+The **number total** and metadata field `cell_number` both give the number of cells assigned to that group. They are not reduced when blank cells freeze.
 
 ### Which samples appear
 
 - Cells with sample assignments are grouped by sample ID, not just by name.
 - Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name and reimport.
 - Unassigned cells form an **Unassigned cells** group when named groups also exist, or **All cells** when no named groups exist.
-- Selected water blank groups contribute to the correction and are omitted from the ordinary sample columns.
+- Blank samples appear with their own total and frozen counts, like other samples.
 - CSU image mode includes all app groups. Recorded mode includes named groups matching instrument columns. Combined mode includes those matched groups plus unassigned cells. Check the import summary for omissions.
 
 Separate sample IDs can share the same name, producing identical column labels. The metadata identifies the groups, but some CSV readers automatically rename duplicate headers. Distinct sample names are easier to work with; CSU rejects ambiguous duplicate names when matching an instrument column.
@@ -134,18 +133,11 @@ CSU rows follow the instrument record. Image mode holds each image's count forwa
 
 Analysis intervals and temperature cycles serve different purposes. Intervals restrict automatic measurement and detection; cycles reset counts based on the temperature record. Several analysis intervals can lie inside one temperature cycle, and one interval can span several cycles.
 
-### Blank-corrected counts
+### Blank samples and older results
 
-At a row, let `N` be the sample's assigned cell total, `F` its frozen count before blank correction, and `B` the summed frozen count of the selected blanks. The exported values are:
+New imports export counts without blank correction. Blank controls keep their own total and frozen columns, and their freezing does not change another sample's counts. Apply blank correction later in your INP analysis toolkit.
 
-```text
-number total  = max(0, N - B)
-number frozen = min(number total, max(0, F - B))
-```
-
-The app subtracts the same **frozen-blank count** from both values. It does not subtract the blank groups' total cell counts or normalize by their volume. As blank cells freeze, the corrected total and frozen count can change, even though the sample's assigned cell count remains fixed. Corrected frozen counts need not be nondecreasing.
-
-With no selected blanks, the original counts are used and the correction field is `nan`. With selected blanks and no blank freeze yet, the correction is 0. Review this distinction before replacing missing values or calculating ratios.
+Previously saved tables are preserved as stored. Older tables may contain a `water blank correction count` column and corrected counts, with selected blank groups omitted. Loading such a session does not undo that correction. Reimport temperatures to create an uncorrected table, then save to a new file if you need to preserve both versions.
 
 ## Comment metadata
 
@@ -186,7 +178,6 @@ For TAMU calibration, check that slopes and intercepts are finite and slopes are
 | Count-table `temperature_C`: empty | No temperature was assigned, such as a frame outside the interpolation range. |
 | Count-table `cycle`: empty | No usable time position from which to assign that frame to a cycle. |
 | TAMU corrected temperature: empty | No raw temperature or no usable calibration entries for that group. |
-| Water blank correction: `nan` | No blank correction selected. |
 | Comment metadata: `nan` | Missing information, with the 0 °C reset caveat above. |
 
 A numeric **0** is a real output value: zero accepted frozen cells, zero correction, or a count clamped to zero. Do not turn all empty fields or `nan` values into zero. A row can have counts while lacking a temperature, so test the temperature field explicitly before constructing a temperature-dependent result.
@@ -210,6 +201,6 @@ events = pd.read_csv("freeze_events.csv")
 
 This keeps the comment text in `metadata_lines` and reads the table into `counts`. Interpret the retained metadata separately when you need sample IDs, assigned cell counts, or custom fields. Also check how your reader handles duplicate sample names and missing values.
 
-To calculate fraction frozen, divide **number frozen** by a valid, nonzero **number total**. Choose whether the corrected or uncorrected counts answer your scientific question; the exported count columns use the selected blank correction. A count table alone does not supply concentration, confidence intervals, detection accuracy, or calibration uncertainty.
+To calculate fraction frozen, divide **number frozen** by a valid, nonzero **number total**. Apply any blank correction in downstream analysis; new imports export counts without blank correction. A count table alone does not supply concentration, confidence intervals, detection accuracy, or calibration uncertainty.
 
 Exports are a snapshot of the current stored results. Changing settings does not update an already written CSV. Recalculate or reimport as needed, then export to a new file or folder. A saved `.icescopy` session retains working state and internal result tables; the external count CSV additionally carries the comment metadata described here.
