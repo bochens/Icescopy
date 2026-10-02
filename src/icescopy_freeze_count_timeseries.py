@@ -700,9 +700,9 @@ class FreezeCountTimeseriesMixin:
         count_source=CSU_COUNT_SOURCE_COMBINED,
     ):
         count_source_labels = {
-            CSU_COUNT_SOURCE_IMAGES: "Icescopy detections",
+            CSU_COUNT_SOURCE_IMAGES: "Icescopy only",
             CSU_COUNT_SOURCE_INSTRUMENT: "CSU recorded counts",
-            CSU_COUNT_SOURCE_COMBINED: "Icescopy + CSU",
+            CSU_COUNT_SOURCE_COMBINED: "Icescopy + .dat",
         }
         if count_source not in count_source_labels:
             raise TemperatureImportError("Choose a valid CSU count source.")
@@ -996,6 +996,15 @@ class FreezeCountTimeseriesMixin:
             "temperature_column": str(parsed_data.get("temperature_column", "Avg_Temp")),
             "warnings": warnings,
             "unmatched_image_count": len(unmatched_image_indexes),
+            "total_image_count": self.frame_count(),
+            "matched_image_count": self.frame_count() - len(unmatched_image_indexes),
+            "total_cell_group_count": len(sample_groups),
+            "total_dat_sample_count": len(dat_sample_columns),
+            "sample_count_matching_used": count_source != CSU_COUNT_SOURCE_IMAGES,
+            "dat_sample_matches": [
+                {"sample_name": sample["sample_name"], "dat_column": sample["dat_column"]}
+                for sample in matched_samples if sample["dat_column"] is not None
+            ],
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
             "sample_total_cells": [
                 {

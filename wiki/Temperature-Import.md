@@ -22,7 +22,7 @@ The dialog can set a reset temperature for repeated cooling cycles. TAMU also of
 
 ## Before importing
 
-1. For image-derived counts, finish automatic detection and manual corrections. Importing uses the current event list, including manual events outside analysis intervals. CSU recorded counts do not require image freeze detection.
+1. For image-derived counts, finish automatic detection and manual corrections. Importing uses the current event list, including manual events outside analysis intervals.
 2. Assign cells to samples and give each sample a nonempty name. Use distinct names for easier checking; CSU matching requires names it can distinguish.
 3. Check recording order. Sorting the temperature record does not fix an incorrectly ordered image sequence.
 4. Confirm that the frame clock and temperature logger use the same time basis. A successful import does not prove that the clocks agree.
@@ -100,7 +100,7 @@ Ambiguous day/month slash dates can be rejected. Year-first text avoids that amb
 
 ### Required records and matching
 
-Use the original tab-separated CSU IS or cold-stage export. It must contain `Picture`. The first two columns supply date and time, even if the second header is blank. `Sample_...` count columns are optional when using Icescopy detections.
+Use the original tab-separated CSU IS or cold-stage export. It must contain `Picture`. The first two columns supply date and time, even if the second header is blank. `Sample_...` count columns are optional when using **Icescopy only**.
 
 **Temperature column:** the importer accepts either `Sample_Temp` or `Avg_Temp`, in °C. A simplified cold-stage layout is:
 
@@ -113,7 +113,7 @@ Time<TAB><TAB>Sample_Temp<TAB>Sample_0<TAB>Picture
 `<TAB>` above represents a tab character; it is not literal file content. Dates use month/day/two-digit-year and times use hours:minutes:seconds, with supported fractional seconds.
 
 1. Load the corresponding images without changing their filenames. Use natural filename order for numbered images, so `Image_2.png` precedes `Image_10.png`.
-2. Draw cells and assign samples. Run and review analysis if using Icescopy detections or the combined method.
+2. Draw cells and assign samples. Run and review analysis before importing.
 3. Choose **CSU .dat import...**, select the file, and choose a **Count source** from the table below. Set a reset temperature only for repeated cooling cycles.
 4. Check the matched pictures, included samples, count source, and warnings before exporting.
 
@@ -123,19 +123,22 @@ Use unique image names and keep the loaded images in the same order as the pictu
 
 ### Choose the count source
 
+Both options use the `.dat` file for image times and temperatures. The choice controls where frozen counts come from.
+
 | Count source | Use it when | How counts are built |
 | --- | --- | --- |
-| **Icescopy detections** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All sample groups in Icescopy are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
-| **CSU recorded counts** | You want the instrument's recorded sample counts. | Assign all cells to samples in Icescopy. Name each sample to match its `.dat` column, such as `Sample_0`. These assignments supply the total droplet count. Recorded values, including decreases, are retained. |
-| **Icescopy + CSU** | You want image counts to correct the instrument counts. | Image-derived counts set reference values at matched pictures. CSU counts fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
+| **Icescopy only** | You want counts from reviewed cell freeze events, including recordings without instrument detections. | All sample groups in Icescopy are included. Counts change at the matching image's `Picture` row and remain at that value until another image or a cycle reset. Instrument counts are ignored. |
+| **Icescopy + .dat** | You want image counts to correct the instrument counts. | Image-derived counts set reference values at matched pictures. Counts from the `.dat` file fill between them, constrained by the neighboring references, the assigned cell total, and nondecreasing counts within each cycle. This remains the default. |
 
 CSU output has one row per instrument record, so many rows can have an empty `picture` field. The import does **not** create or change individual cells' freeze events: instrument sample totals do not identify which droplets froze.
 
-Samples in Icescopy are groups of cells assigned to the same sample. For recorded and combined counts, their names must match the `.dat` columns; matching ignores case and repeated whitespace. Rename duplicate sample names before importing. Unmatched named samples are omitted and reported. Combined mode can also include unassigned cells using image counts; recorded mode cannot assign instrument counts to unassigned cells.
+Samples in Icescopy are groups of cells assigned to the same sample. For **Icescopy + .dat**, their names must match the `.dat` columns; matching ignores case and repeated whitespace. Rename duplicate sample names before importing. Unmatched named samples are omitted and reported. Unassigned cells use only Icescopy events and are not counted as matches to `.dat` sample columns. **Icescopy only** includes all cell groups without matching sample names.
 
-Missing or invalid counts stop recorded and combined imports for the affected matched samples; choose **Icescopy detections** to ignore those columns. Recorded mode also stops if a count exceeds the sample's assigned cell total, rather than clipping the value. All-zero counts do not establish whether the instrument detector was enabled.
+Missing or invalid counts stop combined imports for the affected matched samples; choose **Icescopy only** to ignore those columns. All-zero counts do not establish whether the instrument detector was enabled.
 
-Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. With no stored cell events, image counts are zero and can override positive instrument counts in combined mode; use recorded mode if you intend to keep those instrument counts.
+Review decreases in recorded counts. They are reported but do not start a new cooling cycle; cycles follow the chosen temperature threshold. With no stored cell events, image counts are zero and can override positive instrument counts in combined mode; finish and review image analysis before importing.
+
+The import summary reports total and included cell groups, matched `.dat` sample-count columns, and matched loaded images. Details list excluded sample groups and unused `.dat` columns.
 
 ## TAMU Linkam .xlsx
 
@@ -230,7 +233,7 @@ For a 5.0 °C threshold and 0.02 °C hysteresis:
 
 Check the full temperature record, not only these two points. After a crossing is rejected as too small, simply continuing farther above the threshold does not create another crossing; a later below-to-above transition is needed.
 
-For Standard, UTK, TAMU, PKU, and CSU image counts, each cell contributes at most once per cycle, using its first freeze event in that cycle. A cell needs an event in the next cycle to count there; earlier freezes do not carry forward. CSU combined mode reconciles counts separately within each cycle; recorded mode preserves the instrument values.
+For Standard, UTK, TAMU, PKU, and CSU image counts, each cell contributes at most once per cycle, using its first freeze event in that cycle. A cell needs an event in the next cycle to count there; earlier freezes do not carry forward. CSU combined mode reconciles counts separately within each cycle.
 
 Cycles come from the temperature record. They are independent of the analysis intervals that control automatic freeze finding. Changing the reset threshold or warm-up hysteresis requires temperature reimport, not a new brightness measurement.
 

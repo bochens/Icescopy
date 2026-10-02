@@ -19,7 +19,6 @@ from icescopy_dialogs import (CSUTemperatureImportDialog, StandardTemperatureImp
 from icescopy_temperature_import import (  # noqa: E402
     CSU_COUNT_SOURCE_COMBINED,
     CSU_COUNT_SOURCE_IMAGES,
-    CSU_COUNT_SOURCE_INSTRUMENT,
 )
 
 
@@ -53,15 +52,17 @@ class CSUImportDialogTests(unittest.TestCase):
     def test_existing_combined_method_remains_the_default(self):
         dialog = self.make_dialog()
         self.assertEqual(dialog.get_values()["count_source"], CSU_COUNT_SOURCE_COMBINED)
+        self.assertEqual([dialog.count_source_combo.itemText(i)
+                          for i in range(dialog.count_source_combo.count())],
+                         ["Icescopy only", "Icescopy + .dat"])
         self.assertIn("Run image analysis first", dialog.count_source_help.text())
 
     def test_source_selection_updates_payload_and_explains_count_provenance(self):
         dialog = self.make_dialog()
         dialog.show()
         for source, help_text in (
-            (CSU_COUNT_SOURCE_IMAGES, "CSU count columns are not required"),
-            (CSU_COUNT_SOURCE_INSTRUMENT, "including any decreases"),
-            (CSU_COUNT_SOURCE_COMBINED, "CSU counts between images"),
+            (CSU_COUNT_SOURCE_IMAGES, ".dat count columns are not required"),
+            (CSU_COUNT_SOURCE_COMBINED, ".dat counts between images"),
         ):
             with self.subTest(source=source):
                 dialog.count_source_combo.setCurrentIndex(dialog.count_source_combo.findData(source))
@@ -73,11 +74,17 @@ class CSUImportDialogTests(unittest.TestCase):
         dialog.close()
 
     def test_controller_passes_count_source_and_displays_import_warnings(self):
-        warning = "A recorded count decreased; the original values were preserved."
+        warning = "A recorded count decreased; review the count source."
         summary = {
-            "count_source_label": "CSU recorded counts",
+            "count_source_label": "Icescopy + .dat",
             "temperature_column": "Sample_Temp",
-            "matched_samples": ["Sample_0"],
+            "matched_samples": ["All cells"],
+            "total_cell_group_count": 1,
+            "total_dat_sample_count": 1,
+            "sample_count_matching_used": True,
+            "dat_sample_matches": [],
+            "matched_image_count": 2,
+            "total_image_count": 3,
             "matched_picture_rows": 2,
             "total_picture_rows": 2,
             "warnings": [warning],
@@ -100,7 +107,7 @@ class CSUImportDialogTests(unittest.TestCase):
         dialog.get_values.return_value = {
             "file_path": "/synthetic/cold-stage.dat",
             "reset_temperature": None,
-            "count_source": CSU_COUNT_SOURCE_INSTRUMENT,
+            "count_source": CSU_COUNT_SOURCE_COMBINED,
         }
         with patch.object(icescopy_module, "CSUTemperatureImportDialog", return_value=dialog), \
                 patch.object(icescopy_module, "parse_csu_is_dat", return_value=parsed):
@@ -108,10 +115,14 @@ class CSUImportDialogTests(unittest.TestCase):
 
         builder.assert_called_once_with(
             parsed, reset_temperature=None,
-            count_source=CSU_COUNT_SOURCE_INSTRUMENT,
+            count_source=CSU_COUNT_SOURCE_COMBINED,
         )
         details = window.show_detailed_information_dialog.call_args.args[2]
-        self.assertIn("Count source: CSU recorded counts", details)
+        self.assertIn("Count source: Icescopy + .dat", details)
+        self.assertIn("Cell groups: 1 total; 1 included.", details)
+        self.assertIn(".dat sample-count columns matched: 0/1.", details)
+        self.assertIn("Loaded images matched: 2/3.", details)
+        self.assertIn("Included group names: All cells", details)
         self.assertIn("Temperature column: Sample_Temp", details)
         self.assertIn(warning, details)
         window.log.assert_any_call(f"CSU import warning: {warning}")

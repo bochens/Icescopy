@@ -27,7 +27,6 @@ from PySide6.QtCore import Qt, QDate, QSignalBlocker
 from icescopy_temperature_import import (
     CSU_COUNT_SOURCE_COMBINED,
     CSU_COUNT_SOURCE_IMAGES,
-    CSU_COUNT_SOURCE_INSTRUMENT,
     IMAGE_TIMESTAMP_SOURCE_CHOICES,
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_CREATED,
@@ -199,9 +198,8 @@ class CSUTemperatureImportDialog(QDialog):
         form.addRow("CSU .dat file", file_row_widget)
 
         self.count_source_combo = QComboBox(self)
-        self.count_source_combo.addItem("Icescopy detections", CSU_COUNT_SOURCE_IMAGES)
-        self.count_source_combo.addItem("CSU recorded counts", CSU_COUNT_SOURCE_INSTRUMENT)
-        self.count_source_combo.addItem("Icescopy + CSU", CSU_COUNT_SOURCE_COMBINED)
+        self.count_source_combo.addItem("Icescopy only", CSU_COUNT_SOURCE_IMAGES)
+        self.count_source_combo.addItem("Icescopy + .dat", CSU_COUNT_SOURCE_COMBINED)
         source_index = self.count_source_combo.findData(initial_count_source)
         if source_index < 0:
             source_index = self.count_source_combo.findData(CSU_COUNT_SOURCE_COMBINED)
@@ -252,15 +250,10 @@ class CSUTemperatureImportDialog(QDialog):
         descriptions = {
             CSU_COUNT_SOURCE_IMAGES: (
                 "Use freeze events found or edited in Icescopy. You can use any sample names; "
-                "CSU count columns are not required. Unassigned cells are included as one group."
-            ),
-            CSU_COUNT_SOURCE_INSTRUMENT: (
-                "Use CSU's recorded counts, including any decreases. They do not identify individual "
-                "frozen cells. Draw all cells and assign them to samples in Icescopy, using the "
-                ".dat column names, such as Sample_0."
+                ".dat count columns are not required. Unassigned cells are included as one group."
             ),
             CSU_COUNT_SOURCE_COMBINED: (
-                "Use Icescopy counts at image times and CSU counts between images. Run image "
+                "Use Icescopy counts at image times and .dat counts between images. Run image "
                 "analysis first. Name the samples in Icescopy to match the .dat columns, "
                 "such as Sample_0. Unassigned cells use only Icescopy freeze events."
             ),

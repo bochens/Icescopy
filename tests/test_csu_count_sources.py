@@ -86,6 +86,38 @@ def values(headers, rows, name):
 
 
 class CSUCountSourceTests(unittest.TestCase):
+    def test_summary_distinguishes_included_groups_from_dat_matches(self):
+        window = CountWindow(["a.png", "b.png", "unmatched.png"],
+                             [("Sample_0", [[1]]), ("Dust", [[]]), ("temporary", [[]])])
+        window.cell_records_by_id[2].sample_id = ""
+        data = make_data([-1, -2, -3], {0: "a.png", 1: "b.png", 2: "other.png"},
+                         {"Sample_0": [0, 1, 1], "Sample_9": [0, 0, 0]})
+        for source, included, matches in (
+            (CSU_COUNT_SOURCE_COMBINED, 2, [{"sample_name": "Sample_0", "dat_column": "Sample_0"}]),
+            (CSU_COUNT_SOURCE_IMAGES, 3, []),
+        ):
+            with self.subTest(source=source):
+                _, _, summary = window.build_csu_freeze_count_timeseries_results(data, count_source=source)
+                self.assertEqual(summary["total_cell_group_count"], 3)
+                self.assertEqual(len(summary["matched_samples"]), included)
+                self.assertEqual(summary["dat_sample_matches"], matches)
+                self.assertEqual(summary["total_dat_sample_count"], 2)
+                self.assertEqual(summary["matched_image_count"], 2)
+                self.assertEqual(summary["total_image_count"], 3)
+                self.assertEqual(summary["sample_count_matching_used"], source == CSU_COUNT_SOURCE_COMBINED)
+                self.assertEqual(summary["unmatched_app_samples"],
+                                 ["Dust"] if source == CSU_COUNT_SOURCE_COMBINED else [])
+
+    def test_all_cells_is_not_a_dat_sample_match(self):
+        window = CountWindow(["a.png", "b.png"], [("temporary", [[1]])])
+        window.cell_records_by_id[0].sample_id = ""
+        data = make_data([-1, -2], {0: "a.png", 1: "b.png"}, {"Sample_0": [0, 1]})
+        _, _, summary = window.build_csu_freeze_count_timeseries_results(data)
+        self.assertEqual(summary["matched_samples"], ["All cells"])
+        self.assertEqual(summary["total_cell_group_count"], 1)
+        self.assertEqual(summary["dat_sample_matches"], [])
+        self.assertEqual(summary["total_dat_sample_count"], 1)
+
     def test_images_allow_arbitrary_names_without_count_columns_and_hold_until_picture(self):
         window = CountWindow(["Image_0.png", "Image_1.png", "Image_2.png"],
                              [("Dust suspension", [[1], [2]])])
