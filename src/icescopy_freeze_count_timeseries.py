@@ -106,7 +106,7 @@ class FreezeCountTimeseriesMixin:
                 "group_key": group_key,
                 "group_role": "unassigned_cells",
                 "sample_id": "",
-                "sample_name": "Unassigned cells" if groups else "All cells",
+                "sample_name": "Unassigned cells",
                 **{
                     field_name: ""
                     for field_name in metadata_field_names

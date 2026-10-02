@@ -119,7 +119,7 @@ The **number total** and metadata field `cell_number` both give the number of ce
 
 - Cells with sample assignments are grouped by sample ID, not just by name.
 - Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name and reimport.
-- Unassigned cells form an **Unassigned cells** group when named groups also exist, or **All cells** when no named groups exist.
+- Unassigned cells form an **Unassigned cells** group, including when no cells have sample assignments.
 - Blank samples appear with their own total and frozen counts, like other samples.
 - **Icescopy only** includes all cell groups. **Icescopy + .dat** includes named groups matching `.dat` sample columns, plus unassigned cells using Icescopy events. Check the import summary for omissions.
 

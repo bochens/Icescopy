@@ -108,12 +108,12 @@ class CSUCountSourceTests(unittest.TestCase):
                 self.assertEqual(summary["unmatched_app_samples"],
                                  ["Dust"] if source == CSU_COUNT_SOURCE_COMBINED else [])
 
-    def test_all_cells_is_not_a_dat_sample_match(self):
+    def test_unassigned_cells_are_not_a_dat_sample_match(self):
         window = CountWindow(["a.png", "b.png"], [("temporary", [[1]])])
         window.cell_records_by_id[0].sample_id = ""
         data = make_data([-1, -2], {0: "a.png", 1: "b.png"}, {"Sample_0": [0, 1]})
         _, _, summary = window.build_csu_freeze_count_timeseries_results(data)
-        self.assertEqual(summary["matched_samples"], ["All cells"])
+        self.assertEqual(summary["matched_samples"], ["Unassigned cells"])
         self.assertEqual(summary["total_cell_group_count"], 1)
         self.assertEqual(summary["dat_sample_matches"], [])
         self.assertEqual(summary["total_dat_sample_count"], 1)

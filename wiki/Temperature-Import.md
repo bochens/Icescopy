@@ -241,7 +241,7 @@ Cycles come from the temperature record. They are independent of the analysis in
 
 Before using the result, check:
 
-1. **Groups and totals:** expected sample names, IDs, cell totals, blank groups, and any **Unassigned cells** group. If no cells have sample assignments, the unassigned group is labeled **All cells**.
+1. **Groups and totals:** expected sample names, IDs, cell totals, blank groups, and any **Unassigned cells** group. The group keeps this name even when no cells have sample assignments.
 2. **Matching:** parsed and in-range frame counts, or CSU picture/sample matches. Investigate omissions rather than treating them as zero freezing.
 3. **Time and temperature:** beginning/end alignment, units, temperature range, and several known freeze frames.
 4. **Cycles:** number and timing of resets, including events near each boundary.

@@ -81,7 +81,7 @@ class CSUImportDialogTests(unittest.TestCase):
             "total_cell_count": 5,
             "sample_total_cells": [{"total_cells": 5}],
             "temperature_column": "Sample_Temp",
-            "matched_samples": ["All cells"],
+            "matched_samples": ["Unassigned cells"],
             "total_cell_group_count": 1,
             "total_dat_sample_count": 1,
             "sample_count_matching_used": True,
@@ -125,7 +125,7 @@ class CSUImportDialogTests(unittest.TestCase):
         self.assertIn("Cell groups: 1 total; 1 included.", details)
         self.assertIn(".dat sample-count columns matched: 0/1.", details)
         self.assertIn("Loaded images matched: 2/3.", details)
-        self.assertIn("Included group names: All cells", details)
+        self.assertIn("Included group names: Unassigned cells", details)
         self.assertIn("Temperature column: Sample_Temp", details)
         self.assertIn(warning, details)
         window.log.assert_any_call(f"CSU import warning: {warning}")
@@ -134,7 +134,7 @@ class CSUImportDialogTests(unittest.TestCase):
 class TemperatureImportSummaryTests(unittest.TestCase):
     def timing_summary(self):
         return {
-            "matched_samples": ["All cells"],
+            "matched_samples": ["Unassigned cells"],
             "sample_total_cells": [{"total_cells": 12}],
             "total_cell_count": 12,
             "total_images": 10,

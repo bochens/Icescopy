@@ -1416,7 +1416,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(metadata["sample_name"], "Unassigned cells")
         self.assertEqual(metadata["cell_number"], "2")
 
-    def test_freeze_count_timeseries_grouping_treats_no_sample_as_all_cells(self):
+    def test_freeze_count_timeseries_grouping_keeps_no_sample_unassigned(self):
         fake_window = SimpleNamespace(
             cell_records_by_id={
                 0: SimpleNamespace(sample_id=""),
@@ -1431,7 +1431,7 @@ class SessionIoTests(unittest.TestCase):
         groups = IceScopy.build_freeze_count_timeseries_sample_groups(fake_window, grouping_mode="samples")
 
         self.assertEqual(list(groups.keys()), ["__unassigned_cells__"])
-        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "All cells")
+        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "Unassigned cells")
         self.assertEqual(groups["__unassigned_cells__"]["cell_ids"], [0, 1, 2])
         self.assertEqual(groups["__unassigned_cells__"]["total_cells"], 3)
 
