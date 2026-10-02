@@ -222,6 +222,21 @@ class GrayscalePlotWidgetTests(unittest.TestCase):
         self.assertEqual(len(x_values), len(convolved_values))
         self.assertAlmostEqual(float(x_values[0]), expected_offset)
 
+    def test_full_window_convolution_peak_stays_at_the_visible_transition(self):
+        widget = self.make_widget()
+        widget.head_extend_points = 20
+        widget.tail_extend_points = 5
+        widget.convolution_half_window_points = 0
+        widget.convolution_ramp_points = 2
+        values = np.r_[np.full(40, 50.), np.full(80, 120.)]
+
+        x, response = widget._convolution_for_cell(1, values, np.arange(300, 420))
+
+        # The comparison is centered between frames 339 and 340; the freeze
+        # finder then selects the first changed image, frame 340.
+        self.assertAlmostEqual(x[np.argmax(response)], 339.5)
+        self.assertAlmostEqual(x[0], 279.5)
+
 
 if __name__ == "__main__":
     unittest.main()
