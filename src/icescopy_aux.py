@@ -1114,7 +1114,7 @@ class PreferencesDialog(QDialog):
 
         self.category_list = QListWidget()
         self.category_list.setFixedWidth(160)
-        self.category_list.addItems(["General", "Samples", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline", "ML", "INP toolkit"])
+        self.category_list.addItems(["General", "Samples", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline", "ML", "INP toolkit client"])
         self.category_list.setCurrentRow(0)
 
         self.pages = QStackedWidget()
@@ -1342,7 +1342,7 @@ class PreferencesDialog(QDialog):
             self.inptk_style_fields[key] = field
             rows.append((label, field))
         page = self.build_preferences_page(
-            "INP toolkit", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.",
+            "INP toolkit client", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.",
             [('Plot appearance', rows)]
         )
         page.content_layout.insertWidget(2, self.inptk_settings)

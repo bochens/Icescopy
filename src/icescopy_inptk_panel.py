@@ -695,7 +695,8 @@ class InptkPanel(QDialog):
         old_input = self.current_input()
         old_curve = self.curves.currentRow()
         selected_names = set(self.selected_curve_names())
-        old_range = self.ranges.currentRow()
+        range_row = self.ranges.currentRow()
+        old_range = self.range_ids[range_row] if 0 <= range_row < len(self.range_ids) else None
         for key in ("fit_step", "grid_step", "grid_start", "grid_end", "grid_window", "z"):
             getattr(self, key).setText(str(self.settings[key]))
         for key in ("method", "basis", "grid_method", "decrease_policy"):
@@ -752,19 +753,22 @@ class InptkPanel(QDialog):
                 item.setToolTip("Clear this field to follow the measured range. Both endpoints are included.")
                 item.setData(Qt.AccessibleTextRole, item.text() or f"Measured limit: {item.data(Qt.UserRole)} °C; unrestricted")
                 self.ranges.setItem(row, col, item)
-        if self.range_ids: self.ranges.selectRow(max(0, min(old_range, len(self.range_ids)-1)))
+        if self.range_ids:
+            self.ranges.selectRow(self.range_ids.index(old_range) if old_range in self.range_ids else 0)
         self.loading = False
         if self.settings.get("suggestion"):
             self.show_suggestion(self.settings["suggestion"], log=False)
         else:
             self.suggestion_status.setText("Auto range uses the minimum counts above." if self.settings["method"] == "average" else "MLE uses manual limits, or the full range.")
-        self.select_input(); self.select_curve(); self.update_status()
+        # Refreshing controls after a range edit must not reselect the last row
+        # clicked in the separate Samples table. Preserve the active range by ID.
+        self.select_input(sync_range=False); self.select_curve(); self.update_status()
 
     def current_input(self):
         row = self.inputs.currentRow()
         return self.input_ids[row] if 0 <= row < len(self.input_ids) else None
 
-    def select_input(self):
+    def select_input(self, *, sync_range=True):
         if self.loading: return
         key = self.current_input()
         if not key:
@@ -805,7 +809,7 @@ class InptkPanel(QDialog):
             message = ""
         self.blank_help.setText(message)
         self.blank_help.setVisible(bool(message))
-        if key in self.range_ids: self.ranges.selectRow(self.range_ids.index(key))
+        if sync_range and key in self.range_ids: self.ranges.selectRow(self.range_ids.index(key))
 
     def input_changed(self, item):
         if self.loading: return
@@ -972,7 +976,12 @@ class InptkPanel(QDialog):
         measured = self.measured_limits()
         selected = self.ranges.currentRow()
         active = self.range_ids[selected] if 0 <= selected < len(self.range_ids) else None
-        if active not in keys: active = keys[0] if keys else None
+        if active not in keys:
+            active = keys[0] if keys else None
+            if active is not None:
+                blocked = self.ranges.blockSignals(True)
+                self.ranges.selectRow(self.range_ids.index(active))
+                self.ranges.blockSignals(blocked)
         # All limits remain visible. Only the selected sample is draggable, so
         # coincident boundaries never silently edit the wrong sample.
         tags = []
@@ -1299,7 +1308,10 @@ class InptkPanel(QDialog):
         if busy: message = "Calculating…" if self.operation and self.preview else "Loading counts…"
         elif self.last_error: message = self.last_error
         elif self.result and self.result["key"] == self.calculation_key(): message = "Result is up to date."
-        elif self.result: message = "Changes not calculated — showing the last successful result."
+        elif self.result:
+            message = ("Counts are current. Recalculate to update concentration."
+                       if self.quantity.currentText() != 'Concentration' and self.preview_hash == self.current_hash()
+                       else "Changes not calculated — showing the last successful result.")
         elif missing: message = f"Counts available. Concentration needs sample metadata: {missing}"
         elif self.preview: message = "Group samples → set limits in Combine → Calculate."
         else: message = "Import temperatures and freezing counts to begin."
@@ -1316,12 +1328,13 @@ class InptkPanel(QDialog):
             self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Muting follows the current limits; the combined curve changes after Calculate. Log scale omits zeros. Export retains confidence values.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
-            self.plot_note.setToolTip("Each line represents one sample and its selected freezing cycle.")
+            self.plot_note.setToolTip("Each line represents one sample or marked water blank. Showing a blank does not assign it for correction.")
         self.update_empty_plot()
 
     def update_empty_plot(self):
         message = ""
-        if not self.selected_curve_names():
+        if not self.selected_curve_names() and not (self.quantity.currentText() != 'Concentration'
+                                                    and getattr(self, 'visible_points', 0)):
             message = "Select a sample group on the left."
         elif self.quantity.currentText() == "Concentration":
             if self.last_error:
@@ -1338,6 +1351,10 @@ class InptkPanel(QDialog):
                            "No finite concentration points. Check the selected ranges and excluded-point table.")
         elif not self.preview:
             message = self.last_error or "Loading freezing counts…"
+        elif not getattr(self, 'visible_points', 0):
+            message = ("Check Use beside the samples to show their freezing counts."
+                       if not self.selected_input_ids() else
+                       "No freezing observations for the selected samples and cycles.")
         self.empty_plot.setText(message)
         self.empty_plot.setVisible(bool(message))
 
@@ -1435,16 +1452,24 @@ class InptkPanel(QDialog):
             "concentration", "lower_error", "upper_error", "contributor_count", "unit",
             "selection_status", "final_selection_status", "qc_flag"})
 
-    def observation_rows(self):
+    def observation_cycles(self):
         selected = set(self.selected_input_ids())
-        # Show assigned water controls alongside their samples even while blank
-        # correction is switched off. These are measured, uncorrected counts.
+        # Displaying a marked blank is independent of assigning it for correction.
+        # Assigned blanks follow their samples' cycles; other marked blanks use
+        # their own cycle choice. Never infer or change a correction assignment.
         cycles = {}
         for key in selected:
             cycle = self.settings['inputs'][key]['cycle']
             cycles.setdefault(key, set()).add(cycle)
             for blank in self.settings['inputs'][key]['blanks']:
                 cycles.setdefault(blank, set()).add(cycle)
+        for key, values in self.settings['inputs'].items():
+            if values['blank'] and key not in cycles:
+                cycles[key] = {values['cycle']}
+        return cycles
+
+    def observation_rows(self):
+        cycles = self.observation_cycles()
         cache_key = (id(self.preview), self.preview_hash,
                      tuple((key, tuple(sorted(values))) for key, values in sorted(cycles.items())))
         if self.observations_cache and self.observations_cache[0] == cache_key:
@@ -1466,13 +1491,15 @@ class InptkPanel(QDialog):
         logarithmic = is_concentration and self.log_y.isChecked()
         self.log_y.setVisible(is_concentration)
         self.show_uncertainty.setVisible(is_concentration)
+        observed = (tuple((key, tuple(sorted(cycles))) for key, cycles in sorted(self.observation_cycles().items()))
+                    if not is_concentration else ())
         context = (quantity, logarithmic, tuple(self.selected_curve_names()), self.preview_hash,
-                   (self.result or {}).get("key"), self.show_uncertainty.isChecked())
+                   (self.result or {}).get("key"), self.show_uncertainty.isChecked(), observed)
         refit = context != self.plot_context
         self.plot_context = context
         widths = (self.window.inptk_sample_line_width, self.window.inptk_combined_line_width,
                   self.window.inptk_marker_size, self.window.inptk_outside_opacity)
-        render_key = (context, id(self.result), tuple((k, v['cycle'], tuple(v['blanks']))
+        render_key = (context, id(self.result), tuple((k, v['cycle'], v['blank'], tuple(v['blanks']))
                       for k, v in self.settings['inputs'].items()),
                       fingerprint(self.settings['ranges']) if is_concentration else '', widths)
         if self.render_key == render_key:

@@ -4,7 +4,7 @@ Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolk
 
 ## Open the analysis
 
-In **Settings → INP toolkit**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
+In **Settings → INP toolkit client**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
 
 After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. This resizable window blocks editing in the main window while open. Closing it retains your analysis choices and results.
 
@@ -52,7 +52,9 @@ Use the quantity control above the plot to switch between:
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
 - **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
 
-Assigned water blanks appear in the counts and fraction plots as dotted lines labeled **water blank**, including when correction is switched off. These plots show measured values before correction and use the selected sample's freezing cycle for its blank.
+Every sample marked **Blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, even before you assign it for correction or while correction is switched off. Assigned blanks follow the selected samples' cycles; unassigned blanks use their own cycle choice. These plots show measured values before correction. Displaying a blank does not assign it to a sample.
+
+Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates still require **Calculate** or **Recalculate**.
 
 Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
 
@@ -60,7 +62,7 @@ Switching quantity, selecting groups, or receiving a new result fits the axes to
 
 Concentration opens with **Log scale** enabled and **Uncertainty** off so that wide intervals do not obscure comparison of the curves. These controls only change the display. Zero values and nonpositive bounds cannot appear on a logarithmic axis. When uncertainty is shown, shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. Exports retain the original values, including infinite bounds. Older saved results need one recalculation to include full-range individual sample curves.
 
-In **Settings → INP toolkit → Plot appearance**, adjust sample and combined line widths, point size, and the opacity outside selected limits. These preferences change the display only.
+In **Settings → INP toolkit client → Plot appearance**, adjust sample and combined line widths, point size, and the opacity outside selected limits. These preferences change the display only.
 
 ## Advanced settings, undo, and export
 

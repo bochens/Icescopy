@@ -143,7 +143,7 @@ class InptkClient(QObject):
             self.ready.emit(self.capabilities); return
         self.stop()
         if not path or not Path(path).is_file():
-            self.failed.emit('Choose an INP toolkit executable in Settings → INP toolkit.'); return
+            self.failed.emit('Choose an INP toolkit executable in Settings → INP toolkit client.'); return
         self.path = path
         self.connecting = True
         self.busyChanged.emit(True)
@@ -171,7 +171,7 @@ class InptkClient(QObject):
     def request_body(self, body, callback, error=None):
         if self.closed: return
         if not self.connecting and self.capabilities is None:
-            (error or self.failed.emit)('INP toolkit is unavailable. Check its executable in Settings → INP toolkit.'); return
+            (error or self.failed.emit)('INP toolkit is unavailable. Check its executable in Settings → INP toolkit client.'); return
         self.next_id += 1
         self.pending.append((self.next_id, body, callback, error))
         self._send_next()

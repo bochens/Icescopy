@@ -268,6 +268,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), {keys[0]})
         self.assertTrue(self.panel.ranges.isRowHidden(1))
+        self.assertEqual(self.panel.range_ids[self.panel.ranges.currentRow()], keys[0])
         self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
 
@@ -361,6 +362,70 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(len(p.selected_result_tables('cumulative')), 2)
         self.assertFalse(p.inputs.item(0, 0).flags() & Qt.ItemIsEnabled)
         self.assertFalse(p.suggest.isEnabled())
+
+    def test_new_group_membership_refreshes_raw_plots_without_calculation(self):
+        p = self.panel
+        keys = list(p.settings['inputs'])
+        p.quantity.setCurrentText('Number frozen')
+        with patch.object(p.client, 'request') as request:
+            p.add_group()
+            self.assertEqual(p.visible_points, 0)
+            for index, key in enumerate(keys[:2], 1):
+                p.inputs.item(p.input_ids.index(key), 0).setCheckState(Qt.Checked)
+                self.assertEqual(p.visible_points, 4 * index)
+                self.assertGreaterEqual(p.plot_limits[1][1], 10)
+            p.quantity.setCurrentText('Fraction frozen')
+            self.assertEqual(p.visible_points, 8)
+            p.inputs.item(p.input_ids.index(keys[0]), 0).setCheckState(Qt.Unchecked)
+            self.assertEqual(p.visible_points, 4)
+            p.undo_stack.undo()
+            self.assertEqual(p.visible_points, 8)
+            request.assert_not_called()
+
+    def test_marked_unassigned_blank_is_drawn_in_both_raw_plots(self):
+        p = self.panel
+        blank = p.input_ids[2]
+        p.quantity.setCurrentText('Number frozen')
+        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        original = copy.deepcopy(p.settings)
+        with patch.object(p.client, 'request') as request:
+            for quantity in ('Number frozen', 'Fraction frozen'):
+                p.quantity.setCurrentText(quantity)
+                names = [line.opts.get('name', '') or '' for line in p.plot.listDataItems()]
+                self.assertTrue(any(blank + ' (water blank)' in name for name in names))
+                self.assertEqual(p.visible_points, 8)
+            self.assertEqual(p.settings, original)
+            self.assertFalse(any(value['blanks'] for value in p.settings['inputs'].values()))
+            p.change_option('blank_correction', False)
+            self.assertEqual(p.visible_points, 8)
+            p.inputs.item(p.input_ids.index(blank), 3).setCheckState(Qt.Unchecked)
+            self.assertEqual(p.visible_points, 4)
+            p.undo_stack.undo()
+            self.assertEqual(p.visible_points, 8)
+            request.assert_not_called()
+
+    def test_drag_keeps_active_sample_independent_of_sample_table_selection(self):
+        keys = self.configure(); p = self.panel
+        p.tabs.setCurrentIndex(1)
+        # The last sample clicked in Samples differs from the active range row.
+        p.inputs.selectRow(p.input_ids.index(keys[1]))
+        p.activate_range(keys[0])
+        before = copy.deepcopy(p.settings['ranges'])
+        undo_index = p.undo_stack.index()
+        for value in (-7.8, -7.6):
+            p.tag_moved(keys[0], 0, value, False)
+            self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
+        p.tag_moved(keys[0], 0, -7.5, True)
+        self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
+        self.assertEqual([entry[0] for entry in p.range_tags.entries], [keys[0]])
+        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': -5}})
+        self.assertEqual(p.current_input(), keys[1])
+        self.assertEqual(p.undo_stack.index(), undo_index + 1)
+        p.undo_stack.undo()
+        self.assertEqual(p.settings['ranges'], before)
+        self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
+        p.undo_stack.redo()
+        self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
 
     def test_switching_quantity_refits_axes_including_uncertainty(self):
         import numpy as np
@@ -503,7 +568,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.inputs.item(2, 3).setCheckState(Qt.Checked)
         p.inputs.selectRow(0)
         self.assertFalse(p.blank_choice.isHidden())
-        self.assertIn('will not be corrected', p.blank_help.text())
+        self.assertIn('leave all assignments empty', p.blank_help.text())
         blank = p.input_ids[2]
         p.change_blanks([blank])
         self.assertTrue(p.blank_help.isHidden())
