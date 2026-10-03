@@ -78,6 +78,7 @@ from icescopy_image_edit import (
     qimage_to_grayscale_array,
 )
 from icescopy_plot import GrayscalePlotWidget
+from icescopy_inptk_panel import InptkPanel
 from icescopy_paths import preferences_read_path
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
@@ -352,6 +353,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.default_circle_radius = preferences.get('DefaultCircleRadius', self.default_circle_radius)
         self.droplet_model_path = str(preferences.get("DropletModelPath", "") or "")
+        self.inptk_executable_path = str(preferences.get("InptkExecutablePath", "") or "")
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -1831,6 +1833,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.sync_tool_options_panel()
 
     def initData(self):
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.restore_session(None)
         # Gets called so wiped at loading images
         # All Attributes related to data
         if hasattr(self, 'image_cache'):
@@ -3874,6 +3878,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grayscale_dock = None
         self.grayscale_plot_dock = self.create_dock_widget("Grayscale Plot", self.grayscale_plot_widget, "grayscalePlotDock")
         self.results_tables_dock = self.create_dock_widget("Results Tables", self.results_table_tabs, "resultsTablesDock")
+        self.inptk_panel = InptkPanel(self)
         self.freeze_dock = None
 
         self.addDockWidget(Qt.LeftDockWidgetArea, self.image_list_dock)
@@ -3893,6 +3898,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.cells_dock.hide()
         self.grayscale_plot_dock.hide()
         self.results_tables_dock.hide()
+        analysis_menu.addSeparator()
+        analysis_menu.addAction("INP Analysis…", self.inptk_panel.show_analysis)
         self.cells_dock.visibilityChanged.connect(self.handle_cells_panel_visibility_changed)
         self.grayscale_plot_dock.visibilityChanged.connect(self.handle_grayscale_plot_visibility_changed)
 
@@ -5478,6 +5485,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if hasattr(self, "freeze_count_timeseries_table"):
             self.set_table_data(self.freeze_count_timeseries_table, self.freeze_count_timeseries_headers, self.freeze_count_timeseries_rows)
         self.update_results_table_visibility()
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
 
     def clear_freeze_count_timeseries_table_widget(self):
         if not hasattr(self, "freeze_count_timeseries_table"):
@@ -5654,6 +5663,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 summary["matched_blank_samples"] = matched_blank_samples
 
         self.freeze_count_timeseries_summary = summary
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
         if headers_changed:
             self.freeze_count_timeseries_headers = refreshed_headers
             if hasattr(self, "freeze_count_timeseries_table"):
@@ -5663,6 +5674,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def update_temperature_table_after_edit(self, previous_headers, previous_rows):
         """Keep the current table position and briefly mark changed values."""
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
         table = getattr(self, "freeze_count_timeseries_table", None)
         if table is None:
             return
@@ -5845,6 +5858,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_session_state(self):
         return {
+            "inp_analysis": self.inptk_panel.session_state() if hasattr(self, "inptk_panel") else {},
             "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "session_metadata": copy.deepcopy(self.serialize_session_metadata()),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
@@ -6615,6 +6629,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.show_dock_widget(self.results_tables_dock)
 
             self.restore_tool_mode_ui(restore_tool_mode)
+            self.inptk_panel.restore_session(state.get("inp_analysis"))
         finally:
             self.history_restoring = False
             self.update_freeze_event_navigation_controls()
@@ -11376,6 +11391,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             event.ignore()
             return
 
+        self.inptk_panel.shutdown()
         self.stop_video_preview_decoder()
         frame_source = getattr(self, "frame_source", None)
         if frame_source is not None:
@@ -11442,6 +11458,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 )
 
         text_fields = (
+            "InptkExecutablePath",
             "SampleNamePattern", "SortMode", "GridCellIdDirection",
             "TimeseriesPalette", "TimeseriesFreezeLineColor",
             "TimeseriesCurrentFrameColor", *DEFAULT_VISUAL_COLORS,

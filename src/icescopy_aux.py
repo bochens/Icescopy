@@ -107,6 +107,7 @@ GRID_CELL_ID_DIRECTION_LABELS = {
 }
 
 DEFAULT_PREFERENCE_VALUES = {
+    "InptkExecutablePath": "",
     "DropletModelPath": "",
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
@@ -1109,7 +1110,7 @@ class PreferencesDialog(QDialog):
 
         self.category_list = QListWidget()
         self.category_list.setFixedWidth(160)
-        self.category_list.addItems(["General", "Samples", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline", "ML"])
+        self.category_list.addItems(["General", "Samples", "Viewer", "Drawing", "Analysis", "Timeseries", "Timeline", "ML", "INP toolkit"])
         self.category_list.setCurrentRow(0)
 
         self.pages = QStackedWidget()
@@ -1121,6 +1122,7 @@ class PreferencesDialog(QDialog):
         self.pages.addWidget(self.build_timeseries_page())
         self.pages.addWidget(self.build_timeline_page())
         self.pages.addWidget(self.build_ml_page())
+        self.pages.addWidget(self.build_inptk_page())
         self.category_list.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.category_list.currentRowChanged.connect(self.reset_page_scroll_position)
         self.category_list.currentRowChanged.connect(self.refresh_ml_page)
@@ -1319,6 +1321,16 @@ class PreferencesDialog(QDialog):
                 ]),
             ],
         )
+
+    def build_inptk_page(self):
+        from icescopy_inptk_panel import InptkPreferencesWidget
+        self.inptk_settings = InptkPreferencesWidget(str(self.pref_value("InptkExecutablePath") or ""))
+        self.finished.connect(lambda _result: self.inptk_settings.client.stop())
+        page = self.build_preferences_page(
+            "INP toolkit", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.", []
+        )
+        page.content_layout.insertWidget(2, self.inptk_settings)
+        return page
 
     def build_ml_page(self):
         path = str(self.pref_value("DropletModelPath") or "")
@@ -1997,6 +2009,7 @@ class PreferencesDialog(QDialog):
         root = Element('Preferences')
 
         SubElement(root, "DropletModelPath").text = droplet_model_path
+        SubElement(root, "InptkExecutablePath").text = self.inptk_settings.path.text().strip()
         SubElement(root, "DefaultCircleRadius").text = str(self.default_circle_radius_field.value())
         SubElement(root, "PenWidth").text = str(self.pen_width_field.value())
         SubElement(root, "MaximumZoom").text = str(self.maximum_zoom_field.value())

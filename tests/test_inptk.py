@@ -1,0 +1,257 @@
+"""Client checks; optional real-CLI integration via INPTK_TEST_EXECUTABLE."""
+import copy
+import json
+import os
+from pathlib import Path
+import time
+import unittest
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import test_freeze_review_cycles as cycle_tests
+from test_csu_count_sources import make_data
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QUndoCommand
+from icescopy_inptk_state import cli_choices, new_settings, reconcile_inputs
+from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
+from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
+from icescopy_inptk_client import InptkClient
+
+
+class InpChoiceTests(unittest.TestCase):
+    def settings(self):
+        state = new_settings()
+        state["inputs"] = {
+            "A": {"group": "sample", "cycle": "01", "blank": False, "blanks": ["water"]},
+            "B": {"group": "sample", "cycle": "01", "blank": False, "blanks": ["water"]},
+            "water": {"group": "water", "cycle": "01", "blank": True, "blanks": []},
+        }
+        state["curves"] = [{"name": "Combined", "inputs": ["A", "B"]}]
+        return state
+
+    def test_explicit_group_cycle_blank_and_inclusive_limits(self):
+        state = self.settings()
+        state["ranges"] = {"A": {"min_C": -20, "max_C": -5}, "B": {"max_C": -15}}
+        args = cli_choices(state)
+        curves = json.loads(args[args.index("--curves")+1])
+        self.assertEqual(curves["Combined"]["inputs"][0], {"measurement_id": "A", "cycle_id": "01"})
+        self.assertEqual(json.loads(args[args.index("--water-blank-map")+1]), {"A": ["water"], "B": ["water"]})
+        self.assertEqual(json.loads(args[args.index("--temperature-ranges")+1]), state["ranges"])
+        state["blank_correction"] = False
+        self.assertIn("--no-water-blank-correction", cli_choices(state))
+        self.assertEqual(state["inputs"]["A"]["blanks"], ["water"])
+
+    def test_invalid_choices_are_not_silently_corrected(self):
+        edits = [
+            lambda s: s["inputs"]["B"].update(group="other"),
+            lambda s: s["inputs"]["A"].update(cycle=""),
+            lambda s: s["inputs"]["water"].update(blank=False),
+            lambda s: s["curves"][0].update(inputs=["A", "A"]),
+            lambda s: s["ranges"].update(A={"min_C": -5, "max_C": -20}),
+        ]
+        for edit in edits:
+            with self.subTest(edit=edit):
+                state = self.settings(); edit(state)
+                with self.assertRaises(ValueError): cli_choices(state)
+
+    def test_grid_and_fit_spacing_are_separate(self):
+        state = self.settings()
+        state.update(grid_step="0.5", grid_start="-4.7", grid_end="-19.2", fit_step="1", grid_method="window", grid_window="0.5")
+        args = cli_choices(state)
+        self.assertEqual(args[args.index("--temperature-start-C")+1], "-4.7")
+        self.assertEqual(args[args.index("--fit-step-C")+1], "1")
+        self.assertEqual(args[args.index("--temperature-window-C")+1], "0.5")
+        state["method"] = "average"
+        self.assertNotIn("--fit-step-C", cli_choices(state))
+        self.assertNotIn("--temperature-ranges", cli_choices(state, suggest=True, selected="Combined"))
+
+    def test_preview_does_not_infer_blank_or_cycle(self):
+        state = reconcile_inputs(new_settings(), {"measurements": [
+            {"measurement_id": "Water blank", "cycle_ids": ["01", "02"]}]})
+        self.assertFalse(state["inputs"]["Water blank"]["blank"])
+        self.assertEqual(state["inputs"]["Water blank"]["cycle"], "")
+
+
+class InpProtocolTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_wrong_version_or_response_id_stops_the_client(self):
+        for reply in ({"id": 1, "protocol_version": 1, "saved_format_version": 4},
+                      {"id": 2, "protocol_version": 2, "saved_format_version": 4}):
+            with self.subTest(reply=reply):
+                client = InptkClient(); errors = []; received = []
+                client.failed.connect(errors.append)
+                client.active = (1, [], received.append, None)
+                with patch.object(client.process, 'readAllStandardOutput', return_value=(json.dumps(reply)+'\n').encode()):
+                    client._read()
+                self.assertTrue(errors)
+                self.assertFalse(received)
+                self.assertFalse(client.busy)
+
+    def test_partial_response_waits_for_newline(self):
+        client = InptkClient(); received = []
+        client.active = (1, [], received.append, None)
+        payload = json.dumps({"id":1,"status":"ok","protocol_version":2,"saved_format_version":4}).encode()
+        for data in (payload[:20], payload[20:]):
+            with patch.object(client.process, 'readAllStandardOutput', return_value=data): client._read()
+            self.assertFalse(received)
+        with patch.object(client.process, 'readAllStandardOutput', return_value=b'\n'): client._read()
+        self.assertEqual(len(received),1)
+
+
+@unittest.skipUnless(os.environ.get("INPTK_TEST_EXECUTABLE"), "Set INPTK_TEST_EXECUTABLE to run real CLI integration")
+class InpIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cycle_tests.CycleMetadataLifecycleTests.setUpClass()
+
+    def setUp(self):
+        self.fixture = cycle_tests.CycleMetadataLifecycleTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.window = w = self.fixture.window
+        self.panel = w.inptk_panel
+        self.addCleanup(self.panel.shutdown)
+        w.inptk_executable_path = os.environ["INPTK_TEST_EXECUTABLE"]
+        # Independent physical well sets, each with first-freezing observations.
+        for sample_id in range(3):
+            w.sample_catalog[sample_id] = w.default_sample_record(sample_id)
+            w.sample_catalog[sample_id].update(sample_type="air", dilution=str(10**sample_id if sample_id < 2 else 1),
+                well_volume_uL="50", air_volume_L="100", suspension_volume_mL="10", filter_fraction_used="1")
+            for cell_index in range(10):
+                cell_id = self.fixture.cell_id if sample_id == 0 and cell_index == 0 else w.cell_controller.add_single_cell((15,15),(15,15),3)
+                record = w.ensure_cell_record(cell_id)
+                record.sample_id = str(sample_id)
+                record.freeze_event_indices = ([1] if cell_index < 2 else [2] if cell_index < 5 else [3] if cell_index < 8 else []) if sample_id < 2 else ([3] if cell_index == 0 else [])
+        w.refresh_sample_catalog_tree(preserve_selection=False)
+        data = make_data([-5,-6,-7,-8], {i:w.frame_name(i) for i in range(4)})
+        w.set_freeze_count_timeseries_results(*w.build_csu_freeze_count_timeseries_results(data,count_source=CSU_COUNT_SOURCE_IMAGES))
+        self.errors = []
+        self.panel.client.failed.connect(self.errors.append)
+        self.panel.connect_toolkit()
+        self.wait(lambda: self.panel.preview is not None or self.errors)
+        self.assertFalse(self.errors)
+
+    def wait(self, condition, timeout=20):
+        deadline = time.monotonic()+timeout
+        while not condition() and time.monotonic()<deadline:
+            QApplication.processEvents()
+            time.sleep(.01)
+        self.assertTrue(condition(), self.panel.status.text())
+
+    def configure(self):
+        state = copy.deepcopy(self.panel.settings)
+        keys = list(state["inputs"])
+        self.assertEqual(len(keys),3)
+        for key in keys[:2]: state["inputs"][key].update(group="Sample",blanks=[keys[2]])
+        state["inputs"][keys[2]]["blank"] = True
+        state["curves"] = [{"name":"Combined","inputs":keys[:2]}, {"name":"Neat","inputs":[keys[0]]}]
+        state["method"] = "average"
+        self.panel.commit(state,"Configure INP analysis")
+        return keys
+
+    def calculate(self):
+        self.panel.recalculate()
+        self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
+        self.assertIsNotNone(self.panel.result,self.panel.status.text())
+        self.assertIn("up to date",self.panel.status.text())
+
+    def test_real_cli_plots_history_ranges_export_and_session(self):
+        keys = self.configure(); self.calculate()
+        self.assertEqual(set(self.panel.result["tables"]),{"Combined","Neat"})
+        self.panel.show_analysis()
+        QApplication.processEvents()
+        self.assertLess(self.panel.plot.viewRange()[0][1], -4)
+        original = copy.deepcopy(self.panel.result)
+        self.panel.tabs.setCurrentIndex(1)
+        self.panel.ranges.selectRow(0)
+        self.assertIsNotNone(self.panel.range_item)
+        self.panel.range_item.setRegion((-7,-5))
+        self.assertEqual(self.panel.settings["ranges"][keys[0]], {"min_C":-7,"max_C":-5})
+        self.assertIn("Changes not calculated",self.panel.status.text())
+        self.window.undo_stack.undo()
+        self.assertEqual(self.panel.result,original)
+        self.assertIn("up to date",self.panel.status.text())
+        path = self.fixture.root/'result.inptk'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName',return_value=(str(path),'')):
+            self.panel.export_result()
+        self.assertTrue((path/'analysis.json').is_file())
+        session = self.fixture.root/'with_inp.icescopy'
+        save_session_bundle(session, build_session_payload(self.window),
+            self.window.grayscale_results_headers, self.window.grayscale_results_rows,
+            self.window.freeze_results_headers, self.window.freeze_results_rows,
+            self.window.freeze_count_timeseries_headers, self.window.freeze_count_timeseries_rows)
+        payload, gray, freeze, counts = load_session_bundle(session)
+        state = build_restore_state(self.window,payload,gray,freeze,counts)
+        self.panel.restore_session(None)
+        self.window.restore_session_state(state)
+        self.assertEqual(self.panel.result,original)
+        self.assertEqual(self.panel.settings["inputs"][keys[0]]["blanks"],[keys[2]])
+
+    def test_source_edit_during_calculation_cannot_install_stale_result(self):
+        self.configure(); self.calculate()
+        original = self.panel.result
+        self.panel.change_option("basis","sampled_air")
+        self.panel.recalculate()
+        self.window.sample_catalog[0]["air_volume_L"] = "200"
+        self.window.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+        self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
+        self.assertIs(self.panel.result,original)
+        self.assertIn("Changes not calculated",self.panel.status.text())
+
+    def test_incomplete_suggestions_preserve_manual_limits(self):
+        keys = self.configure()
+        self.panel.settings["ranges"] = {keys[0]:{"min_C":-7,"max_C":-5}}
+        before = copy.deepcopy(self.panel.settings["ranges"])
+        self.panel.change_option("min_unfrozen",100)
+        self.panel.curves.setCurrentRow(0)
+        self.panel.suggest_ranges()
+        self.wait(lambda:not self.panel.operation and not self.panel.client.busy)
+        self.assertFalse(self.panel.settings["suggestion"]["complete"])
+        self.assertEqual(self.panel.settings["ranges"],before)
+        self.assertIn("Incomplete",self.panel.suggestion_status.text())
+
+    def test_modal_window_history_boundary_and_close_preserve_result(self):
+        self.configure(); self.calculate()
+        original = self.panel.result
+        self.window.undo_stack.push(QUndoCommand("Source edit"))
+        self.panel.show_analysis()
+        self.assertEqual(self.panel.windowModality(), Qt.WindowModal)
+        self.assertFalse(self.panel.undo_action.isEnabled())
+        self.panel.change_option("method", "mle")
+        self.assertTrue(self.panel.undo_action.isEnabled())
+        self.panel.undo_action.trigger()
+        self.assertEqual(self.panel.settings["method"], "average")
+        self.assertFalse(self.panel.undo_action.isEnabled())
+        self.panel.reject()
+        self.assertIs(self.panel.result, original)
+        self.panel.show_analysis()
+        self.assertIs(self.panel.result, original)
+        self.panel.reject()
+
+    def test_mle_air_conversion_and_fraction_csv(self):
+        self.configure()
+        self.panel.change_option("method", "mle")
+        self.calculate()
+        suspension = self.panel.result["tables"]["Combined"]["cumulative"]["rows"]
+        self.panel.change_option("basis", "sampled_air")
+        self.calculate()
+        air = self.panel.result["tables"]["Combined"]["cumulative"]["rows"]
+        self.assertEqual(len(air), len(suspension))
+        for a, s in zip(air, suspension):
+            self.assertAlmostEqual(a["concentration"], s["concentration"] * .1)
+        path = self.fixture.root/'fractions.csv'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName',return_value=(str(path),'')):
+            self.panel.export_csv("frozen_fraction")
+        self.wait(lambda:not self.panel.operation and not self.panel.client.busy)
+        self.assertIn("fraction_frozen", path.read_text())
+        original = self.panel.result
+        self.panel.change_option("method", "average")
+        self.panel.recalculate()
+        self.panel.reject()
+        self.assertFalse(self.panel.client.busy)
+        self.assertIs(self.panel.result, original)
