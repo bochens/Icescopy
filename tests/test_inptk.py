@@ -166,6 +166,7 @@ class InpIntegrationTests(unittest.TestCase):
         state["inputs"][keys[2]]["blank"] = True
         state["curves"] = [{"name":"Combined","inputs":keys[:2]}, {"name":"Neat","inputs":[keys[0]]}]
         state["method"] = "average"
+        state["grid_step"] = ""  # Keep native-temperature checks separate from the default-grid check.
         self.panel.commit(state,"Configure INP analysis")
         return keys
 
@@ -235,7 +236,14 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.tabs.setCurrentIndex(1)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
         first, second = [self.panel.range_items[key] for key in keys[:2]]
-        self.assertLess(second.span[1], first.span[0])  # Same top-to-bottom order as the table.
+        self.assertEqual(first.span, (0, 1))
+        self.assertEqual(first.brush.color().alpha(), 0)
+        self.assertEqual(first.lines[0].pen.style(), Qt.DashLine)
+        self.panel.ranges.selectRow(1)
+        first, second = [self.panel.range_items[key] for key in keys[:2]]
+        self.assertFalse(first.lines[0].movable)
+        self.assertTrue(second.lines[0].movable)
+        self.assertGreater(second.zValue(), first.zValue())
         before = self.panel.undo_stack.index()
         second.setRegion((-7.5, -5.5))
         self.assertEqual(self.panel.undo_stack.index(), before + 1)
@@ -352,6 +360,7 @@ class InpIntegrationTests(unittest.TestCase):
         import pyqtgraph as pg
         self.configure(); self.calculate()
         p = self.panel
+        p.show_uncertainty.setChecked(True)
         self.assertTrue(p.log_y.isChecked())
         p.log_y.setChecked(False)
         p.quantity.setCurrentText('Fraction frozen')
@@ -512,8 +521,7 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_optional_grid_and_result_table_display_preserve_cli_data(self):
         p = self.panel
-        self.assertTrue(p.grid_controls.isHidden())
-        p.grid_enabled.setChecked(True)
+        self.assertTrue(p.grid_enabled.isChecked())
         self.assertEqual(p.settings['grid_step'], '0.5')
         self.assertFalse(p.grid_controls.isHidden())
         p.grid_enabled.setChecked(False)
@@ -534,6 +542,42 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.table_model.data(index), f'{original_value:.6g}')
         self.assertEqual(p.table_model.data(index, Qt.ToolTipRole), str(original_value))
         self.assertEqual(p.result, saved)
+
+    def test_default_grid_and_sample_colors_match_icescopy(self):
+        p = self.panel
+        self.assertEqual(p.settings['grid_step'], '0.5')
+        for entry in self.window.freeze_count_timeseries_summary['sample_total_cells']:
+            self.assertEqual(p.color(entry['sample_name']), self.window.sample_visual_color(entry['sample_id']))
+        # Reordered or sparse identities must not take a palette color by list position.
+        entry = self.window.freeze_count_timeseries_summary['sample_total_cells'][0]
+        entry['sample_id'] = '8'
+        self.assertEqual(p.color(entry['sample_name']), self.window.sample_visual_color(8))
+        self.calculate()
+        for table in p.result['tables'].values():
+            self.assertEqual([r['temperature_C'] for r in table['cumulative']['rows']],
+                             [-5., -5.5, -6., -6.5, -7., -7.5, -8.])
+        p.change_option('grid_step', '')
+        saved = p.session_state()
+        p.restore_session(saved)
+        self.assertEqual(p.settings['grid_step'], '')  # Explicit saved settings survive the new default.
+
+    def test_uncertainty_toggle_changes_only_display(self):
+        import pyqtgraph as pg
+        self.configure(); self.calculate()
+        p = self.panel
+        original = copy.deepcopy(p.result)
+        key, undo_index = p.calculation_key(), p.undo_stack.index()
+        self.assertFalse(p.show_uncertainty.isChecked())
+        curve_top = p.plot_limits[1][1]
+        self.assertFalse(any(isinstance(item, pg.FillBetweenItem) for item in p.plot.getPlotItem().items))
+        p.show_uncertainty.setChecked(True)
+        self.assertGreater(p.plot_limits[1][1], curve_top)
+        self.assertTrue(any(isinstance(item, pg.FillBetweenItem) for item in p.plot.getPlotItem().items))
+        self.assertEqual(p.result, original)
+        self.assertEqual(p.calculation_key(), key)
+        self.assertEqual(p.undo_stack.index(), undo_index)
+        p.show_uncertainty.setChecked(False)
+        self.assertEqual(p.plot_limits[1][1], curve_top)
 
     def test_individual_curves_preserve_combined_fit_and_use_same_blanks_and_limits(self):
         keys = self.configure()

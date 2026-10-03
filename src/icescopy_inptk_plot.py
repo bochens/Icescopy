@@ -1,5 +1,35 @@
 """Display limits for INP plots; calculations remain in the external toolkit."""
 import math
+import pyqtgraph as pg
+
+
+class ConcentrationAxis(pg.AxisItem):
+    """Use readable decade ticks; add 2 and 5 only when there is room."""
+
+    def logTickValues(self, minVal, maxVal, size, stdTicks):
+        span = maxVal - minVal
+        if span < .5:
+            return super().logTickValues(minVal, maxVal, size, stdTicks)
+        step = max(1, math.ceil(span / max(1, size / 70)))
+        major = list(range(math.ceil(minVal / step) * step, math.floor(maxVal) + 1, step))
+        minor = []
+        if step == 1 and size / span >= 110:
+            minor = [power + math.log10(m) for power in range(math.floor(minVal), math.ceil(maxVal))
+                     for m in (2, 5) if minVal < power + math.log10(m) < maxVal]
+        return [(float(step), major), (None, minor)]
+
+
+class TemperatureRangeItem(pg.LinearRegionItem):
+    """Boundary handles only: the transparent interior must allow plot panning."""
+
+    def mouseDragEvent(self, event):
+        event.ignore()
+
+    def mouseClickEvent(self, event):
+        event.ignore()
+
+    def hoverEvent(self, event):
+        pass
 
 
 def axis_limits(quantity, x_values, y_values, totals=(), *, logarithmic=False):

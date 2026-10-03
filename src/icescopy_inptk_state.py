@@ -9,7 +9,7 @@ def new_settings():
     return {
         "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
         "blank_correction": True, "basis": "suspension", "fit_step": "",
-        "grid_step": "", "grid_start": "", "grid_end": "", "grid_method": "latest",
+        "grid_step": "0.5", "grid_start": "", "grid_end": "", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
         "min_frozen": 3, "min_unfrozen": 3, "suggestion": None,
     }

@@ -30,7 +30,7 @@ In **Combine**, choose the calculation method and concentration basis: suspensio
 - **MLE**, maximum likelihood estimation, jointly fits the sample and blank freezing counts over the cooling curve. Optional fit spacing controls the fitted curve shape.
 - **Average** takes an equal-weight mean of eligible concentration estimates at each temperature.
 
-Each sample in the selected group has its own named, colored cold/warm handle pair along the bottom of the plot. Separate strips keep the pairs accessible when their temperatures overlap. Drag the handles or type temperatures into the matching table row. Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
+Each sample has cold/warm handles on the temperature axis, with faint vertical dashed guides. Colors match Icescopy's sample catalog. Select a row in the limits table to bring that sample's handles forward, then drag them or type temperatures into the table. This also lets you choose which sample to edit when limits overlap. Dragging elsewhere in the plot pans the view. Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
 
 For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention. Its full report is available under **Table → Range suggestions**. MLE ranges are set manually.
 
@@ -44,19 +44,19 @@ In the **Plot** tab, use the quantity control to switch between:
 
 - **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
-- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid line shows the combined group; dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles. Shading shows the group's uncertainty; faint crosses identify excluded points.
+- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid line shows the combined group; dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles and sample catalog. Faint crosses identify excluded points. Turn on **Uncertainty** to show the group's confidence limits and shading; the axes expand to include them.
 
 Individual concentration curves use the same calculation method, blank assignments, units, and temperature limits as the group. Selecting a group shows its samples automatically. Individual error widths are available in **Table**. Adding these curves does not count the droplets again in the combined fit.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
 
-Concentration opens with **Log scale** enabled; turn it off only when a linear view is needed. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds.
+Concentration opens with **Log scale** enabled and **Uncertainty** off so that wide intervals do not obscure comparison of the curves. These controls only change the display. Zero values and nonpositive bounds cannot appear on a logarithmic axis. When uncertainty is shown, shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds. Older saved results need one recalculation to include individual sample curves.
 
 **Lower error** and **Upper error** are distances from the concentration to its confidence limits. INP toolkit supplies these values. Its Average method uses conservative intervals that allow for shared blank uncertainty; adding samples does not necessarily narrow them.
 
 ## Advanced settings, undo, and export
 
-The **Advanced** tab contains optional count selection on a temperature grid, handling of decreases, and the uncertainty setting. **Use a temperature grid** reveals the grid controls, starting at 0.5 °C spacing; leave it off to use measured temperatures. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation. The results table puts temperature and scientific values first; exported column names and values remain those supplied by INP toolkit.
+The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. New analyses use a **0.5 °C temperature grid**. Turn **Use a temperature grid** off to use every measured temperature. Existing saved grid settings are preserved. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation. The results table puts temperature and scientific values first; exported column names and values remain those supplied by INP toolkit.
 
 **Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature handle creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. The **Console** tab shares Icescopy's console messages.
 
