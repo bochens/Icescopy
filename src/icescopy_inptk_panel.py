@@ -12,7 +12,7 @@ import numpy as np
 import pyqtgraph as pg
 from shiboken6 import isValid
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QColor, QKeySequence, QUndoCommand
+from PySide6.QtGui import QAction, QColor, QKeySequence, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
@@ -107,6 +107,8 @@ class InptkPanel(QDialog):
         self.setSizeGripEnabled(True)
         self.resize(1150, 760)
         self.window = window
+        self.undo_stack = QUndoStack(self)
+        self.undo_stack.setUndoLimit(window.undo_limit)
         self.client = InptkClient(self)
         self.client.ready.connect(self.connected)
         self.client.failed.connect(self.error)
@@ -126,8 +128,8 @@ class InptkPanel(QDialog):
         self.make_ui()
         self.undo_action = QAction("Undo", self)
         self.redo_action = QAction("Redo", self)
-        for action, key, callback in ((self.undo_action, QKeySequence.Undo, window.undo_stack.undo),
-                                      (self.redo_action, QKeySequence.Redo, window.undo_stack.redo)):
+        for action, key, callback in ((self.undo_action, QKeySequence.Undo, self.undo_stack.undo),
+                                      (self.redo_action, QKeySequence.Redo, self.undo_stack.redo)):
             action.setShortcuts(QKeySequence.keyBindings(key))
             action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             action.triggered.connect(callback)
@@ -135,17 +137,16 @@ class InptkPanel(QDialog):
         for button, action in ((self.undo_button, self.undo_action), (self.redo_button, self.redo_action)):
             button.clicked.connect(action.trigger)
             action.changed.connect(lambda button=button, action=action: button.setEnabled(action.isEnabled()))
-        window.undo_stack.indexChanged.connect(self.update_history_actions)
+        self.undo_stack.indexChanged.connect(self.update_history_actions)
         self.update_history_actions()
 
     def update_history_actions(self, *_):
-        # Share history without allowing edits to frozen input data from this window.
-        stack = self.window.undo_stack
+        stack = self.undo_stack
         if not isValid(stack): return
         index = stack.index()
         for action, position in ((self.undo_action, index - 1), (self.redo_action, index)):
             command = stack.command(position) if 0 <= position < stack.count() else None
-            enabled = isinstance(command, InpSettingsCommand) and command.panel is self
+            enabled = command is not None
             action.setEnabled(enabled)
             action.setToolTip(command.text() if enabled else "No INP analysis change available")
 
@@ -414,8 +415,7 @@ class InptkPanel(QDialog):
             return
         before = copy.deepcopy(self.settings)
         self.restore_choices(choices)
-        if getattr(self.window, "undo_redo_enabled", True):
-            self.window.undo_stack.push(InpSettingsCommand(self, label, before, copy.deepcopy(choices)))
+        self.undo_stack.push(InpSettingsCommand(self, label, before, copy.deepcopy(choices)))
         self.window.log(label)
 
     def change_option(self, key, value):
@@ -950,6 +950,8 @@ class InptkPanel(QDialog):
 
     def restore_session(self, state):
         self.generation += 1; self.client.stop(); self.operation = False
+        self.undo_stack.clear()
+        self.undo_stack.setUndoLimit(self.window.undo_limit)
         state = state or {}
         self.preview = state.get("preview"); self.preview_hash = state.get("preview_hash", "")
         self.result = state.get("result")

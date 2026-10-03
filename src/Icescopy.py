@@ -6465,7 +6465,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.set_undo_status()
             self.set_redo_status()
 
-    def restore_session_state(self, state, preserve_active_tool=False):
+    def restore_session_state(self, state, preserve_active_tool=False, *, restore_inp_analysis=True):
         self.history_restoring = True
         try:
             set_cycle_metadata(self, None)
@@ -6629,7 +6629,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.show_dock_widget(self.results_tables_dock)
 
             self.restore_tool_mode_ui(restore_tool_mode)
-            self.inptk_panel.restore_session(state.get("inp_analysis"))
+            if restore_inp_analysis:
+                self.inptk_panel.restore_session(state.get("inp_analysis"))
+            else:
+                self.inptk_panel.source_changed()
         finally:
             self.history_restoring = False
             self.update_freeze_event_navigation_controls()

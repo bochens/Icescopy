@@ -18,6 +18,7 @@ from icescopy_inptk_state import cli_choices, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient
+from icescopy_session import SessionSnapshotCommand
 
 
 class InpChoiceTests(unittest.TestCase):
@@ -173,7 +174,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.range_items[keys[0]].setRegion((-7,-5))
         self.assertEqual(self.panel.settings["ranges"][keys[0]], {"min_C":-7,"max_C":-5})
         self.assertIn("Changes not calculated",self.panel.status.text())
-        self.window.undo_stack.undo()
+        self.panel.undo_stack.undo()
         self.assertEqual(self.panel.result,original)
         self.assertIn("up to date",self.panel.status.text())
         path = self.fixture.root/'result.inptk'
@@ -221,13 +222,13 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
         first, second = [self.panel.range_items[key] for key in keys[:2]]
         self.assertLess(first.span[1], second.span[0])
-        before = self.window.undo_stack.index()
+        before = self.panel.undo_stack.index()
         second.setRegion((-7.5, -5.5))
-        self.assertEqual(self.window.undo_stack.index(), before + 1)
+        self.assertEqual(self.panel.undo_stack.index(), before + 1)
         self.assertNotIn(keys[0], self.panel.settings["ranges"])
         self.assertEqual(self.panel.settings["ranges"][keys[1]], {"min_C":-7.5,"max_C":-5.5})
         self.assertEqual(self.panel.ranges.item(1, 1).text(), "-7.5")
-        self.window.undo_stack.undo()
+        self.panel.undo_stack.undo()
         self.assertEqual(self.panel.settings["ranges"], {})
         self.panel.ranges.item(0, 1).setText("-7")
         self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, -5))
@@ -238,23 +239,57 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.limit_curve.setCurrentIndex(0)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
 
-    def test_modal_window_history_boundary_and_close_preserve_result(self):
+    def test_dialog_history_is_independent_and_survives_close(self):
         self.configure(); self.calculate()
         original = self.panel.result
+        self.panel.undo_stack.clear()
         self.window.undo_stack.push(QUndoCommand("Source edit"))
+        self.window.undo_stack.undo()
+        main_index = self.window.undo_stack.index()
         self.panel.show_analysis()
         self.assertEqual(self.panel.windowModality(), Qt.WindowModal)
         self.assertFalse(self.panel.undo_action.isEnabled())
         self.panel.change_option("method", "mle")
         self.assertTrue(self.panel.undo_action.isEnabled())
+        self.assertEqual(self.window.undo_stack.index(), main_index)
+        self.assertTrue(self.window.undo_stack.canRedo())
         self.panel.undo_action.trigger()
         self.assertEqual(self.panel.settings["method"], "average")
         self.assertFalse(self.panel.undo_action.isEnabled())
         self.panel.reject()
         self.assertIs(self.panel.result, original)
         self.panel.show_analysis()
-        self.assertIs(self.panel.result, original)
+        self.assertTrue(self.panel.redo_action.isEnabled())
+        self.panel.redo_action.trigger()
+        self.assertEqual(self.panel.settings["method"], "mle")
+        self.assertEqual(self.window.undo_stack.index(), main_index)
+        self.assertTrue(self.window.undo_stack.canRedo())
         self.panel.reject()
+        saved = self.panel.session_state()
+        self.panel.restore_session(saved)
+        self.assertEqual(self.panel.settings["method"], "mle")
+        self.assertEqual(self.panel.undo_stack.count(), 0)
+        self.assertFalse(self.panel.undo_action.isEnabled())
+
+    def test_main_snapshot_history_does_not_restore_dialog_choices(self):
+        self.configure()
+        before = self.window.capture_session_state()
+        after = copy.deepcopy(before)
+        after["image_index"] = 1
+        self.window.restore_session_state(after, restore_inp_analysis=False)
+        self.window.undo_stack.push(SessionSnapshotCommand(self.window, "Change source", before, after))
+        self.panel.change_option("method", "mle")
+        dialog_index = self.panel.undo_stack.index()
+        self.window.undo_stack.undo()
+        self.assertEqual(self.window.image_index, 0)
+        self.assertEqual(self.panel.settings["method"], "mle")
+        self.assertEqual(self.panel.undo_stack.index(), dialog_index)
+        self.window.undo_stack.redo()
+        self.assertEqual(self.window.image_index, 1)
+        self.assertEqual(self.panel.settings["method"], "mle")
+        self.panel.undo_action.trigger()
+        self.assertEqual(self.panel.settings["method"], "average")
+        self.assertEqual(self.window.image_index, 1)
 
     def test_mle_air_conversion_and_fraction_csv(self):
         self.configure()

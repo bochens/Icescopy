@@ -11,13 +11,13 @@ class SessionSnapshotCommand(QUndoCommand):
         self._first_redo = True
 
     def undo(self):
-        self.main_window.restore_session_state(self.before_state, preserve_active_tool=True)
+        self.main_window.restore_session_state(self.before_state, preserve_active_tool=True, restore_inp_analysis=False)
 
     def redo(self):
         if self._first_redo:
             self._first_redo = False
             return
-        self.main_window.restore_session_state(self.after_state, preserve_active_tool=True)
+        self.main_window.restore_session_state(self.after_state, preserve_active_tool=True, restore_inp_analysis=False)
 
 
 class SessionCellCommand(QUndoCommand):

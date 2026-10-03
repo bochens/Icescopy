@@ -38,7 +38,7 @@ The plot offers **Number frozen**, **Fraction frozen**, and **Concentration**, w
 
 The **Advanced** tab contains optional count selection on a temperature grid, handling of decreases, and the uncertainty setting. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
 
-**Undo/Redo** and Ctrl/Cmd+Z use Icescopy's history. Inside this window they undo analysis choices only, stopping before an edit to the source data. Moving a temperature handle creates one undo entry. The **Console** tab shows the same messages as Icescopy's main console.
+**Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis choices. Moving a temperature handle creates one undo entry. Closing and reopening this window preserves its history; starting or loading a session clears it. Undo in the main window affects image, cell, and sample edits without reverting INP analysis choices. Both histories use the configured Undo History Limit. The **Console** tab shows the same messages as Icescopy's main console.
 
 Save the `.icescopy` session to retain choices, the latest suggestion report, and the last successful result. **Export** can save a native `.inptk` result folder or calculated counts, fractions, concentrations, and excluded points as CSV. Exports always use the last successful calculation, including when newer edits have not been calculated. Choose a new destination: existing exports are preserved.
 
