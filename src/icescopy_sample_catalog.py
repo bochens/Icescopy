@@ -339,6 +339,11 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 if hasattr(self.main_window, "reopen_sample_catalog_persistent_editors_for_sample"):
                     self.main_window.reopen_sample_catalog_persistent_editors_for_sample(sample_id)
 
+        if hasattr(self.main_window, "log"):
+            if len(changed_sample_ids) > 1:
+                self.main_window.log(f"Update {field_key} to {value_text} for all samples")
+            else:
+                self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
         refresh_metadata = getattr(self.main_window, "refresh_freeze_count_timeseries_metadata_from_sample_catalog", None)
         if callable(refresh_metadata):
             refresh_metadata(relabel_headers=(field_key == "sample_name"))
@@ -349,11 +354,6 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 callback = getattr(self.main_window, callback_name, None)
                 if callable(callback):
                     callback()
-        if hasattr(self.main_window, "log"):
-            if len(changed_sample_ids) > 1:
-                self.main_window.log(f"Update {field_key} to {value_text} for all samples")
-            else:
-                self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
         return True
 
 
