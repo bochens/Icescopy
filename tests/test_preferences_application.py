@@ -88,6 +88,20 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.window.undo_stack.redo()
         self.assertEqual(self.window.active_sample_metadata_schema(), after)
 
+    def test_inp_plot_style_persists_without_changing_the_session(self):
+        self.window.session_active = True
+        self.window.mark_session_clean()
+        dialog = self.dialog()
+        styles = {'InptkSampleLineWidth': 3.5, 'InptkCombinedLineWidth': 5.0,
+                  'InptkMarkerSize': 0.0, 'InptkOutsideOpacity': 45.0}
+        for key, value in styles.items(): dialog.inptk_style_fields[key].setValue(value)
+        self.save(dialog)
+        reopened = IceScopy()
+        self.addCleanup(reopened.deleteLater)
+        self.assertEqual((reopened.inptk_sample_line_width, reopened.inptk_combined_line_width,
+                          reopened.inptk_marker_size, reopened.inptk_outside_opacity), (3.5, 5.0, 0.0, 45.0))
+        self.assertFalse(self.window.has_unsaved_session_changes())
+
     def test_unrelated_save_preserves_opened_session_metadata_schema(self):
         self.window.session_active = True
         field = next(field for field in self.window.sample_metadata_schema if field["key"] == "well_volume_uL")

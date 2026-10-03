@@ -244,6 +244,13 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(first.lines[0].movable)
         self.assertTrue(second.lines[0].movable)
         self.assertGreater(second.zValue(), first.zValue())
+        self.assertEqual([entry[0] for entry in self.panel.range_tags.entries], [keys[1]])
+        self.assertEqual(self.panel.range_tags.height(), 34)
+        curve = next(item for item in self.panel.plot.listDataItems() if item.property('inp_sample') == keys[0])
+        curve.sigClicked.emit(curve, None)
+        self.assertEqual([entry[0] for entry in self.panel.range_tags.entries], [keys[0]])
+        self.panel.activate_range(keys[1])
+        second = self.panel.range_items[keys[1]]
         before = self.panel.undo_stack.index()
         second.setRegion((-7.5, -5.5))
         self.assertEqual(self.panel.undo_stack.index(), before + 1)
@@ -336,7 +343,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(self.panel.client.busy)
         self.assertIs(self.panel.result, original)
 
-    def test_one_selection_controls_plot_table_and_ranges(self):
+    def test_one_selection_controls_plot_ranges_and_assigned_blank_visibility(self):
         keys = self.configure(); self.calculate()
         p = self.panel
         p.tabs.setCurrentIndex(1)
@@ -344,10 +351,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.selected_curve_names(), ['Neat'])
         self.assertEqual(set(p.range_items), {keys[0]})
         self.assertEqual([name for name, _ in p.selected_result_tables('cumulative')], ['Neat'])
-        self.assertEqual({r['measurement_id'] for r in p.observation_rows()}, {keys[0]})
-        p.views.setCurrentIndex(1)
-        p.table_kind.setCurrentText('Observations')
-        self.assertEqual(p.table_model.rowCount(), 4)
+        self.assertEqual({r['measurement_id'] for r in p.observation_rows()}, {keys[0], keys[2]})
         # Standard multiple selection uses the same list, not another plot picker.
         p.curves.item(0).setSelected(True)
         self.assertEqual(set(p.range_items), set(keys[:2]))
@@ -431,6 +435,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.log_y.setChecked(False)
         self.assertEqual(p.empty_plot.text(), '')
         for row in rows: row['concentration'] = {'$nonfinite': 'inf'}
+        p.render_key = None  # Production results are immutable between completed runs.
         p.draw()
         self.assertIn('No finite', p.empty_plot.text())
 
@@ -451,7 +456,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertTrue(p.settings['inputs'][p.input_ids[2]]['blank'])
         self.assertNotIn(p.input_ids[2], {key for c in p.settings['curves'] for key in c['inputs']})
 
-    def test_edit_does_not_reserialize_csv_or_populate_hidden_result_table(self):
+    def test_edits_reuse_source_and_unchanged_plot_without_result_tabs(self):
         import icescopy_inptk_panel as module
         p = self.panel
         p.source_cache = None
@@ -459,9 +464,10 @@ class InpIntegrationTests(unittest.TestCase):
             p.current_hash()
             for i in range(3): p.curves.item(0).setText(f'Renamed {i}')
             self.assertEqual(serialize.call_count, 1)
-        self.assertEqual(p.table_model.rowCount(), 0)
-        p.views.setCurrentIndex(1)
-        self.assertEqual(p.table_model.rowCount(), 4)
+        self.assertFalse(hasattr(p, 'views'))
+        with patch.object(p.plot, 'clear', wraps=p.plot.clear) as clear:
+            p.draw(); p.draw()
+            self.assertEqual(clear.call_count, 0)
         p.source_changed()
         with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
             p.current_hash()
@@ -519,29 +525,18 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-20')
         self.assertFalse(p.settings['ranges'])
 
-    def test_optional_grid_and_result_table_display_preserve_cli_data(self):
+    def test_optional_grid_and_plot_changes_preserve_export_data(self):
         p = self.panel
         self.assertTrue(p.grid_enabled.isChecked())
-        self.assertEqual(p.settings['grid_step'], '0.5')
-        self.assertFalse(p.grid_controls.isHidden())
         p.grid_enabled.setChecked(False)
         self.assertEqual(p.settings['grid_step'], '')
         p.undo_stack.undo()
         self.assertEqual(p.settings['grid_step'], '0.5')
-        p.undo_stack.undo()
         self.configure(); self.calculate()
-        saved = copy.deepcopy(p.result)
-        p.views.setCurrentIndex(1)
-        self.assertEqual(p.table_model.columns[:4], ['temperature_C','concentration','lower_error','upper_error'])
-        self.assertEqual(p.table_model.headerData(0, Qt.Horizontal), 'Temperature (°C)')
-        self.assertEqual(p.table_model.headerData(2, Qt.Horizontal), 'Lower error')
-        self.assertIn('not the limit itself', p.table_model.headerData(2, Qt.Horizontal, Qt.ToolTipRole))
-        self.assertEqual(p.table_units.text(), 'INP/mL suspension')
-        index = p.table_model.index(1, 1)
-        original_value = p.table_model.rows[1]['concentration']
-        self.assertEqual(p.table_model.data(index), f'{original_value:.6g}')
-        self.assertEqual(p.table_model.data(index, Qt.ToolTipRole), str(original_value))
-        self.assertEqual(p.result, saved)
+        original = copy.deepcopy(p.result)
+        p.quantity.setCurrentText('Fraction frozen')
+        p.quantity.setCurrentText('Concentration')
+        self.assertEqual(p.result, original)
 
     def test_default_grid_and_sample_colors_match_icescopy(self):
         p = self.panel
@@ -579,7 +574,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.show_uncertainty.setChecked(False)
         self.assertEqual(p.plot_limits[1][1], curve_top)
 
-    def test_individual_curves_preserve_combined_fit_and_use_same_blanks_and_limits(self):
+    def test_full_individual_fits_preserve_combined_results_and_reuse_cached_references(self):
         keys = self.configure()
         p = self.panel
         state = copy.deepcopy(p.settings)
@@ -596,21 +591,21 @@ class InpIntegrationTests(unittest.TestCase):
         baseline = json.loads((output / 'analysis.json').read_text())
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
             self.calculate()
-            self.assertEqual([c.args[0][0] for c in requests.call_args_list], ['analyze'])
+            self.assertEqual([c.args[0][0] for c in requests.call_args_list], ['analyze', 'analyze'])
             p.recalculate()
-            self.assertEqual(requests.call_count, 1)  # No work when nothing changed.
+            self.assertEqual(requests.call_count, 2)  # No work when nothing changed.
         tables = dict(p.concentration_tables('cumulative'))
-        self.assertEqual(set(tables), {'Combined', 'Neat', 'Combined / Sample_1'})
+        self.assertEqual(set(tables), {'Combined', ('individual', keys[0]), ('individual', keys[1])})
         for name in ('Combined', 'Neat'):
-            self.assertEqual(tables[name]['rows'], baseline['curves'][name]['tables']['cumulative']['rows'])
-        individual = p.result['reply']['curves']['Combined / Sample_1']
+            self.assertEqual(p.result['tables'][name]['cumulative']['rows'], baseline['curves'][name]['tables']['cumulative']['rows'])
+        individual = p.result['references']['reply']['curves'][keys[1]]
         self.assertEqual(individual['sources'][0]['water_blank_ids'], [keys[2]])
-        self.assertEqual([r['temperature_C'] for r in tables['Combined / Sample_1']['rows']], [-5., -6., -7.])
+        self.assertEqual([r['temperature_C'] for r in tables[('individual', keys[1])]['rows']], [-5., -6., -7., -8.])
         curves = [item for item in p.plot.listDataItems() if item.opts.get('data') and item.opts.get('name')]
         self.assertEqual(len(curves), 3)
         self.assertEqual(sum(item.opts['pen'].style() == Qt.DashLine for item in curves), 2)
-        for name, key in p.result['individual_curves'].items():
-            label, color_key, overlay = p.concentration_style(name)
+        for key in p.result['references']['by_input']:
+            label, color_key, overlay = p.concentration_style(('individual', key))
             self.assertEqual(color_key, key)
             self.assertTrue(overlay)
         # The table payload read directly is the same data exposed by the CLI.
@@ -618,6 +613,63 @@ class InpIntegrationTests(unittest.TestCase):
         p.client.request(['table', str(output), '--curve', 'Combined', '--table', 'cumulative'], responses.append)
         self.wait(lambda: responses and not p.client.busy)
         self.assertEqual(responses[0]['table'], baseline['curves']['Combined']['tables']['cumulative'])
+        path = self.fixture.root / 'full-range.inptk'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(path), '')):
+            p.export_result()
+        self.assertEqual((path / 'individual-samples.inptk' / 'analysis.json').read_text(),
+                         p.result['references']['saved_result'])
+        csv_path = self.fixture.root / 'individual.csv'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(csv_path), '')):
+            p.export_csv(reference_key=keys[1])
+        self.wait(lambda:not p.operation and not p.client.busy)
+        import csv
+        with csv_path.open() as handle: exported = list(csv.DictReader(handle))
+        expected = p.result['references']['tables'][keys[1]]['cumulative']['rows']
+        self.assertEqual([float(r['concentration']) for r in exported], [r['concentration'] for r in expected])
+
+    def test_range_edits_reuse_full_range_fits_and_report_history_is_lightweight(self):
+        keys = self.configure(); self.calculate()
+        p = self.panel
+        reference = p.result['references']
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            p.settings['ranges'][keys[1]] = {'min_C': -7, 'max_C': -6}
+            self.calculate()
+            self.assertEqual(len(requests.call_args_list), 1)
+            self.assertIs(p.result['references'], reference)
+        p.suggest_ranges()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        report = p.settings['suggestion']
+        self.assertTrue(report)
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            p.suggest_ranges()
+            self.assertEqual(requests.call_count, 0)
+        p.change_option('grid_step', '1')
+        self.assertIs(p.settings['suggestion'], report)
+        self.assertIs(p.undo_stack.command(p.undo_stack.index()-1).before['suggestion'], report)
+        # Undo can restore a different report; cache the matching report itself.
+        p.settings['suggestion'] = {'complete': False}
+        p.change_option('grid_step', '')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            p.suggest_ranges()
+            self.assertEqual(requests.call_count, 0)
+        self.assertIs(p.settings['suggestion'], report)
+        report_path = self.fixture.root / 'range-suggestions.json'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(report_path), '')):
+            p.export_range_report()
+        self.assertEqual(json.loads(report_path.read_text()), report)
+
+    def test_assigned_blank_uses_the_selected_sample_cycle(self):
+        keys = self.configure(); p = self.panel
+        original = p.preview['table']['rows']
+        later = [dict(row, cycle_id='later', temperature_C=row['temperature_C']-10) for row in original]
+        p.preview = dict(p.preview, table=dict(p.preview['table'], rows=original+later))
+        state = copy.deepcopy(p.settings)
+        for key in keys[:2]: state['inputs'][key]['cycle']='later'
+        p.commit(state, 'Use later sample cycle')
+        rows = p.observation_rows()
+        self.assertEqual({r['cycle_id'] for r in rows}, {'later'})
+        self.assertEqual({r['measurement_id'] for r in rows}, set(keys))
+
 
 
 class InpAxisTests(unittest.TestCase):

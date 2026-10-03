@@ -108,6 +108,10 @@ GRID_CELL_ID_DIRECTION_LABELS = {
 
 DEFAULT_PREFERENCE_VALUES = {
     "InptkExecutablePath": "",
+    "InptkSampleLineWidth": 2.8,
+    "InptkCombinedLineWidth": 4.0,
+    "InptkMarkerSize": 6.0,
+    "InptkOutsideOpacity": 30.0,
     "DropletModelPath": "",
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
@@ -1326,8 +1330,20 @@ class PreferencesDialog(QDialog):
         from icescopy_inptk_panel import InptkPreferencesWidget
         self.inptk_settings = InptkPreferencesWidget(str(self.pref_value("InptkExecutablePath") or ""))
         self.finished.connect(lambda _result: self.inptk_settings.client.stop())
+        self.inptk_style_fields = {}
+        rows = []
+        for key, label, low, high in (
+            ('InptkSampleLineWidth', 'Sample line width (px)', 1, 12),
+            ('InptkCombinedLineWidth', 'Combined line width (px)', 1, 12),
+            ('InptkMarkerSize', 'Point size (px; 0 hides points)', 0, 16),
+            ('InptkOutsideOpacity', 'Outside-range opacity (%)', 10, 80),
+        ):
+            field = self.make_double_spinbox(low, high, self.pref_value(key), 1)
+            self.inptk_style_fields[key] = field
+            rows.append((label, field))
         page = self.build_preferences_page(
-            "INP toolkit", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.", []
+            "INP toolkit", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.",
+            [('Plot appearance', rows)]
         )
         page.content_layout.insertWidget(2, self.inptk_settings)
         return page
@@ -2010,6 +2026,8 @@ class PreferencesDialog(QDialog):
 
         SubElement(root, "DropletModelPath").text = droplet_model_path
         SubElement(root, "InptkExecutablePath").text = self.inptk_settings.path.text().strip()
+        for key, field in self.inptk_style_fields.items():
+            SubElement(root, key).text = str(field.value())
         SubElement(root, "DefaultCircleRadius").text = str(self.default_circle_radius_field.value())
         SubElement(root, "PenWidth").text = str(self.pen_width_field.value())
         SubElement(root, "MaximumZoom").text = str(self.maximum_zoom_field.value())

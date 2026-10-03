@@ -19,6 +19,27 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
+def copy_choices(settings):
+    """Copy editable choices, sharing the immutable CLI suggestion report.
+
+    A report may contain thousands of original observations. No control edits
+    that report; keeping it out of deep copies makes normal editing inexpensive.
+    """
+    result = copy.deepcopy({k: v for k, v in settings.items() if k != "suggestion"})
+    result["suggestion"] = settings.get("suggestion")
+    return result
+
+
+def individual_choices(settings):
+    """Independent full-range fits, for comparison only, never extra replicates."""
+    result = copy_choices(settings)
+    keys = list(dict.fromkeys(k for c in settings["curves"] for k in c["inputs"]))
+    result["curves"] = [{"name": key, "inputs": [key]} for key in keys]
+    result["ranges"] = {}
+    result["suggestion"] = None
+    return result
+
+
 def number(value):
     if isinstance(value, dict) and "$nonfinite" in value:
         return float(value["$nonfinite"])

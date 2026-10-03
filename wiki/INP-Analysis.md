@@ -10,7 +10,7 @@ After importing temperatures and reviewing freeze events, open **Analysis → IN
 
 ## Group samples and assign blanks
 
-A **sample group** contains the independent samples or dilutions you want to combine into one concentration curve. Start with the **Sample groups** list on the left. That same selection controls the settings, plot, and results table; there is no separate plot selector.
+A **sample group** contains the independent samples or dilutions you want to combine into one concentration curve. Start with the **Sample groups** list on the left. That same selection controls the settings and plot; there is no separate plot selector.
 
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
@@ -27,12 +27,16 @@ Turning **Apply blank correction** off retains the blank assignments. Unchecking
 
 In **Combine**, choose the calculation method and concentration basis: suspension, sampled air, or dry soil. These calculation settings apply to all groups; each basis needs its corresponding physical metadata.
 
-- **MLE**, maximum likelihood estimation, jointly fits the sample and blank freezing counts over the cooling curve. Optional fit spacing controls the fitted curve shape.
-- **Average** takes an equal-weight mean of eligible concentration estimates at each temperature.
+- **MLE**, maximum likelihood estimation, jointly fits the sample and blank freezing counts over the cooling curve. It uses first-freezing intervals and surviving droplets; repeated frames are not new droplets. Optional fit spacing controls the fitted curve shape. Confidence limits are found by testing each concentration while refitting the other concentrations and blank background.
+- **Average** fits each eligible sample with its assigned blanks, then takes an equal-weight mean at each temperature. Where only one dilution is eligible, it contributes its own estimate. The toolkit widens the individual confidence limits to allow for shared blanks, then averages their endpoints. Adding samples therefore does not necessarily narrow the limits.
 
-Each sample has cold/warm handles on the temperature axis, with faint vertical dashed guides. Colors match Icescopy's sample catalog. Select a row in the limits table to bring that sample's handles forward, then drag them or type temperatures into the table. This also lets you choose which sample to edit when limits overlap. Dragging elsewhere in the plot pans the view. Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
+Expand **Equations and uncertainty** under Combine for the formulas and assumptions. The limits describe uncertainty at each temperature, conditional on the selected ranges; they are not a confidence band for the entire curve and do not include uncertainty from choosing those ranges.
 
-For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention. Its full report is available under **Table → Range suggestions**. MLE ranges are set manually.
+Each sample retains its own cold and warm limits. Faint vertical dashed lines show all limits in the selected group, using the sample catalog colors. Select a row in the limits table or click an individual sample's curve to show its two draggable tags in a single row **below the plot**. Only that sample's controls are active, so overlapping limits cannot silently edit a different sample. You can also type temperatures into the table. Dragging elsewhere in the plot pans the view.
+
+Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
+
+For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion report (JSON)…** saves the full report. Repeating Auto range with unchanged inputs and settings reuses the report from the current toolkit connection. MLE ranges are set manually.
 
 Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
@@ -40,26 +44,36 @@ The status shows elapsed calculation time. The console reports toolkit and displ
 
 ## Read the plots
 
-In the **Plot** tab, use the quantity control to switch between:
+Use the quantity control above the plot to switch between:
 
 - **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
-- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles and sample catalog. Faint crosses identify excluded points. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
+- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
 
-Individual concentration curves use the same calculation method, blank assignments, units, and temperature limits as the group. Selecting a group shows its samples automatically. Individual error widths are available in **Table**. Adding these curves does not count the droplets again in the combined fit.
+Assigned water blanks appear in the counts and fraction plots as dotted lines labeled **water blank**, including when correction is switched off. These plots show measured values before correction and use the selected sample's freezing cycle for its blank.
+
+Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
 
-Concentration opens with **Log scale** enabled and **Uncertainty** off so that wide intervals do not obscure comparison of the curves. These controls only change the display. Zero values and nonpositive bounds cannot appear on a logarithmic axis. When uncertainty is shown, shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds. Older saved results need one recalculation to include individual sample curves.
+Concentration opens with **Log scale** enabled and **Uncertainty** off so that wide intervals do not obscure comparison of the curves. These controls only change the display. Zero values and nonpositive bounds cannot appear on a logarithmic axis. When uncertainty is shown, shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. Exports retain the original values, including infinite bounds. Older saved results need one recalculation to include full-range individual sample curves.
 
-**Lower error** and **Upper error** are distances from the concentration to its confidence limits. INP toolkit supplies these values. Its Average method uses conservative intervals that allow for shared blank uncertainty; adding samples does not necessarily narrow them.
+In **Settings → INP toolkit → Plot appearance**, adjust sample and combined line widths, point size, and the opacity outside selected limits. These preferences change the display only.
 
 ## Advanced settings, undo, and export
 
-The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. New analyses use a **0.5 °C temperature grid**. Turn **Use a temperature grid** off to use every measured temperature. Existing saved grid settings are preserved. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation. The results table puts temperature and scientific values first; exported column names and values remain those supplied by INP toolkit.
+The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. New analyses use a **0.5 °C temperature grid**. Turn **Use a temperature grid** off to use every measured temperature. Existing saved grid settings are preserved. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
 
-**Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature handle creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. The **Console** tab shares Icescopy's console messages.
+**Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature tag creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. **Show console** opens Icescopy's existing read-only console while the rest of the main window remains locked. The console returns to its previous position when analysis closes.
 
-Save the `.icescopy` session to retain choices, suggestion reports, and the last successful result. **Export** saves a native `.inptk` result folder or CSV files containing all calculated counts, fractions, concentrations, or excluded points. Export uses the last successful calculation, even if newer edits have not been calculated. Choose a new destination; existing exports are preserved.
+Save the `.icescopy` session to retain choices, suggestion reports, and the last successful result. The analysis window has no separate results-table or console tabs; detailed data remain available under **Export**:
+
+- **Native result:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`; the calculation's range-suggestion report is included as JSON when available.
+- **CSV:** counts, fractions, concentrations, and excluded points from the last calculation. **Export individual concentrations** saves a selected full-range comparison curve. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
+- **Range-suggestion report (JSON):** the latest suggestion, including limits, reasons, and observation-level decisions. JSON is a structured text format readable by analysis scripts.
+
+The toolkit's excluded-points export contains estimates omitted from its final concentration curve, for example by its decrease policy. This differs from the muted portions outside the user-selected ranges. Original-count exports and range reports can contain the original recording temperatures rather than the calculation grid.
+
+Calculation exports use the last successful result, even if newer edits have not been calculated. Choose a new destination; existing exports are preserved.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.

@@ -272,6 +272,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
         self.timeseries_line_width = 2.0
+        self.inptk_sample_line_width = 2.8
+        self.inptk_combined_line_width = 4.0
+        self.inptk_marker_size = 6.0
+        self.inptk_outside_opacity = 30.0
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
@@ -354,6 +358,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.default_circle_radius = preferences.get('DefaultCircleRadius', self.default_circle_radius)
         self.droplet_model_path = str(preferences.get("DropletModelPath", "") or "")
         self.inptk_executable_path = str(preferences.get("InptkExecutablePath", "") or "")
+        self.inptk_sample_line_width = float(preferences.get("InptkSampleLineWidth", 2.8))
+        self.inptk_combined_line_width = float(preferences.get("InptkCombinedLineWidth", 4.0))
+        self.inptk_marker_size = float(preferences.get("InptkMarkerSize", 6.0))
+        self.inptk_outside_opacity = float(preferences.get("InptkOutsideOpacity", 30.0))
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -11413,6 +11421,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         warnings = []
         # Keep these limits aligned with the controls in PreferencesDialog.
         numeric_fields = {
+            "InptkSampleLineWidth": (float, 1.0, 12.0),
+            "InptkCombinedLineWidth": (float, 1.0, 12.0),
+            "InptkMarkerSize": (float, 0.0, 16.0),
+            "InptkOutsideOpacity": (float, 10.0, 80.0),
             "DefaultCircleRadius": (float, 0.1, 100000.0),
             "MaximumZoom": (float, 0.1, 1000.0),
             "PenWidth": (float, 0.1, 100.0),
