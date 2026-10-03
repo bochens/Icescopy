@@ -221,7 +221,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.tabs.setCurrentIndex(1)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
         first, second = [self.panel.range_items[key] for key in keys[:2]]
-        self.assertLess(first.span[1], second.span[0])
+        self.assertLess(second.span[1], first.span[0])  # Same top-to-bottom order as the table.
         before = self.panel.undo_stack.index()
         second.setRegion((-7.5, -5.5))
         self.assertEqual(self.panel.undo_stack.index(), before + 1)
@@ -442,6 +442,81 @@ class InpIntegrationTests(unittest.TestCase):
         with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
             p.current_hash()
             self.assertEqual(serialize.call_count, 1)
+
+    def test_full_range_uses_measured_placeholders_and_undo_restores_limits(self):
+        p = self.panel
+        p.inputs.item(1, 0).setCheckState(Qt.Checked)
+        p.tabs.setCurrentIndex(1)
+        keys = p.selected_input_ids()
+        self.assertEqual(len(keys), 2)
+        self.assertFalse(p.settings['ranges'])
+        self.assertEqual(p.ranges.item(0, 1).text(), '')
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8')
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-5')
+        p.ranges.item(0, 1).setText('-7')
+        p.ranges.item(1, 2).setText('-6')
+        before = copy.deepcopy(p.settings['ranges'])
+        p.full_range.click()
+        self.assertFalse(p.settings['ranges'])
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -5.))
+        p.undo_stack.undo()
+        self.assertEqual(p.settings['ranges'], before)
+        self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
+
+    def test_blank_role_assignment_and_removal_are_visible_and_undoable(self):
+        p = self.panel
+        self.assertTrue(p.blank_choice.isHidden())
+        self.assertIn('Mark a water control', p.blank_help.text())
+        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        p.inputs.selectRow(0)
+        self.assertFalse(p.blank_choice.isHidden())
+        self.assertIn('will not be corrected', p.blank_help.text())
+        blank = p.input_ids[2]
+        p.change_blanks([blank])
+        self.assertTrue(p.blank_help.isHidden())
+        p.blank_enabled.setChecked(False)
+        self.assertFalse(p.blank_choice.isEnabled())
+        self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
+        p.blank_enabled.setChecked(True)
+        p.inputs.item(2, 3).setCheckState(Qt.Unchecked)
+        self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [])
+        p.undo_stack.undo()
+        self.assertTrue(p.settings['inputs'][blank]['blank'])
+        self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
+
+    def test_range_placeholders_follow_selected_cycle_without_changing_settings(self):
+        p = self.panel
+        key = p.input_ids[0]
+        other = dict(p.preview['table']['rows'][0], measurement_id=key, cycle_id='later', temperature_C=-20.)
+        p.preview['table']['rows'].append(other)
+        p.restore_choices(p.settings)
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8')
+        p.change_input_cycle(key, 'later')
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-20')
+        self.assertFalse(p.settings['ranges'])
+
+    def test_optional_grid_and_result_table_display_preserve_cli_data(self):
+        p = self.panel
+        self.assertTrue(p.grid_controls.isHidden())
+        p.grid_enabled.setChecked(True)
+        self.assertEqual(p.settings['grid_step'], '0.5')
+        self.assertFalse(p.grid_controls.isHidden())
+        p.grid_enabled.setChecked(False)
+        self.assertEqual(p.settings['grid_step'], '')
+        p.undo_stack.undo()
+        self.assertEqual(p.settings['grid_step'], '0.5')
+        p.undo_stack.undo()
+        self.configure(); self.calculate()
+        saved = copy.deepcopy(p.result)
+        p.views.setCurrentIndex(1)
+        self.assertEqual(p.table_model.columns[:4], ['temperature_C','concentration','lower_error','upper_error'])
+        self.assertEqual(p.table_model.headerData(0, Qt.Horizontal), 'Temperature (°C)')
+        self.assertEqual(p.table_units.text(), 'INP/mL suspension')
+        index = p.table_model.index(1, 1)
+        original_value = p.table_model.rows[1]['concentration']
+        self.assertEqual(p.table_model.data(index), f'{original_value:.6g}')
+        self.assertEqual(p.table_model.data(index, Qt.ToolTipRole), str(original_value))
+        self.assertEqual(p.result, saved)
 
 
 class InpAxisTests(unittest.TestCase):

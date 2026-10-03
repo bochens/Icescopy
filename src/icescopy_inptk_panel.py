@@ -12,12 +12,12 @@ import numpy as np
 import pyqtgraph as pg
 from shiboken6 import isValid
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel, QAbstractTableModel
-from PySide6.QtGui import QAction, QColor, QKeySequence, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
     QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTableView,
-    QTextEdit, QVBoxLayout, QWidget, QFrame,
+    QTextEdit, QVBoxLayout, QWidget, QFrame, QGroupBox, QStyledItemDelegate,
 )
 
 from icescopy_inptk_client import InptkClient
@@ -27,7 +27,20 @@ from icescopy_plot import GrayscalePlotWidget
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 
 
+def concentration_unit(unit):
+    return {"INP_per_mL_suspension": "INP/mL suspension", "INP_per_L_air": "INP/L air",
+            "INP_per_g_soil": "INP/g soil"}.get(unit, unit)
+
+
 class InpTableModel(QAbstractTableModel):
+    HEADERS = {
+        "measurement_id": "Sample", "curve_id": "Group", "sample_id": "Sample group",
+        "temperature_C": "Temperature (°C)", "n_frozen": "Frozen", "n_total": "Total",
+        "fraction_frozen": "Fraction frozen", "cycle_id": "Cycle", "concentration": "Concentration",
+        "lower_error": "Lower bound", "upper_error": "Upper bound", "unit": "Unit",
+        "contributor_count": "Contributors", "qc_flag": "Quality flag",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.columns, self.rows = [], []
@@ -44,13 +57,26 @@ class InpTableModel(QAbstractTableModel):
         return 0 if parent is not None and parent.isValid() else len(self.columns)
 
     def data(self, index, role=Qt.DisplayRole):
+        if index.isValid() and role == Qt.TextAlignmentRole:
+            value = self.rows[index.row()].get(self.columns[index.column()])
+            if isinstance(value, (int, float, dict)):
+                return Qt.AlignRight | Qt.AlignVCenter
         if index.isValid() and role in (Qt.DisplayRole, Qt.ToolTipRole):
             value = self.rows[index.row()].get(self.columns[index.column()], "")
-            return str(number(value) if isinstance(value, dict) and "$nonfinite" in value else value)
+            if isinstance(value, dict) and "$nonfinite" in value: value = number(value)
+            if role == Qt.DisplayRole:
+                if isinstance(value, float): return f"{value:.6g}"
+                if self.columns[index.column()] == "unit": return concentration_unit(str(value))
+            return str(value)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role == Qt.DisplayRole:
-            return self.columns[section] if orientation == Qt.Horizontal else section + 1
+            if orientation == Qt.Horizontal:
+                key = self.columns[section]
+                return self.HEADERS.get(key, key.replace("_", " ").capitalize())
+            return section + 1
+        if role == Qt.ToolTipRole and orientation == Qt.Horizontal:
+            return self.columns[section]
 
 
 class ChoiceMenu(QPushButton):
@@ -68,8 +94,8 @@ class ChoiceMenu(QPushButton):
             action.setCheckable(True)
             action.setChecked(name in selected)
             action.triggered.connect(self._changed)
-        self.setText(selected[0] if len(selected) == 1 else f"{len(selected)} inputs…" if selected else "Choose…")
-        self.setToolTip(", ".join(selected) or "No inputs selected")
+        self.setText(selected[0] if len(selected) == 1 else f"{len(selected)} blanks" if selected else "No blank assigned")
+        self.setToolTip(", ".join(selected) or "Choose water blanks for this sample. Without an assignment it is not corrected.")
 
     def _changed(self):
         self.changed.emit([a.text() for a in self.choices.actions() if a.isChecked()])
@@ -89,6 +115,24 @@ class InpSettingsCommand(QUndoCommand):
             self.first = False
         else:
             self.panel.restore_choices(self.after)
+
+
+class RangeLimitDelegate(QStyledItemDelegate):
+    """Show measured endpoints as placeholders without setting analysis limits."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if not index.data() and index.data(Qt.UserRole) is not None:
+            option.text = index.data(Qt.UserRole)
+            option.font.setItalic(True)
+            base = option.palette.color(QPalette.Base)
+            option.palette.setColor(QPalette.Text, QColor("#686868" if base.lightness() > 128 else "#b8b8b8"))
+
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            editor.setPlaceholderText(index.data(Qt.UserRole) or "Full range")
+        return editor
 
 
 class InptkPreferencesWidget(QWidget):
@@ -211,24 +255,25 @@ class InptkPanel(QDialog):
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
-        side.addWidget(QLabel("Sample groups"))
+        row = QHBoxLayout()
+        row.addWidget(self.heading("Sample groups"), 1)
+        self.add_curve_button = QPushButton("New…")
+        self.add_curve_button.setToolTip("Create a sample group, then check the samples to combine.")
+        self.add_curve_button.clicked.connect(self.add_group)
+        self.remove_curve_button = QPushButton("Remove")
+        self.remove_curve_button.setToolTip("Remove selected groups from the output. Source samples are retained.")
+        self.remove_curve_button.clicked.connect(self.remove_curve)
+        for button in (self.add_curve_button, self.remove_curve_button):
+            button.setAttribute(Qt.WA_MacSmallSize)
+            row.addWidget(button)
+        side.addLayout(row)
         self.curves = QListWidget()
         self.curves.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.curves.setAccessibleName("Sample groups to edit and display")
         self.curves.setToolTip("Select a group to edit and plot it. Select several to compare. Double-click to rename.")
-        self.curves.setMaximumHeight(100)
-        self.curves.setMinimumHeight(64)
         self.curves.itemSelectionChanged.connect(self.select_curve)
         self.curves.itemChanged.connect(self.rename_curve)
         side.addWidget(self.curves)
-        row = QHBoxLayout()
-        self.add_curve_button = QPushButton("New group")
-        self.add_curve_button.clicked.connect(self.add_group)
-        row.addWidget(self.add_curve_button)
-        self.remove_curve_button = QPushButton("Remove group")
-        self.remove_curve_button.clicked.connect(self.remove_curve)
-        row.addWidget(self.remove_curve_button)
-        row.addStretch(1)
-        side.addLayout(row)
         self.tabs = QTabWidget()
         self.tabs.setMinimumWidth(300)
         side.addWidget(self.tabs, 1)
@@ -236,11 +281,14 @@ class InptkPanel(QDialog):
         splitter.setChildrenCollapsible(False)
         samples = QWidget()
         layout = QVBoxLayout(samples)
-        help_text = self.sample_help = QLabel("Check the samples to combine in this group. Use Blank for water controls.")
+        help_text = self.sample_help = QLabel()
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
         self.inputs = QTableWidget(0, 4)
         self.inputs.setHorizontalHeaderLabels(["Use", "Sample", "Dilution", "Blank"])
+        self.inputs.setAccessibleName("Group membership and water blank roles")
+        self.inputs.horizontalHeaderItem(0).setToolTip("Check to move a sample into the selected group.")
+        self.inputs.horizontalHeaderItem(3).setToolTip("Mark a water-control sample, then assign it under Blank correction.")
         self.inputs.verticalHeader().hide()
         self.inputs.setShowGrid(False)
         self.inputs.setAlternatingRowColors(True)
@@ -259,23 +307,32 @@ class InptkPanel(QDialog):
         cycle_row.addWidget(self.cycle_label)
         cycle_row.addWidget(self.input_cycle, 1)
         layout.addLayout(cycle_row)
-        self.blank_label = QLabel("Blanks for selected input")
-        layout.addWidget(self.blank_label)
-        self.blank_choice = ChoiceMenu()
-        self.blank_choice.changed.connect(self.change_blanks)
-        layout.addWidget(self.blank_choice)
+        self.blank_box = QGroupBox("Blank correction")
+        self.blank_box.setFlat(True)
+        blank_layout = QVBoxLayout(self.blank_box)
         self.blank_enabled = QCheckBox("Apply blank correction")
         self.blank_enabled.toggled.connect(lambda value: self.change_option("blank_correction", value))
-        layout.addWidget(self.blank_enabled)
+        blank_layout.addWidget(self.blank_enabled)
+        self.blank_label = QLabel()
+        self.blank_label.setWordWrap(True)
+        blank_layout.addWidget(self.blank_label)
+        self.blank_choice = ChoiceMenu()
+        self.blank_choice.changed.connect(self.change_blanks)
+        blank_layout.addWidget(self.blank_choice)
+        self.blank_help = QLabel()
+        self.blank_help.setWordWrap(True)
+        blank_layout.addWidget(self.blank_help)
+        layout.addWidget(self.blank_box)
+        layout.addStretch(1)
         catalog = QPushButton("Edit sample metadata…")
         catalog.setToolTip("Close this window to edit physical metadata. Your INP analysis is retained.")
         catalog.clicked.connect(self.edit_metadata)
-        layout.addWidget(catalog)
-        layout.addStretch(1)
+        layout.addWidget(catalog, alignment=Qt.AlignLeft)
         self.add_control_tab(samples, "Samples")
 
         combine = QWidget()
         layout = QVBoxLayout(combine)
+        layout.addWidget(self.heading("Calculation · all groups"))
         form = QFormLayout()
         self.method = QComboBox()
         self.method.addItem("MLE", "mle")
@@ -292,12 +349,16 @@ class InptkPanel(QDialog):
         self.basis.currentIndexChanged.connect(lambda: self.change_option("basis", self.basis.currentData()))
         form.addRow("Concentration in", self.basis)
         layout.addLayout(form)
-        label = QLabel("Drag the colored limits or enter temperatures. Empty fields use the full range.")
+        layout.addSpacing(8)
+        layout.addWidget(self.heading("Temperature limits · selected group"))
+        label = QLabel("Drag a sample's handles or type its limits. Gray values follow the measured range.")
         label.setToolTip("Both endpoints are included. Each sample has its own limits.")
         label.setWordWrap(True)
         layout.addWidget(label)
         self.ranges = QTableWidget(0, 3)
-        self.ranges.setHorizontalHeaderLabels(["Input", "Cold (°C)", "Warm (°C)"])
+        self.ranges.setHorizontalHeaderLabels(["Sample", "Cold (°C)", "Warm (°C)"])
+        self.ranges.setAccessibleName("Temperature limits for each selected sample")
+        for col in (1, 2): self.ranges.setItemDelegateForColumn(col, RangeLimitDelegate(self.ranges))
         self.ranges.verticalHeader().hide()
         self.ranges.setShowGrid(False)
         self.ranges.setAlternatingRowColors(True)
@@ -318,11 +379,19 @@ class InptkPanel(QDialog):
         thresholds.addRow("Minimum frozen", self.min_frozen)
         thresholds.addRow("Minimum unfrozen", self.min_unfrozen)
         self.thresholds = thresholds
-        layout.addLayout(thresholds)
+        self.auto_range_options = QWidget()
+        self.auto_range_options.setLayout(thresholds)
+        layout.addWidget(self.auto_range_options)
         self.suggest = QPushButton("Auto range")
         self.suggest.setToolTip("Suggest Average limits for the selected sample group.")
         self.suggest.clicked.connect(self.suggest_ranges)
-        layout.addWidget(self.suggest)
+        self.full_range = QPushButton("Full range")
+        self.full_range.setToolTip("Clear limits for every sample in the selected groups. Available temperatures will be used.")
+        self.full_range.clicked.connect(self.reset_ranges)
+        range_actions = QHBoxLayout()
+        range_actions.addWidget(self.suggest)
+        range_actions.addWidget(self.full_range)
+        layout.addLayout(range_actions)
         self.suggestion_status = QLabel("Automatic limits are available for Average; MLE limits are manual.")
         self.suggestion_status.setWordWrap(True)
         layout.addWidget(self.suggestion_status)
@@ -330,7 +399,17 @@ class InptkPanel(QDialog):
         self.add_control_tab(combine, "Combine")
 
         advanced = QWidget()
-        form = QFormLayout(advanced)
+        layout = QVBoxLayout(advanced)
+        layout.addWidget(self.heading("Count selection · all groups"))
+        self.grid_enabled = QCheckBox("Use a temperature grid")
+        self.grid_enabled.toggled.connect(self.toggle_grid)
+        layout.addWidget(self.grid_enabled)
+        note = QLabel("Off: use the measured temperatures. A grid selects counts before calculation.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.grid_controls = QWidget()
+        form = self.grid_form = QFormLayout(self.grid_controls)
+        form.setContentsMargins(0, 0, 0, 0)
         self.grid_step = self.option_edit("grid_step", "Off")
         self.grid_start = self.option_edit("grid_start", "Measured warm limit")
         self.grid_end = self.option_edit("grid_end", "Measured cold limit")
@@ -344,6 +423,10 @@ class InptkPanel(QDialog):
         form.addRow("Cold end (°C)", self.grid_end)
         form.addRow("Count selection", self.grid_method)
         form.addRow("Window width (°C)", self.grid_window)
+        layout.addWidget(self.grid_controls)
+        layout.addSpacing(12)
+        layout.addWidget(self.heading("Concentration · all groups"))
+        form = QFormLayout()
         self.decrease_policy = QComboBox()
         self.decrease_policy.addItem("Stop at first decrease", "stop_at_decrease")
         self.decrease_policy.addItem("Skip decreases", "skip_decreases")
@@ -352,17 +435,28 @@ class InptkPanel(QDialog):
         self.z = self.option_edit("z", "1.96")
         self.z.setToolTip("1.96 gives nominal 95% uncertainty bounds.")
         form.addRow("Uncertainty z", self.z)
-        note = QLabel("The optional grid selects counts before calculation. It does not interpolate the final curve. Scientific checks and calculations are performed by INP toolkit.")
+        self.z.setAccessibleName("Uncertainty z score; 1.96 gives nominal 95 percent bounds")
+        note = QLabel("z = 1.96 gives nominal 95% uncertainty bounds.")
         note.setWordWrap(True)
         form.addRow(note)
+        layout.addLayout(form)
+        layout.addStretch(1)
         self.add_control_tab(advanced, "Advanced")
 
         view = QWidget()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(8, 0, 0, 0)
+        self.view_heading = self.heading("")
+        self.view_heading.setWordWrap(True)
+        layout.addWidget(self.view_heading)
+        self.views = QTabWidget()
+        plot_page = QWidget()
+        plot_layout = QVBoxLayout(plot_page)
+        plot_layout.setContentsMargins(8, 8, 8, 8)
         controls = QHBoxLayout()
         self.quantity = QComboBox()
         self.quantity.addItems(["Number frozen", "Fraction frozen", "Concentration"])
+        self.quantity.setAccessibleName("Plotted quantity")
         self.quantity.setCurrentIndex(1)
         self.quantity.currentIndexChanged.connect(self.draw)
         self.log_y = QCheckBox("Log scale")
@@ -374,33 +468,46 @@ class InptkPanel(QDialog):
         controls.addStretch(1)
         controls.addWidget(self.log_y)
         controls.addWidget(self.fit_button)
-        layout.addLayout(controls)
-        self.views = QTabWidget()
+        plot_layout.addLayout(controls)
         self.plot = pg.PlotWidget()
-        self.plot.setBackground(None)
-        self.plot.showGrid(x=True, y=True, alpha=.2)
+        self.plot.setBackground(self.palette().color(QPalette.Base))
+        self.plot.showGrid(x=False, y=True, alpha=.12)
+        for side in ("left", "bottom"):
+            self.plot.getAxis(side).setStyle(maxTickLevel=1)
+            self.plot.getAxis(side).setTickDensity(.6)
         self.plot.setLabel("bottom", "Temperature", units="°C")
         self.plot.addLegend(offset=(8, 8))
-        plot_page = QWidget()
-        plot_layout = QVBoxLayout(plot_page)
-        plot_layout.setContentsMargins(0, 0, 0, 0)
         self.empty_plot = QLabel()
         self.empty_plot.setWordWrap(True)
         self.empty_plot.setAlignment(Qt.AlignCenter)
         self.empty_plot.setMargin(20)
         plot_layout.addWidget(self.empty_plot)
         plot_layout.addWidget(self.plot, 1)
+        self.plot_note = QLabel()
+        self.plot_note.setWordWrap(True)
+        plot_layout.addWidget(self.plot_note)
         self.views.addTab(plot_page, "Plot")
         table_page = QWidget()
         table_layout = QVBoxLayout(table_page)
         self.table_kind = QComboBox()
         self.table_kind.addItems(["Observations", "Concentration", "Excluded", "Range suggestions"])
         self.table_kind.currentIndexChanged.connect(self.draw_table)
-        table_layout.addWidget(self.table_kind)
+        table_controls = QHBoxLayout()
+        table_controls.addWidget(self.table_kind)
+        table_controls.addStretch(1)
+        self.table_units = QLabel()
+        self.table_units.setToolTip("Numbers are displayed to six significant figures. Hover for full precision; exports retain the original values.")
+        table_controls.addWidget(self.table_units)
+        table_layout.addLayout(table_controls)
         self.table = QTableView()
         self.table_model = InpTableModel(self.table)
         self.table.setModel(self.table_model)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setResizeContentsPrecision(100)
+        self.table.setAccessibleName("INP toolkit results for selected groups")
         table_layout.addWidget(self.table)
         self.views.addTab(table_page, "Table")
         console = QTextEdit()
@@ -409,22 +516,21 @@ class InptkPanel(QDialog):
         self.views.addTab(console, "Console")
         self.views.currentChanged.connect(self.draw_table)
         layout.addWidget(self.views, 1)
-        self.plot_note = QLabel()
-        self.plot_note.setWordWrap(True)
-        layout.addWidget(self.plot_note)
         splitter.addWidget(view)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([320, 800])
         outer.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
-        outer.addWidget(self.status)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.connection)
+        outer.addLayout(status_row)
         bottom = QHBoxLayout()
         self.undo_button = QPushButton("Undo")
         self.redo_button = QPushButton("Redo")
         bottom.addWidget(self.undo_button)
         bottom.addWidget(self.redo_button)
-        bottom.addWidget(self.connection)
         bottom.addStretch(1)
         self.calculate = QPushButton("Calculate")
         self.calculate.clicked.connect(self.recalculate)
@@ -446,14 +552,31 @@ class InptkPanel(QDialog):
         for button in self.findChildren(QPushButton): button.setAutoDefault(False)
         outer.addLayout(bottom)
         self.tabs.currentChanged.connect(self.draw_ranges)
-        for form in (self.combine_form, self.thresholds, form):
+        for form in (self.combine_form, self.thresholds, self.grid_form, form):
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
             form.setRowWrapPolicy(QFormLayout.WrapLongRows)
             form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        # Longer scientific choices get a full row, consistently, rather than
+        # wrapping some labels but not others as the sidebar changes width.
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         for combo in self.tabs.findChildren(QComboBox):
             combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(9)
         self.restore_choices(self.settings)
+
+    @staticmethod
+    def heading(text):
+        label = QLabel(text)
+        label.setTextFormat(Qt.PlainText)
+        font = label.font(); font.setBold(True); label.setFont(font)
+        return label
+
+    @staticmethod
+    def fit_table_height(table, count, maximum_rows=6):
+        # Size from the native row metrics; leave scrolling for longer lists.
+        rows = min(max(1, count), maximum_rows)
+        height = table.horizontalHeader().height() + rows * table.verticalHeader().defaultSectionSize() + 2 * table.frameWidth() + 4
+        table.setFixedHeight(height)
 
     def add_control_tab(self, widget, title):
         area = QScrollArea()
@@ -488,6 +611,9 @@ class InptkPanel(QDialog):
         state = copy.deepcopy(self.settings); state[key] = value
         self.commit(state, f"INP analysis: change {key.replace('_', ' ')} to {value}")
 
+    def toggle_grid(self, enabled):
+        self.change_option("grid_step", (self.grid_step.text().strip() or "0.5") if enabled else "")
+
     def restore_choices(self, choices):
         self.loading = True
         # Renaming does not change any measured counts. Avoid rebuilding their
@@ -507,6 +633,7 @@ class InptkPanel(QDialog):
             if self.plot_context:
                 values = list(self.plot_context); values[2] = tuple(self.selected_curve_names())
                 self.plot_context = tuple(values)
+            self.update_view_heading()
             self.update_status()
             return
         self.settings = copy.deepcopy(choices)
@@ -522,9 +649,11 @@ class InptkPanel(QDialog):
         self.min_frozen.setValue(self.settings["min_frozen"])
         self.min_unfrozen.setValue(self.settings["min_unfrozen"])
         self.combine_form.setRowVisible(self.fit_step, self.settings["method"] == "mle")
-        for field in (self.min_frozen, self.min_unfrozen):
-            self.thresholds.setRowVisible(field, self.settings["method"] == "average")
-        self.grid_window.setEnabled(bool(self.settings["grid_step"]) and self.settings["grid_method"] == "window")
+        self.auto_range_options.setVisible(self.settings["method"] == "average")
+        self.suggest.setVisible(self.settings["method"] == "average")
+        self.grid_enabled.setChecked(bool(self.settings["grid_step"]))
+        self.grid_controls.setVisible(bool(self.settings["grid_step"]))
+        self.grid_form.setRowVisible(self.grid_window, self.settings["grid_method"] == "window")
         for widget in (self.grid_start, self.grid_end, self.grid_method): widget.setEnabled(bool(self.settings["grid_step"]))
         self.input_ids = list(self.settings["inputs"])
         self.inputs.setRowCount(0)
@@ -542,30 +671,38 @@ class InptkPanel(QDialog):
             blank = QTableWidgetItem(); blank.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
             blank.setCheckState(Qt.Checked if values["blank"] else Qt.Unchecked)
             self.inputs.setItem(row, 3, blank)
-        self.inputs.setMaximumHeight(min(240, max(110, 36 + 30 * len(self.input_ids))))
+        self.fit_table_height(self.inputs, len(self.input_ids))
         if self.input_ids: self.inputs.selectRow(self.input_ids.index(old_input) if old_input in self.input_ids else 0)
         self.curves.clear()
         for curve in self.settings["curves"]:
             item = QListWidgetItem(curve["name"]); item.setFlags(item.flags() | Qt.ItemIsEditable)
+            item.setToolTip("\n".join(curve["inputs"]) or "No samples yet. Check samples below to add them.")
             self.curves.addItem(item)
+        row_height = self.curves.sizeHintForRow(0) if self.curves.count() else self.curves.fontMetrics().height() + 4
+        self.curves.setFixedHeight(min(4, max(2, self.curves.count())) * row_height + 2 * self.curves.frameWidth() + 4)
         for row in range(self.curves.count()):
             self.curves.item(row).setSelected(self.curves.item(row).text() in selected_names)
         if self.curves.count() and not self.curves.selectedItems():
             self.curves.setCurrentRow(max(0, min(old_curve, self.curves.count()-1)), QItemSelectionModel.ClearAndSelect)
         self.range_ids = [key for key, value in self.settings["inputs"].items() if not value["blank"]]
         self.ranges.setRowCount(len(self.range_ids))
-        self.ranges.setMaximumHeight(min(240, max(110, 36 + 30 * len(self.range_ids))))
+        measured = self.measured_limits()
         for row, key in enumerate(self.range_ids):
             item = QTableWidgetItem(key); item.setFlags(item.flags() & ~Qt.ItemIsEditable); item.setData(Qt.DecorationRole, self.color(key))
             self.ranges.setItem(row, 0, item)
             for col, limit in ((1, "min_C"), (2, "max_C")):
-                self.ranges.setItem(row, col, QTableWidgetItem(str(self.settings["ranges"].get(key, {}).get(limit, ""))))
+                item = QTableWidgetItem(str(self.settings["ranges"].get(key, {}).get(limit, "")))
+                endpoint = measured.get(key, {}).get(limit)
+                item.setData(Qt.UserRole, f"{endpoint:g}" if endpoint is not None else "Auto")
+                item.setToolTip("Clear this field to follow the measured range. Both endpoints are included.")
+                item.setData(Qt.AccessibleTextRole, item.text() or f"Measured limit: {item.data(Qt.UserRole)} °C; unrestricted")
+                self.ranges.setItem(row, col, item)
         if self.range_ids: self.ranges.selectRow(max(0, min(old_range, len(self.range_ids)-1)))
         self.loading = False
         if self.settings.get("suggestion"):
             self.show_suggestion(self.settings["suggestion"], log=False)
         else:
-            self.suggestion_status.setText("Auto range uses these count thresholds." if self.settings["method"] == "average" else "Set each sample's range manually for MLE.")
+            self.suggestion_status.setText("Auto range uses the minimum counts above." if self.settings["method"] == "average" else "MLE uses manual limits, or the full range.")
         self.select_input(); self.select_curve(); self.update_status()
 
     def current_input(self):
@@ -575,9 +712,14 @@ class InptkPanel(QDialog):
     def select_input(self):
         if self.loading: return
         key = self.current_input()
-        if not key: return
+        if not key:
+            self.blank_label.hide(); self.blank_choice.hide()
+            self.cycle_label.hide(); self.input_cycle.hide()
+            self.blank_help.setText("Select a sample row to assign its water blanks.")
+            self.blank_help.show()
+            return
         value = self.settings["inputs"][key]
-        self.blank_label.setText(f"Blanks for {key}")
+        self.blank_label.setText(f"Water blanks for {key}")
         measurements = {r["measurement_id"]: r for r in (self.preview or {}).get("measurements", [])}
         cycles = measurements.get(key, {}).get("cycle_ids", [value["cycle"]])
         self.input_cycle.blockSignals(True)
@@ -589,8 +731,25 @@ class InptkPanel(QDialog):
         self.cycle_label.setText(f"Cycle for {key}")
         self.cycle_label.setVisible(len(cycles) > 1)
         self.input_cycle.setVisible(len(cycles) > 1)
-        self.blank_choice.populate([k for k, v in self.settings["inputs"].items() if v["blank"] and k != key], value["blanks"])
-        self.blank_choice.setEnabled(not value["blank"])
+        blanks = [k for k, v in self.settings["inputs"].items() if v["blank"] and k != key]
+        self.blank_choice.populate(blanks, value["blanks"])
+        available = not value["blank"] and bool(blanks)
+        self.blank_label.setVisible(available)
+        self.blank_choice.setVisible(available)
+        self.blank_choice.setEnabled(self.settings["blank_correction"])
+        self.blank_label.setEnabled(self.settings["blank_correction"])
+        if value["blank"]:
+            message = "This is a water blank. Select a sample row to assign it."
+        elif not blanks:
+            message = "Mark a water control in the Blank column, then select a sample to assign it."
+        elif not self.settings["blank_correction"]:
+            message = "Correction is off. Assignments are retained."
+        elif not value["blanks"]:
+            message = "No blank assigned; this sample will not be corrected."
+        else:
+            message = ""
+        self.blank_help.setText(message)
+        self.blank_help.setVisible(bool(message))
         if key in self.range_ids: self.ranges.selectRow(self.range_ids.index(key))
 
     def input_changed(self, item):
@@ -612,6 +771,11 @@ class InptkPanel(QDialog):
         if state["inputs"][key]["blank"]:
             for curve in state["curves"]: curve["inputs"] = [k for k in curve["inputs"] if k != key]
             state["curves"] = [c for c in state["curves"] if c["inputs"]]
+        else:
+            # Removing the blank role also removes its assignments. Undo restores
+            # both together, so no hidden invalid blank map reaches the toolkit.
+            for value in state["inputs"].values():
+                value["blanks"] = [blank for blank in value["blanks"] if blank != key]
         self.commit(state, f"INP analysis: update blank role for {key}")
 
     def change_input_cycle(self, key, cycle):
@@ -640,7 +804,7 @@ class InptkPanel(QDialog):
     def select_curve(self):
         if self.loading: return
         row = self.single_curve_row()
-        self.sample_help.setText("Check the samples to combine in this group. Use Blank for water controls."
+        self.sample_help.setText("Check samples to move them into this group. Mark water controls as Blank."
                                  if row >= 0 else "Select one group to edit its samples, or several groups to compare their plots.")
         values = set(self.selected_input_ids())
         self.loading = True
@@ -654,7 +818,17 @@ class InptkPanel(QDialog):
             item.setToolTip(f"Current group: {owner}. Check to move this sample into the selected group.")
         self.loading = False
         self.remove_curve_button.setEnabled(bool(self.selected_curve_names()))
+        self.full_range.setEnabled(bool(values))
+        self.update_view_heading()
         self.draw()
+
+    def update_view_heading(self):
+        names = self.selected_curve_names()
+        text = names[0] if len(names) == 1 else f"Comparing {len(names)} groups" if names else "Select a sample group"
+        count = len(self.selected_input_ids())
+        if names: text += f" · {count} sample{'s' if count != 1 else ''}"
+        self.view_heading.setText(text)
+        self.view_heading.setToolTip("\n".join(names))
 
     def add_group(self):
         state = copy.deepcopy(self.settings)
@@ -707,6 +881,21 @@ class InptkPanel(QDialog):
             self.restore_choices(self.settings); self.error(str(exc)); return
         self.commit(state, f"INP analysis: change temperature limits for {key}")
 
+    def reset_ranges(self):
+        state = copy.deepcopy(self.settings)
+        for key in self.selected_input_ids(): state["ranges"].pop(key, None)
+        self.commit(state, "INP analysis: use the full measured range for selected groups")
+
+    def measured_limits(self):
+        temperatures = {}
+        for row in (self.preview or {}).get("table", {}).get("rows", []):
+            key = row["measurement_id"]
+            cycle = self.settings["inputs"].get(key, {}).get("cycle", "")
+            if cycle and str(row["cycle_id"]) != cycle: continue
+            value = number(row.get("temperature_C"))
+            if math.isfinite(value): temperatures.setdefault(key, []).append(value)
+        return {key: {"min_C": min(values), "max_C": max(values)} for key, values in temperatures.items()}
+
     def draw_ranges(self):
         if self.loading: return
         for region in self.range_items.values(): self.plot.removeItem(region)
@@ -714,23 +903,21 @@ class InptkPanel(QDialog):
         keys = self.selected_input_ids()
         keys = [key for key in keys if key in self.range_ids]
         for row, key in enumerate(self.range_ids): self.ranges.setRowHidden(row, key not in keys)
+        self.fit_table_height(self.ranges, len(keys))
         if self.tabs.currentIndex() != 1: return
-        temperatures = {}
-        for observation in (self.preview or {}).get("table", {}).get("rows", []):
-            value = number(observation.get("temperature_C"))
-            if math.isfinite(value): temperatures.setdefault(observation["measurement_id"], []).append(value)
+        measured = self.measured_limits()
         # Separate strips keep every pair reachable even when temperatures are
         # identical. Each signal carries its input ID, never the selected row.
         lane_height = min(.065, .4 / max(1, len(keys)))
         for index, key in enumerate(keys):
-            values = temperatures.get(key, [])
+            values = measured.get(key)
             if not values: continue
             limits = self.settings["ranges"].get(key, {})
             color = self.color(key)
-            brush = QColor(color); brush.setAlpha(40)
-            start = .01 + index * lane_height
+            brush = QColor(color); brush.setAlpha(20)
+            start = .01 + (len(keys) - index - 1) * lane_height
             region = pg.LinearRegionItem(
-                [limits.get("min_C", min(values)), limits.get("max_C", max(values))],
+                [limits.get("min_C", values["min_C"]), limits.get("max_C", values["max_C"])],
                 brush=brush, pen=pg.mkPen(color, width=1.5), swapMode="block",
                 span=(start, start + lane_height * .8))
             region.setZValue(10)
@@ -742,6 +929,9 @@ class InptkPanel(QDialog):
             region.sigRegionChangeFinished.connect(lambda _region, key=key, region=region: self.range_finished(key, region))
             self.range_items[key] = region
             self.plot.addItem(region, ignoreBounds=True)
+            label = pg.InfLineLabel(region.lines[0], text="  " + key.replace("{", "{{").replace("}", "}}"),
+                                    position=.5, color=self.palette().color(QPalette.Text))
+            label.setAcceptedMouseButtons(Qt.NoButton)
 
     def range_dragged(self, key, region):
         if self.range_items.get(key) is not region: return
@@ -916,9 +1106,10 @@ class InptkPanel(QDialog):
             limits = value.get("range_C")
             lines.append(f"{name}: {limits or value.get('status')}; {value.get('kept_observations', 0)} retained. "
                          + ", ".join(value.get("cold_limit_reason", [])))
-        title = "Limits applied; you can edit them." if reply.get("complete") else "Incomplete: no limits applied. Resolve the inputs below or adjust thresholds."
-        self.suggestion_status.setText(title + "\n" + "\n".join(lines))
-        if log: self.window.log("INP range suggestions: " + title)
+        title = "Limits applied. Adjust them in the table or plot." if reply.get("complete") else "Incomplete: no limits applied. See Table → Range suggestions."
+        self.suggestion_status.setText(title)
+        self.suggestion_status.setToolTip("\n".join(lines))
+        if log: self.window.log("INP range suggestions: " + title + "\n" + "\n".join(lines))
         self.draw_table()
 
     def update_status(self, *_):
@@ -930,6 +1121,8 @@ class InptkPanel(QDialog):
         self.cancel.setVisible(busy)
         self.suggest.setEnabled(not busy and self.settings["method"] == "average" and self.single_curve_row() >= 0)
         self.export.setEnabled(bool(self.result) and not busy)
+        self.export.setToolTip("Export the last calculation for all groups. Recalculate first to include any pending changes.")
+        self.calculate.setToolTip("Calculate concentrations for all sample groups using the current settings.")
         if connected:
             self.connection.setText(f"INP toolkit {self.client.capabilities['toolkit_version']}")
         else:
@@ -940,15 +1133,15 @@ class InptkPanel(QDialog):
         elif self.result and self.result["key"] == self.calculation_key(): message = "Result is up to date."
         elif self.result: message = "Changes not calculated — showing the last successful result."
         elif missing: message = f"Counts available. Concentration needs sample metadata: {missing}"
-        elif self.preview: message = "Check samples and blanks, then Calculate."
+        elif self.preview: message = "Group samples → set limits in Combine → Calculate."
         else: message = "Import temperatures and freezing counts to begin."
         self.status.setText(message)
         if self.quantity.currentText() == "Concentration":
-            self.plot_note.setText("Shading: uncertainty. Crosses: excluded points. Export uses the last calculation.")
+            self.plot_note.setText("Shading: uncertainty · ×: excluded points" + (" · Zero values are hidden on log scale." if self.log_y.isChecked() else ""))
+            self.plot_note.setToolTip("Uncertainty shading appears only where both bounds are finite and, on log scale, positive. The table retains all values.")
         else:
-            self.plot_note.setText("Original observations for the selected groups. Colors identify inputs.")
-        if self.quantity.currentText() == "Concentration" and self.log_y.isChecked():
-            self.plot_note.setText(self.plot_note.text() + " Log scale omits zero values; shading needs two positive bounds.")
+            self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
+            self.plot_note.setToolTip("Each line represents one sample and its selected freezing cycle.")
         self.update_empty_plot()
 
     def update_empty_plot(self):
@@ -1087,8 +1280,7 @@ class InptkPanel(QDialog):
                 curve.scatter.opts.update(hoverable=True, tip=self.point_tip)
                 if column == "concentration":
                     unit = str(chunk[0].get("unit", ""))
-                    unit = {"INP_per_mL_suspension": "INP/mL suspension", "INP_per_L_air": "INP/L air",
-                            "INP_per_g_soil": "INP/g soil"}.get(unit, unit)
+                    unit = concentration_unit(unit)
                     self.plot.setLabel("left", "Concentration", units=unit)
                     lower = y - np.array([number(row.get("lower_error")) for row in chunk])
                     upper = y + np.array([number(row.get("upper_error")) for row in chunk])
@@ -1138,7 +1330,12 @@ class InptkPanel(QDialog):
         elif kind == "Range suggestions": tables = [("", (self.settings.get("suggestion") or {}).get("table", {}))]
         else: tables = self.selected_result_tables("excluded" if kind == "Excluded" else "cumulative")
         columns = list(dict.fromkeys(c for _, table in tables for c in table.get("columns", [])))
+        primary = ("temperature_C", "concentration", "lower_error", "upper_error", "unit", "curve_id") if kind == "Concentration" else (
+            "measurement_id", "temperature_C", "n_frozen", "n_total", "fraction_frozen", "cycle_id")
+        columns = [key for key in primary if key in columns] + [key for key in columns if key not in primary]
         rows = [r for _, table in tables for r in table.get("rows", [])]
+        units = set(str(row["unit"]) for row in rows if row.get("unit"))
+        self.table_units.setText(concentration_unit(next(iter(units))) if len(units) == 1 else "Units vary; see Unit column" if units else "")
         self.table_model.replace(columns, rows)
 
     def export_result(self):
