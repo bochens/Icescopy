@@ -44,7 +44,7 @@ In the **Plot** tab, use the quantity control to switch between:
 
 - **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
-- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid line shows the combined group; dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles and sample catalog. Faint crosses identify excluded points. Turn on **Uncertainty** to show the group's confidence limits and shading; the axes expand to include them.
+- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles and sample catalog. Faint crosses identify excluded points. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
 
 Individual concentration curves use the same calculation method, blank assignments, units, and temperature limits as the group. Selecting a group shows its samples automatically. Individual error widths are available in **Table**. Adding these curves does not count the droplets again in the combined fit.
 

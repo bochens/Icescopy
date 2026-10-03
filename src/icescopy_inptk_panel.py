@@ -1277,6 +1277,7 @@ class InptkPanel(QDialog):
             label = f"{key} · {float(dilution):g}×" if dilution is not None else key
         elif len(sources) > 1:
             label += " (combined)"
+            key = None  # Combined curves are black; colors identify physical samples.
         return label, key, overlay
 
     def fit_plot(self):
@@ -1342,7 +1343,7 @@ class InptkPanel(QDialog):
         xs, ys, totals = [], [], []
         self.visible_points = 0
         for name, rows, column, color_key, overlay in groups:
-            color = self.color(color_key)
+            color = QColor(Qt.black) if color_key is None else self.color(color_key)
             chunks, chunk, previous = [], [], None
             for row in rows:
                 segment = row.get("segment_id", "0")
