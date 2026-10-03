@@ -14,7 +14,7 @@ from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QItemSelectionModel
 from PySide6.QtGui import QUndoCommand
-from icescopy_inptk_state import cli_choices, new_settings, reconcile_inputs
+from icescopy_inptk_state import cli_choices, concentration_curves, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient
@@ -73,6 +73,20 @@ class InpChoiceTests(unittest.TestCase):
             {"measurement_id": "Water blank", "cycle_ids": ["01", "02"]}]})
         self.assertFalse(state["inputs"]["Water blank"]["blank"])
         self.assertEqual(state["inputs"]["Water blank"]["cycle"], "")
+
+    def test_individual_outputs_reuse_single_inputs_and_avoid_name_collisions(self):
+        state = self.settings()
+        state['curves'] += [{'name': 'Neat', 'inputs': ['A']},
+                            {'name': 'Combined / B', 'inputs': ['A', 'B']}]
+        original = copy.deepcopy(state)
+        specs, individual = concentration_curves(state)
+        self.assertEqual(individual, {'Neat': 'A', 'Combined / B (2)': 'B'})
+        self.assertEqual(len(specs), 4)
+        self.assertEqual(specs['Combined']['inputs'], specs['Combined / B']['inputs'])
+        self.assertEqual(specs['Combined / B (2)']['inputs'], [{'measurement_id': 'B', 'cycle_id': '01'}])
+        args = cli_choices(state, include_individual=True)
+        self.assertEqual(json.loads(args[args.index('--curves')+1]), specs)
+        self.assertEqual(state, original)
 
 
 class InpProtocolTests(unittest.TestCase):
@@ -163,7 +177,7 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_real_cli_plots_history_ranges_export_and_session(self):
         keys = self.configure(); self.calculate()
-        self.assertEqual(set(self.panel.result["tables"]),{"Combined","Neat"})
+        self.assertEqual(set(self.panel.result["tables"]),{"Combined","Neat","Combined / Sample_1"})
         self.panel.show_analysis()
         QApplication.processEvents()
         self.assertLess(self.panel.plot.viewRange()[0][1], -4)
@@ -395,8 +409,9 @@ class InpIntegrationTests(unittest.TestCase):
     def test_zero_and_nonfinite_concentrations_have_explicit_display_state(self):
         self.configure(); self.calculate()
         p = self.panel
+        p.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
         p.log_y.setChecked(False)
-        rows = p.result['tables']['Combined']['cumulative']['rows']
+        rows = p.result['tables']['Neat']['cumulative']['rows']
         for row in rows:
             row.update(concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'})
         p.draw()
@@ -511,12 +526,54 @@ class InpIntegrationTests(unittest.TestCase):
         p.views.setCurrentIndex(1)
         self.assertEqual(p.table_model.columns[:4], ['temperature_C','concentration','lower_error','upper_error'])
         self.assertEqual(p.table_model.headerData(0, Qt.Horizontal), 'Temperature (°C)')
+        self.assertEqual(p.table_model.headerData(2, Qt.Horizontal), 'Lower error')
+        self.assertIn('not the limit itself', p.table_model.headerData(2, Qt.Horizontal, Qt.ToolTipRole))
         self.assertEqual(p.table_units.text(), 'INP/mL suspension')
         index = p.table_model.index(1, 1)
         original_value = p.table_model.rows[1]['concentration']
         self.assertEqual(p.table_model.data(index), f'{original_value:.6g}')
         self.assertEqual(p.table_model.data(index, Qt.ToolTipRole), str(original_value))
         self.assertEqual(p.result, saved)
+
+    def test_individual_curves_preserve_combined_fit_and_use_same_blanks_and_limits(self):
+        keys = self.configure()
+        p = self.panel
+        state = copy.deepcopy(p.settings)
+        state['ranges'] = {keys[1]: {'min_C': -7, 'max_C': -5}}
+        p.commit(state, 'Restrict one dilution')
+        # Compare against a real toolkit calculation without extra outputs.
+        source = self.fixture.root / 'baseline.csv'
+        source.write_text(p.source_text())
+        output = self.fixture.root / 'baseline.inptk'
+        responses = []
+        p.client.request(['analyze', str(source), '--format', 'icescopy', *cli_choices(p.settings),
+                          '--out', str(output)], responses.append)
+        self.wait(lambda: responses and not p.client.busy)
+        baseline = json.loads((output / 'analysis.json').read_text())
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            self.calculate()
+            self.assertEqual([c.args[0][0] for c in requests.call_args_list], ['analyze'])
+            p.recalculate()
+            self.assertEqual(requests.call_count, 1)  # No work when nothing changed.
+        tables = dict(p.concentration_tables('cumulative'))
+        self.assertEqual(set(tables), {'Combined', 'Neat', 'Combined / Sample_1'})
+        for name in ('Combined', 'Neat'):
+            self.assertEqual(tables[name]['rows'], baseline['curves'][name]['tables']['cumulative']['rows'])
+        individual = p.result['reply']['curves']['Combined / Sample_1']
+        self.assertEqual(individual['sources'][0]['water_blank_ids'], [keys[2]])
+        self.assertEqual([r['temperature_C'] for r in tables['Combined / Sample_1']['rows']], [-5., -6., -7.])
+        curves = [item for item in p.plot.listDataItems() if item.opts.get('data') and item.opts.get('name')]
+        self.assertEqual(len(curves), 3)
+        self.assertEqual(sum(item.opts['pen'].style() == Qt.DashLine for item in curves), 2)
+        for name, key in p.result['individual_curves'].items():
+            label, color_key, overlay = p.concentration_style(name)
+            self.assertEqual(color_key, key)
+            self.assertTrue(overlay)
+        # The table payload read directly is the same data exposed by the CLI.
+        responses.clear()
+        p.client.request(['table', str(output), '--curve', 'Combined', '--table', 'cumulative'], responses.append)
+        self.wait(lambda: responses and not p.client.busy)
+        self.assertEqual(responses[0]['table'], baseline['curves']['Combined']['tables']['cumulative'])
 
 
 class InpAxisTests(unittest.TestCase):

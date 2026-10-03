@@ -36,17 +36,23 @@ For **Average**, choose **Auto range** to suggest limits for the selected group.
 
 Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
+The status shows elapsed calculation time. The console reports toolkit and display time separately. Recalculate reuses the current result when the inputs and settings are unchanged in the same toolkit connection.
+
 ## Read the plots
 
 In the **Plot** tab, use the quantity control to switch between:
 
 - **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
-- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. Shading shows uncertainty; faint crosses identify excluded points.
+- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid line shows the combined group; dashed lines show its individual samples, labeled with their dilution factors. Sample colors match the temperature handles. Shading shows the group's uncertainty; faint crosses identify excluded points.
+
+Individual concentration curves use the same calculation method, blank assignments, units, and temperature limits as the group. Selecting a group shows its samples automatically. Individual error widths are available in **Table**. Adding these curves does not count the droplets again in the combined fit.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
 
 Concentration opens with **Log scale** enabled; turn it off only when a linear view is needed. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds.
+
+**Lower error** and **Upper error** are distances from the concentration to its confidence limits. INP toolkit supplies these values. Its Average method uses conservative intervals that allow for shared blank uncertainty; adding samples does not necessarily narrow them.
 
 ## Advanced settings, undo, and export
 

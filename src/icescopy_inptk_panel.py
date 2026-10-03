@@ -6,6 +6,7 @@ import math
 import shutil
 from pathlib import Path
 import tempfile
+import time
 import uuid
 
 import numpy as np
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import axis_limits
-from icescopy_inptk_state import cli_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
+from icescopy_inptk_state import cli_choices, concentration_curves, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 
@@ -37,7 +38,7 @@ class InpTableModel(QAbstractTableModel):
         "measurement_id": "Sample", "curve_id": "Group", "sample_id": "Sample group",
         "temperature_C": "Temperature (°C)", "n_frozen": "Frozen", "n_total": "Total",
         "fraction_frozen": "Fraction frozen", "cycle_id": "Cycle", "concentration": "Concentration",
-        "lower_error": "Lower bound", "upper_error": "Upper bound", "unit": "Unit",
+        "lower_error": "Lower error", "upper_error": "Upper error", "unit": "Unit",
         "contributor_count": "Contributors", "qc_flag": "Quality flag",
     }
 
@@ -76,7 +77,10 @@ class InpTableModel(QAbstractTableModel):
                 return self.HEADERS.get(key, key.replace("_", " ").capitalize())
             return section + 1
         if role == Qt.ToolTipRole and orientation == Qt.Horizontal:
-            return self.columns[section]
+            key = self.columns[section]
+            if key in {"lower_error", "upper_error"}:
+                return f"{key}: distance from the concentration to its confidence limit, not the limit itself."
+            return key
 
 
 class ChoiceMenu(QPushButton):
@@ -190,8 +194,14 @@ class InptkPanel(QDialog):
         self.preview = None
         self.preview_hash = ""
         self.result = None
+        self.calculation_connection = None
         self.loading = False
         self.operation = False
+        self.operation_started = None
+        self.operation_phase = ""
+        self.elapsed_timer = QTimer(self)
+        self.elapsed_timer.setInterval(1000)
+        self.elapsed_timer.timeout.connect(self.show_elapsed)
         self.last_error = ""
         self.after_connect = None
         self.plot_context = None
@@ -1031,6 +1041,13 @@ class InptkPanel(QDialog):
             self.ensure_connected(after=self.recalculate); return
         if self.preview_hash != self.current_hash() or not self.preview:
             self.refresh_preview(after=self.recalculate); return
+        if (self.result and self.result['key'] == self.calculation_key()
+                and self.calculation_connection is self.client.capabilities
+                and 'individual_curves' in self.result):
+            self.window.log("INP analysis is already up to date; no calculation needed.")
+            self.quantity.setCurrentText("Concentration")
+            self.draw()
+            return
         self.run_calculation(False)
 
     def suggest_ranges(self):
@@ -1047,7 +1064,8 @@ class InptkPanel(QDialog):
         selected = self.settings["curves"][row]["name"] if suggest and row >= 0 else None
         try:
             if suggest and selected is None: raise ValueError("Select one sample group for Auto range.")
-            args = cli_choices(self.settings, suggest=suggest, selected=selected)
+            args = cli_choices(self.settings, suggest=suggest, selected=selected, include_individual=not suggest)
+            individual = {} if suggest else concentration_curves(self.settings)[1]
             text = self.source_text()
         except (ValueError, TypeError) as exc: self.error(str(exc)); return
         def request_key():
@@ -1059,7 +1077,9 @@ class InptkPanel(QDialog):
         command = ["suggest-ranges" if suggest else "analyze", str(source), "--format", "icescopy", *args]
         if not suggest: command += ["--out", str(output)]
         self.last_error = ""
-        self.operation = True; self.update_status()
+        self.operation_started = time.perf_counter()
+        self.operation_phase = "Suggesting ranges" if suggest else f"Calculating {self.method.currentText()} concentrations"
+        self.operation = True; self.elapsed_timer.start(); self.update_status()
         self.window.log("INP toolkit: suggesting Average limits…" if suggest else "INP toolkit: calculating concentrations…")
         def fresh(): return generation == self.generation and key == request_key()
         def cleanup():
@@ -1067,6 +1087,7 @@ class InptkPanel(QDialog):
             if output.exists(): shutil.rmtree(output)
         def failed(message): cleanup(); self.error(message)
         def done(reply):
+            toolkit_seconds = time.perf_counter() - self.operation_started
             if not fresh():
                 cleanup(); self.operation = False; self.update_status()
                 self.window.log("INP toolkit: inputs changed; the previous result is retained."); return
@@ -1078,27 +1099,48 @@ class InptkPanel(QDialog):
                 self.commit(state, "INP analysis: apply Average range suggestions" if reply.get("complete") else "INP analysis: retain incomplete range suggestions")
                 self.show_suggestion(reply); cleanup(); return
             pending = {"key": key, "reply": reply, "tables": {}, "choices": copy.deepcopy(self.settings),
-                       "source_hash": self.current_hash(), "toolkit_version": reply["toolkit_version"]}
-            names = [(name, kind) for name, curve in reply["curves"].items() for kind in curve["tables"]]
-            def get_next():
-                if not fresh():
-                    cleanup(); self.operation = False; self.update_status(); return
-                if not names:
-                    # INP toolkit's native saved result is a directory containing
-                    # analysis.json. Keep that exact document, without client math.
-                    pending["saved_result"] = (output / "analysis.json").read_text(encoding="utf-8")
-                    self.result = pending; self.operation = False
-                    self.restore_choices(self.settings)
-                    self.quantity.setCurrentIndex(2); self.table_kind.setCurrentText("Concentration")
-                    self.window.log("INP analysis updated.")
-                    cleanup(); return
-                name, kind = names.pop(0)
-                def table_received(response):
-                    pending["tables"].setdefault(name, {})[kind] = response["table"]
-                    get_next()
-                self.client.request(["table", str(output), "--table", kind, "--curve", name], table_received, failed)
-            get_next()
+                       "source_hash": self.current_hash(), "toolkit_version": reply["toolkit_version"],
+                       "individual_curves": individual}
+            # Format 4 stores exactly the CLI table payloads in analysis.json.
+            # Read once: the old table-per-curve requests reloaded and validated
+            # the entire experiment repeatedly inside the toolkit.
+            started = time.perf_counter()
+            self.operation_phase = "Loading concentration plots"; self.show_elapsed()
+            try:
+                saved = (output / "analysis.json").read_text(encoding="utf-8")
+                payload = json.loads(saved)
+                if (payload.get('format') != 'inptk' or payload.get('format_version') != 4
+                        or payload.get('kind') != 'analysis'):
+                    raise ValueError("Expected an INP toolkit format 4 analysis result.")
+                pending['tables'] = {name: curve['tables'] for name, curve in payload['curves'].items()}
+                for name, info in reply['curves'].items():
+                    for kind in info['tables']:
+                        table = pending['tables'][name][kind]
+                        if not isinstance(table.get('columns'), list) or not isinstance(table.get('rows'), list):
+                            raise ValueError(f"Invalid {kind} table for {name}.")
+                pending['saved_result'] = saved
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                failed(f"Could not read INP toolkit result: {exc}"); return
+            self.result = pending; self.operation = False
+            self.calculation_connection = self.client.capabilities
+            # Select the result view before restoring controls to avoid drawing
+            # both the old observations and the new concentration unnecessarily.
+            self.quantity.blockSignals(True); self.table_kind.blockSignals(True)
+            self.quantity.setCurrentIndex(2); self.table_kind.setCurrentText("Concentration")
+            self.quantity.blockSignals(False); self.table_kind.blockSignals(False)
+            self.restore_choices(self.settings)
+            pending['timings'] = {'toolkit_seconds': toolkit_seconds, 'display_seconds': time.perf_counter()-started}
+            self.window.log(f"INP analysis updated. Toolkit: {toolkit_seconds:.2f} s; display: {pending['timings']['display_seconds']:.2f} s.")
+            cleanup()
         self.client.request(command, done, failed)
+
+    def show_elapsed(self):
+        if not self.operation:
+            self.elapsed_timer.stop()
+            return
+        if self.operation_started is not None:
+            seconds = time.perf_counter() - self.operation_started
+            self.status.setText(f"{self.operation_phase}… {seconds:.0f} s")
 
     def show_suggestion(self, reply, *, log=True):
         lines = []
@@ -1136,9 +1178,12 @@ class InptkPanel(QDialog):
         elif self.preview: message = "Group samples → set limits in Combine → Calculate."
         else: message = "Import temperatures and freezing counts to begin."
         self.status.setText(message)
+        if busy and self.operation_started is not None: self.show_elapsed()
+        if not self.operation: self.elapsed_timer.stop(); self.operation_started = None
         if self.quantity.currentText() == "Concentration":
-            self.plot_note.setText("Shading: uncertainty · ×: excluded points" + (" · Zero values are hidden on log scale." if self.log_y.isChecked() else ""))
-            self.plot_note.setToolTip("Uncertainty shading appears only where both bounds are finite and, on log scale, positive. The table retains all values.")
+            overlays = any(name not in self.selected_curve_names() for name, _ in self.concentration_tables('cumulative'))
+            self.plot_note.setText(("Dashed: individual samples · Shading: group uncertainty" if overlays else "Shading: uncertainty") + " · ×: excluded points")
+            self.plot_note.setToolTip("Individual sample curves use the same method, blank assignments, units and temperature limits as the group. Individual error widths are in Table. Log scale omits zeros; uncertainty shading needs finite positive endpoints.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
             self.plot_note.setToolTip("Each line represents one sample and its selected freezing cycle.")
@@ -1196,6 +1241,31 @@ class InptkPanel(QDialog):
         return [(name, tables[kind]) for name, tables in (self.result or {}).get("tables", {}).items()
                 if kind in tables and name in selected]
 
+    def concentration_tables(self, kind):
+        tables = self.selected_result_tables(kind)
+        selected = set(self.selected_curve_names())
+        # Use the last calculation's membership while edits are pending; these
+        # overlays describe that result, not a new fit of the changed controls.
+        members = {key for curve in (self.result or {}).get('choices', {}).get('curves', [])
+                   if curve['name'] in selected and len(curve['inputs']) > 1 for key in curve['inputs']}
+        for name, key in (self.result or {}).get('individual_curves', {}).items():
+            if key in members and name not in selected:
+                table = self.result.get('tables', {}).get(name, {}).get(kind)
+                if table is not None: tables.append((name, table))
+        return tables
+
+    def concentration_style(self, name):
+        sources = (self.result or {}).get('reply', {}).get('curves', {}).get(name, {}).get('sources', [])
+        overlay = name not in self.selected_curve_names()
+        key = sources[0]['measurement_id'] if len(sources) == 1 else name
+        label = name
+        if overlay:
+            dilution = sources[0].get('dilution') if sources else None
+            label = f"{key} · {float(dilution):g}×" if dilution is not None else key
+        elif len(sources) > 1:
+            label += " (combined)"
+        return label, key, overlay
+
     def fit_plot(self):
         if self.plot_limits:
             xlim, ylim = self.plot_limits
@@ -1245,18 +1315,20 @@ class InptkPanel(QDialog):
         self.plot.setLabel("left", quantity, units="")
         groups = []
         if is_concentration:
-            for name, table in self.selected_result_tables("cumulative"):
-                groups.append((name, table["rows"], "concentration"))
+            for name, table in self.concentration_tables("cumulative"):
+                label, color_key, overlay = self.concentration_style(name)
+                groups.append((label, table["rows"], "concentration", color_key, overlay))
         else:
             by_input = {}
             for row in self.observation_rows():
                 by_input.setdefault(f"{row['measurement_id']} · cycle {row['cycle_id']}", []).append(row)
             for name, rows in by_input.items():
-                groups.append((name, rows, "n_frozen" if quantity == "Number frozen" else "fraction_frozen"))
+                groups.append((name, rows, "n_frozen" if quantity == "Number frozen" else "fraction_frozen",
+                               rows[0]['measurement_id'], False))
         xs, ys, totals = [], [], []
         self.visible_points = 0
-        for name, rows, column in groups:
-            color = self.color(rows[0].get("measurement_id", name)) if rows else self.color(name)
+        for name, rows, column, color_key, overlay in groups:
+            color = self.color(color_key)
             chunks, chunk, previous = [], [], None
             for row in rows:
                 segment = row.get("segment_id", "0")
@@ -1273,7 +1345,8 @@ class InptkPanel(QDialog):
                 totals.extend(number(row.get("n_total")) for row in chunk)
                 y[~valid] = np.nan
                 if not valid.any(): continue
-                curve = self.plot.plot(x, y, pen=pg.mkPen(color, width=2), symbol="o", symbolSize=5,
+                curve = self.plot.plot(x, y, pen=pg.mkPen(color, width=1.5 if overlay else 2.5,
+                    style=Qt.DashLine if overlay else Qt.SolidLine), symbol="o", symbolSize=4 if overlay else 5,
                     symbolBrush=color, symbolPen=color, name=name if i == 0 else None, connect="finite", data=chunk)
                 # PlotDataItem owns transformed x/y for both line and symbols.
                 # Only set hover options here; replacing scatter data breaks log Y.
@@ -1282,6 +1355,7 @@ class InptkPanel(QDialog):
                     unit = str(chunk[0].get("unit", ""))
                     unit = concentration_unit(unit)
                     self.plot.setLabel("left", "Concentration", units=unit)
+                    if overlay: continue  # Keep combined uncertainty readable; individual errors remain in Table.
                     lower = y - np.array([number(row.get("lower_error")) for row in chunk])
                     upper = y + np.array([number(row.get("upper_error")) for row in chunk])
                     for bound in (lower, upper):
@@ -1303,7 +1377,7 @@ class InptkPanel(QDialog):
                         band_hi = self.plot.plot(x[indices], upper[indices], pen=boundary)
                         self.plot.addItem(pg.FillBetweenItem(band_lo, band_hi, brush=fill), ignoreBounds=True)
         if is_concentration:
-            for name, table in self.selected_result_tables("excluded"):
+            for name, table in self.concentration_tables("excluded"):
                 rows = table["rows"]
                 if not rows: continue
                 x = np.array([number(r.get("temperature_C")) for r in rows])
@@ -1328,7 +1402,7 @@ class InptkPanel(QDialog):
             table["rows"] = self.observation_rows()
             tables = [("", table)]
         elif kind == "Range suggestions": tables = [("", (self.settings.get("suggestion") or {}).get("table", {}))]
-        else: tables = self.selected_result_tables("excluded" if kind == "Excluded" else "cumulative")
+        else: tables = self.concentration_tables("excluded" if kind == "Excluded" else "cumulative")
         columns = list(dict.fromkeys(c for _, table in tables for c in table.get("columns", [])))
         primary = ("temperature_C", "concentration", "lower_error", "upper_error", "unit", "curve_id") if kind == "Concentration" else (
             "measurement_id", "temperature_C", "n_frozen", "n_total", "fraction_frozen", "cycle_id")

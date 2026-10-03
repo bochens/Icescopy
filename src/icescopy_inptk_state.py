@@ -78,8 +78,31 @@ def curve_specs(settings, *, selected=None):
     return curves
 
 
-def cli_choices(settings, *, suggest=False, selected=None):
+def concentration_curves(settings):
+    """Request group outputs and each physical member once, without regrouping it."""
+    specs = curve_specs(settings)
+    individual = {}
+    singles = {tuple((i['measurement_id'], i['cycle_id']) for i in spec['inputs']): name
+               for name, spec in specs.items() if len(spec['inputs']) == 1}
+    for group_name, spec in list(specs.items()):
+        if len(spec['inputs']) < 2: continue
+        for member in spec['inputs']:
+            identity = ((member['measurement_id'], member['cycle_id']),)
+            name = singles.get(identity)
+            if name is None:
+                base = f"{group_name} / {member['measurement_id']}"
+                name, suffix = base, 2
+                while name in specs:
+                    name = f"{base} ({suffix})"; suffix += 1
+                specs[name] = {'inputs': [copy.deepcopy(member)]}
+                singles[identity] = name
+            individual[name] = member['measurement_id']
+    return specs, individual
+
+
+def cli_choices(settings, *, suggest=False, selected=None, include_individual=False):
     specs = curve_specs(settings, selected=selected)
+    if include_individual and not suggest: specs, _ = concentration_curves(settings)
     inputs = settings["inputs"]
     blank_map = {}
     used = {i["measurement_id"] for curve in specs.values() for i in curve["inputs"]}
