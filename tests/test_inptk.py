@@ -338,6 +338,8 @@ class InpIntegrationTests(unittest.TestCase):
         import pyqtgraph as pg
         self.configure(); self.calculate()
         p = self.panel
+        self.assertTrue(p.log_y.isChecked())
+        p.log_y.setChecked(False)
         p.quantity.setCurrentText('Fraction frozen')
         self.assertLess(p.plot.viewRange()[1][0], 0)
         self.assertGreater(p.plot.viewRange()[1][1], 1)
@@ -393,6 +395,7 @@ class InpIntegrationTests(unittest.TestCase):
     def test_zero_and_nonfinite_concentrations_have_explicit_display_state(self):
         self.configure(); self.calculate()
         p = self.panel
+        p.log_y.setChecked(False)
         rows = p.result['tables']['Combined']['cumulative']['rows']
         for row in rows:
             row.update(concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'})

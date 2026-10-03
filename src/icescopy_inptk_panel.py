@@ -366,6 +366,7 @@ class InptkPanel(QDialog):
         self.quantity.setCurrentIndex(1)
         self.quantity.currentIndexChanged.connect(self.draw)
         self.log_y = QCheckBox("Log scale")
+        self.log_y.setChecked(True)
         self.log_y.toggled.connect(self.draw)
         self.fit_button = QPushButton("Fit axes")
         self.fit_button.clicked.connect(self.fit_plot)

@@ -42,11 +42,11 @@ Use the quantity control above the plot to switch between:
 
 - **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
-- **Concentration:** calculated values and finite uncertainty bounds, with the concentration unit on the axis. Shading shows uncertainty; faint crosses identify excluded points.
+- **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. Shading shows uncertainty; faint crosses identify excluded points.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
 
-**Log scale** is available for concentration. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds.
+Concentration opens with **Log scale** enabled; turn it off only when a linear view is needed. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds.
 
 ## Advanced settings, undo, and export
 
