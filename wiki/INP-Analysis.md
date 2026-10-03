@@ -26,7 +26,7 @@ In **Combine dilutions**, choose **MLE** or **Average** and the concentration ba
 - **MLE**, maximum likelihood estimation, jointly fits the sample and blank freezing counts over the cooling curve. Optional fit spacing controls the fitted curve shape.
 - **Average** takes an equal-weight mean of eligible concentration estimates at each temperature.
 
-Select an input in the limit table. Drag its colored cold and warm handles on the plot, or enter temperatures in the table. Both endpoints are included. An empty field leaves that boundary unrestricted. An input's limits apply to every output curve using it.
+Every input in the selected output curve has its own colored cold/warm handle pair, shown together in separate strips along the bottom of the plot. This keeps pairs accessible even when limits overlap. Drag a pair or enter temperatures in that input's table row. Both endpoints are included. An empty field leaves that boundary unrestricted. An input's limits apply to every output curve using it.
 
 For **Average**, choose the output curve in **Combine dilutions**, then choose **Suggest limits**. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves existing limits unchanged and reports which inputs need attention. Inspect the report in **Table → Range suggestions**.
 

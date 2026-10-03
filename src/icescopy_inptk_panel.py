@@ -120,7 +120,7 @@ class InptkPanel(QDialog):
         self.loading = False
         self.operation = False
         self.generation = 0
-        self.range_item = None
+        self.range_items = {}
         self.input_ids = []
         self.range_ids = []
         self.make_ui()
@@ -258,7 +258,7 @@ class InptkPanel(QDialog):
         self.basis.currentIndexChanged.connect(lambda: self.change_option("basis", self.basis.currentData()))
         form.addRow("Concentration basis", self.basis)
         layout.addLayout(form)
-        label = QLabel("Select an input, then drag its limits or type temperatures below. Empty limits are unrestricted.")
+        label = QLabel("Each input has its own colored limits on the plot. Drag a pair or type temperatures below. Empty limits are unrestricted.")
         label.setToolTip("Both endpoints are included. Limits apply to every output curve using this input.")
         label.setWordWrap(True)
         layout.addWidget(label)
@@ -546,6 +546,7 @@ class InptkPanel(QDialog):
         values = self.settings["curves"][row]["inputs"] if row >= 0 else []
         self.curve_inputs.populate([k for k, v in self.settings["inputs"].items() if not v["blank"]], values)
         self.curve_inputs.setEnabled(row >= 0)
+        self.draw_ranges()
 
     def add_curve(self, group):
         key = self.current_input()
@@ -595,41 +596,55 @@ class InptkPanel(QDialog):
 
     def draw_ranges(self):
         if self.loading: return
-        if self.range_item is not None:
-            self.plot.removeItem(self.range_item); self.range_item = None
-        row = self.ranges.currentRow()
-        if self.tabs.currentIndex() != 1 or not (0 <= row < len(self.range_ids)): return
-        key = self.range_ids[row]
-        values = [number(r.get("temperature_C")) for r in (self.preview or {}).get("table", {}).get("rows", []) if r.get("measurement_id") == key]
-        values = [v for v in values if math.isfinite(v)]
-        if not values: return
-        limits = self.settings["ranges"].get(key, {})
-        color = self.color(key)
-        brush = QColor(color); brush.setAlpha(30)
-        region = pg.LinearRegionItem([limits.get("min_C", min(values)), limits.get("max_C", max(values))],
-                                     brush=brush, pen=pg.mkPen(color, width=1.5), swapMode="block")
-        region.setZValue(10)
-        region.lines[0].addMarker("|>", .02, 12)
-        region.lines[1].addMarker("<|", .02, 12)
-        region.sigRegionChanged.connect(self.range_dragged)
-        region.sigRegionChangeFinished.connect(self.range_finished)
-        self.range_item = region
-        self.plot.addItem(region, ignoreBounds=True)
+        for region in self.range_items.values(): self.plot.removeItem(region)
+        self.range_items.clear()
+        curve_row = self.curves.currentRow()
+        keys = self.settings["curves"][curve_row]["inputs"] if curve_row >= 0 else []
+        keys = [key for key in keys if key in self.range_ids]
+        for row, key in enumerate(self.range_ids): self.ranges.setRowHidden(row, key not in keys)
+        if self.tabs.currentIndex() != 1: return
+        temperatures = {}
+        for observation in (self.preview or {}).get("table", {}).get("rows", []):
+            value = number(observation.get("temperature_C"))
+            if math.isfinite(value): temperatures.setdefault(observation["measurement_id"], []).append(value)
+        # Separate strips keep every pair reachable even when temperatures are
+        # identical. Each signal carries its input ID, never the selected row.
+        lane_height = min(.065, .4 / max(1, len(keys)))
+        for index, key in enumerate(keys):
+            values = temperatures.get(key, [])
+            if not values: continue
+            limits = self.settings["ranges"].get(key, {})
+            color = self.color(key)
+            brush = QColor(color); brush.setAlpha(40)
+            start = .01 + index * lane_height
+            region = pg.LinearRegionItem(
+                [limits.get("min_C", min(values)), limits.get("max_C", max(values))],
+                brush=brush, pen=pg.mkPen(color, width=1.5), swapMode="block",
+                span=(start, start + lane_height * .8))
+            region.setZValue(10)
+            region.setToolTip(f"{key}: drag to move both temperature limits")
+            for line, marker, boundary in zip(region.lines, ("|>", "<|"), ("Cold", "Warm")):
+                line.addMarker(marker, .5, 12)
+                line.setToolTip(f"{key} — {boundary} limit (°C)")
+            region.sigRegionChanged.connect(lambda _region, key=key, region=region: self.range_dragged(key, region))
+            region.sigRegionChangeFinished.connect(lambda _region, key=key, region=region: self.range_finished(key, region))
+            self.range_items[key] = region
+            self.plot.addItem(region, ignoreBounds=True)
 
-    def range_dragged(self):
-        if self.range_item is None: return
+    def range_dragged(self, key, region):
+        if self.range_items.get(key) is not region: return
         self.loading = True
         try:
-            cold, warm = self.range_item.getRegion()
-            row = self.ranges.currentRow()
+            cold, warm = region.getRegion()
+            row = self.range_ids.index(key)
+            self.ranges.selectRow(row)
             self.ranges.item(row, 1).setText(f"{cold:.4f}")
             self.ranges.item(row, 2).setText(f"{warm:.4f}")
         finally: self.loading = False
 
-    def range_finished(self):
-        if self.range_item is None: return
-        key = self.range_ids[self.ranges.currentRow()]
-        cold, warm = self.range_item.getRegion()
+    def range_finished(self, key, region):
+        if self.range_items.get(key) is not region: return
+        cold, warm = region.getRegion()
         state = copy.deepcopy(self.settings); state["ranges"][key] = {"min_C": cold, "max_C": warm}
         self.commit(state, f"INP analysis: move temperature limits for {key}")
 
@@ -819,7 +834,7 @@ class InptkPanel(QDialog):
 
     def draw(self, *_):
         if self.loading: return
-        self.plot.clear(); self.range_item = None
+        self.plot.clear(); self.range_items.clear()
         legend = self.plot.getPlotItem().legend
         if legend: legend.clear()
         self.plot.setLogMode(x=False, y=self.log_y.isChecked())
