@@ -46,6 +46,7 @@ class SaveAccessIntegrationTests(unittest.TestCase):
 
     def session_window(self, current_path):
         return SimpleNamespace(
+            inptk_panel=SimpleNamespace(prepare_session_save=Mock()),
             current_session_file_path=str(current_path),
             grayscale_results_headers=[],
             grayscale_results_rows=[],

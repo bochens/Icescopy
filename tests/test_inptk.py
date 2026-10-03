@@ -17,7 +17,9 @@ from PySide6.QtGui import QUndoCommand
 from icescopy_inptk_state import cli_choices, concentration_curves, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
-from icescopy_inptk_client import InptkClient
+from icescopy_inptk_client import InptkClient, ToolkitTransport
+from icescopy_inptk_data import PLOT_COLUMNS
+from icescopy_session_io import build_freeze_count_timeseries_csv_text
 from icescopy_session import SessionSnapshotCommand
 
 
@@ -99,22 +101,22 @@ class InpProtocolTests(unittest.TestCase):
                       {"id": 2, "protocol_version": 2, "saved_format_version": 4}):
             with self.subTest(reply=reply):
                 client = InptkClient(); errors = []; received = []
+                self.addCleanup(client.shutdown)
                 client.failed.connect(errors.append)
                 client.active = (1, [], received.append, None)
-                with patch.object(client.process, 'readAllStandardOutput', return_value=(json.dumps(reply)+'\n').encode()):
-                    client._read()
+                client._received(client.epoch, reply)
                 self.assertTrue(errors)
                 self.assertFalse(received)
                 self.assertFalse(client.busy)
 
     def test_partial_response_waits_for_newline(self):
-        client = InptkClient(); received = []
-        client.active = (1, [], received.append, None)
+        worker = ToolkitTransport(); received = []
+        worker.response.connect(lambda epoch, reply: received.append(reply))
         payload = json.dumps({"id":1,"status":"ok","protocol_version":2,"saved_format_version":4}).encode()
         for data in (payload[:20], payload[20:]):
-            with patch.object(client.process, 'readAllStandardOutput', return_value=data): client._read()
+            worker.feed(data)
             self.assertFalse(received)
-        with patch.object(client.process, 'readAllStandardOutput', return_value=b'\n'): client._read()
+        worker.feed(b'\n')
         self.assertEqual(len(received),1)
 
 
@@ -196,6 +198,7 @@ class InpIntegrationTests(unittest.TestCase):
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName',return_value=(str(path),'')):
             self.panel.export_result()
         self.assertTrue((path/'analysis.json').is_file())
+        original = copy.deepcopy(self.panel.result)
         session = self.fixture.root/'with_inp.icescopy'
         save_session_bundle(session, build_session_payload(self.window),
             self.window.grayscale_results_headers, self.window.grayscale_results_rows,
@@ -459,19 +462,19 @@ class InpIntegrationTests(unittest.TestCase):
     def test_edits_reuse_source_and_unchanged_plot_without_result_tabs(self):
         import icescopy_inptk_panel as module
         p = self.panel
-        p.source_cache = None
-        with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
+        with patch.object(module, 'prepare_source', wraps=module.prepare_source) as prepare:
             p.current_hash()
             for i in range(3): p.curves.item(0).setText(f'Renamed {i}')
-            self.assertEqual(serialize.call_count, 1)
+            self.assertEqual(prepare.call_count, 0)
         self.assertFalse(hasattr(p, 'views'))
         with patch.object(p.plot, 'clear', wraps=p.plot.clear) as clear:
             p.draw(); p.draw()
             self.assertEqual(clear.call_count, 0)
         p.source_changed()
-        with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
-            p.current_hash()
-            self.assertEqual(serialize.call_count, 1)
+        with patch.object(module, 'prepare_source', wraps=module.prepare_source) as prepare:
+            p.refresh_preview()
+            self.wait(lambda:not p.operation and not p.client.busy)
+            self.assertEqual(prepare.call_count, 1)
 
     def test_full_range_uses_measured_placeholders_and_undo_restores_limits(self):
         p = self.panel
@@ -582,7 +585,8 @@ class InpIntegrationTests(unittest.TestCase):
         p.commit(state, 'Restrict one dilution')
         # Compare against a real toolkit calculation without extra outputs.
         source = self.fixture.root / 'baseline.csv'
-        source.write_text(p.source_text())
+        source.write_text(build_freeze_count_timeseries_csv_text(self.window.freeze_count_timeseries_headers,
+            self.window.freeze_count_timeseries_rows, summary=self.window.freeze_count_timeseries_summary))
         output = self.fixture.root / 'baseline.inptk'
         responses = []
         p.client.request(['analyze', str(source), '--format', 'icescopy', *cli_choices(p.settings),
@@ -591,13 +595,15 @@ class InpIntegrationTests(unittest.TestCase):
         baseline = json.loads((output / 'analysis.json').read_text())
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
             self.calculate()
-            self.assertEqual([c.args[0][0] for c in requests.call_args_list], ['analyze', 'analyze'])
+            self.assertEqual([c.args[0][0] for c in requests.call_args_list if c.args[0][0] == 'analyze'], ['analyze', 'analyze'])
+            count = requests.call_count
             p.recalculate()
-            self.assertEqual(requests.call_count, 2)  # No work when nothing changed.
+            self.assertEqual(requests.call_count, count)  # No work when nothing changed.
         tables = dict(p.concentration_tables('cumulative'))
         self.assertEqual(set(tables), {'Combined', ('individual', keys[0]), ('individual', keys[1])})
         for name in ('Combined', 'Neat'):
-            self.assertEqual(p.result['tables'][name]['cumulative']['rows'], baseline['curves'][name]['tables']['cumulative']['rows'])
+            expected_rows = [{key: row[key] for key in PLOT_COLUMNS} for row in baseline['curves'][name]['tables']['cumulative']['rows']]
+            self.assertEqual(p.result['tables'][name]['cumulative']['rows'], expected_rows)
         individual = p.result['references']['reply']['curves'][keys[1]]
         self.assertEqual(individual['sources'][0]['water_blank_ids'], [keys[2]])
         self.assertEqual([r['temperature_C'] for r in tables[('individual', keys[1])]['rows']], [-5., -6., -7., -8.])
@@ -634,7 +640,7 @@ class InpIntegrationTests(unittest.TestCase):
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
             p.settings['ranges'][keys[1]] = {'min_C': -7, 'max_C': -6}
             self.calculate()
-            self.assertEqual(len(requests.call_args_list), 1)
+            self.assertEqual(sum(call.args[0][0] == 'analyze' for call in requests.call_args_list), 1)
             self.assertIs(p.result['references'], reference)
         p.suggest_ranges()
         self.wait(lambda:not p.operation and not p.client.busy)
@@ -669,6 +675,96 @@ class InpIntegrationTests(unittest.TestCase):
         rows = p.observation_rows()
         self.assertEqual({r['cycle_id'] for r in rows}, {'later'})
         self.assertEqual({r['measurement_id'] for r in rows}, set(keys))
+
+    def test_memory_upload_reuse_release_and_no_calculation_files(self):
+        keys = self.configure(); p = self.panel
+        with patch.object(p.client, 'request_body', wraps=p.client.request_body) as requests:
+            self.calculate()
+            first_reference = p.result['reference']
+            self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 1)
+            state = copy.deepcopy(p.settings)
+            state['ranges'][keys[1]] = {'min_C': -7, 'max_C': -5}
+            p.commit(state, 'Restrict sample'); self.calculate()
+            self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 1)
+            state = copy.deepcopy(p.settings)
+            for key in keys[:2]:
+                state['inputs'][key]['blanks'] = []
+            p.commit(state, 'Change blank mapping'); self.calculate()
+            self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 2)
+            self.assertNotIn(first_reference, p.live_refs)
+            self.assertLessEqual(len(p.live_refs), 3)
+            p.suggest_ranges(); self.wait(lambda:not p.operation and not p.client.busy)
+            self.assertNotIn('table', p.settings['suggestion'])
+        self.assertEqual(list(Path(p.cache.name).iterdir()), [])
+        self.assertNotIn('saved_result', p.result)
+
+    def test_native_source_mapping_matches_csv_and_retains_rows_without_pictures(self):
+        p = self.panel; w = self.window
+        w.freeze_count_timeseries_rows[1][w.freeze_count_timeseries_headers.index('picture')] = ''
+        p.source_changed(); p.refresh_preview(); self.wait(lambda:not p.operation and not p.client.busy)
+        source = self.fixture.root / 'reader-comparison.csv'
+        source.write_text(build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers,
+                          w.freeze_count_timeseries_rows, summary=w.freeze_count_timeseries_summary))
+        replies = []
+        p.client.request(['preview', str(source), '--format', 'icescopy'], replies.append)
+        self.wait(lambda:bool(replies) and not p.client.busy)
+        fields = ['measurement_id', 'cycle_id', 'time_s', 'temperature_C', 'n_total', 'n_frozen', 'fraction_frozen', 'picture_id']
+        def project(rows):
+            # The CSV reader represents an absent picture as tagged NaN; the
+            # native upload retains an empty ID. Neither drops the observation.
+            return [[('' if key == 'picture_id' and isinstance(row[key], dict)
+                      and row[key].get('$nonfinite') == 'nan' else row[key])
+                     for key in fields] for row in rows]
+        self.assertEqual(project(p.preview['table']['rows']), project(replies[0]['table']['rows']))
+        self.assertEqual(p.preview['measurement_metadata'], replies[0]['measurement_metadata'])
+        self.assertTrue(any(not row['picture_id'] for row in p.preview['table']['rows']))
+
+    def test_session_save_captures_native_results_and_reopened_export_does_not_refit(self):
+        self.configure(); self.calculate(); p = self.panel; w = self.window
+        self.assertNotIn('saved_result', p.result)
+        path = self.fixture.root / 'memory-result.icescopy'
+        self.assertTrue(w.persist_session_to_path(str(path), show_errors=False))
+        native = p.result['saved_result']
+        payload, gray, freeze, counts = load_session_bundle(path)
+        restored = build_restore_state(w, payload, gray, freeze, counts)
+        w.restore_session_state(restored)
+        self.assertEqual(p.result['saved_result'], native)
+        p.ensure_connected(); self.wait(lambda:not p.operation and not p.client.busy)
+        target = self.fixture.root / 'restored.csv'
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+                p.export_csv()
+            self.wait(lambda:not p.operation and not p.client.busy)
+            self.assertFalse(any(call.args[0][0] == 'analyze' for call in requests.call_args_list))
+        self.assertIn('concentration', target.read_text())
+        self.assertEqual(list(Path(p.cache.name).iterdir()), [])
+
+    def test_worker_keeps_ui_responsive_and_shutdown_cannot_restart_it(self):
+        from PySide6.QtCore import QTimer, QThread
+        p = self.panel; ticks = []; answers = []
+        timer = QTimer(); timer.setInterval(10); timer.timeout.connect(lambda:ticks.append(1)); timer.start()
+        def work():
+            time.sleep(.1)
+            return QThread.currentThread() is QApplication.instance().thread()
+        p.client.compute(work, answers.append)
+        self.wait(lambda:bool(answers))
+        timer.stop()
+        self.assertFalse(answers[0]); self.assertGreaterEqual(len(ticks), 3)
+        p.shutdown()
+        p.client.connect_executable(self.window.inptk_executable_path)
+        QApplication.processEvents()
+        self.assertFalse(p.client.thread.isRunning())
+
+    def test_process_loss_preserves_display_and_core_session_save(self):
+        self.configure(); self.calculate(); p = self.panel
+        displayed = copy.deepcopy(p.result['tables'])
+        p.cancel_operation()
+        self.assertEqual(p.result['tables'], displayed)
+        path = self.fixture.root / 'after-process-loss.icescopy'
+        self.assertTrue(self.window.persist_session_to_path(str(path), show_errors=False))
+        payload, *_ = load_session_bundle(path)
+        self.assertTrue(payload['inp_analysis']['result']['native_result_unavailable'])
+        self.assertEqual(payload['inp_analysis']['result']['tables'], displayed)
 
 
 

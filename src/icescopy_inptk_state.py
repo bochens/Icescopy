@@ -121,7 +121,7 @@ def concentration_curves(settings):
     return specs, individual
 
 
-def cli_choices(settings, *, suggest=False, selected=None, include_individual=False):
+def cli_choices(settings, *, suggest=False, selected=None, include_individual=False, saved=False):
     specs = curve_specs(settings, selected=selected)
     if include_individual and not suggest: specs, _ = concentration_curves(settings)
     inputs = settings["inputs"]
@@ -136,6 +136,7 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
             blank_map[key] = blanks
     args = ["--sample-map", json.dumps({k: v["group"] for k, v in inputs.items()}),
             "--curves", json.dumps(specs), "--water-blank-map", json.dumps(blank_map)]
+    if saved: args = ['--curves', json.dumps(specs)]
     if not settings["blank_correction"]:
         args.append("--no-water-blank-correction")
     numeric = {"z": "--z"}
@@ -179,7 +180,7 @@ def set_group_inputs(settings, index, members):
     Unchecking an input leaves its data available as an individual group. The
     client never invents an additional independent replicate of a physical input.
     """
-    result = copy.deepcopy(settings)
+    result = copy_choices(settings)
     target = result['curves'][index]
     members = list(dict.fromkeys(members))
     removed = set(target['inputs']) - set(members)

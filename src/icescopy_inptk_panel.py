@@ -24,7 +24,7 @@ from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import ConcentrationAxis, TemperatureRangeItem, TemperatureTags, axis_limits
 from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
 from icescopy_plot import GrayscalePlotWidget
-from icescopy_session_io import build_freeze_count_timeseries_csv_text
+from icescopy_inptk_data import prepare_source, upload_choices, PLOT_COLUMNS
 
 
 def concentration_unit(unit):
@@ -48,7 +48,7 @@ class ChoiceMenu(QPushButton):
             action.setChecked(name in selected)
             action.triggered.connect(self._changed)
         self.setText(selected[0] if len(selected) == 1 else f"{len(selected)} blanks" if selected else "No blank assigned")
-        self.setToolTip(", ".join(selected) or "Choose water blanks for this sample. Without an assignment it is not corrected.")
+        self.setToolTip(", ".join(selected) or "Choose water blanks for this sample. Leave all assignments empty for an analysis without blanks.")
 
     def _changed(self):
         self.changed.emit([a.text() for a in self.choices.actions() if a.isChecked()])
@@ -156,6 +156,11 @@ class InptkPanel(QDialog):
         self.plot_context = None
         self.plot_limits = None
         self.source_cache = None
+        self.source_revision = 0
+        self.input_ref = None
+        self.input_key = None
+        self.live_refs = set()
+        self.restored_refs = {}
         self.observations_cache = None
         self.limits_cache = None
         self.render_key = None
@@ -198,7 +203,6 @@ class InptkPanel(QDialog):
         self.show()
         self.raise_()
         self.activateWindow()
-        self.source_cache = None
         self.ensure_connected()
         if self.client.capabilities and self.preview_hash != self.current_hash():
             self.refresh_preview()
@@ -538,7 +542,7 @@ class InptkPanel(QDialog):
             menu.addAction(f"Export all {label.lower()}…", lambda checked=False, kind=kind: self.export_csv(kind))
         self.individual_exports = menu.addMenu("Export individual concentrations")
         self.individual_exports.aboutToShow.connect(self.populate_individual_exports)
-        menu.addAction("Export range-suggestion report (JSON)…", self.export_range_report)
+        menu.addAction("Export range-suggestion summary (JSON)…", self.export_range_report)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
         close = QPushButton("Close")
@@ -796,7 +800,7 @@ class InptkPanel(QDialog):
         elif not self.settings["blank_correction"]:
             message = "Correction is off. Assignments are retained."
         elif not value["blanks"]:
-            message = "No blank assigned; this sample will not be corrected."
+            message = "Choose a blank for this sample, or leave all assignments empty for analysis without blanks."
         else:
             message = ""
         self.blank_help.setText(message)
@@ -1037,23 +1041,12 @@ class InptkPanel(QDialog):
         state = copy_choices(self.settings); state["ranges"][key] = {"min_C": cold, "max_C": warm}
         self.commit(state, f"INP analysis: move temperature limits for {key}")
 
-    def source_text(self):
-        w = self.window
-        if not w.freeze_count_timeseries_headers or not w.freeze_count_timeseries_rows:
-            raise ValueError("Import temperatures and freezing counts before INP analysis.")
-        if w.freeze_count_timeseries_summary.get("analysis_required"):
-            raise ValueError("Freezing analysis is out of date. Run image analysis first.")
-        if self.source_cache is None:
-            text = build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers, w.freeze_count_timeseries_rows,
-                session_metadata=w.serialize_session_metadata(), summary=w.freeze_count_timeseries_summary)
-            self.source_cache = (text, hashlib.sha256(text.encode()).hexdigest())
-        return self.source_cache[0]
-
     def current_hash(self):
-        try:
-            self.source_text()
-            return self.source_cache[1]
-        except ValueError: return ""
+        w = self.window
+        if (not w.freeze_count_timeseries_headers or not w.freeze_count_timeseries_rows
+                or w.freeze_count_timeseries_summary.get('analysis_required')):
+            return ''
+        return self.source_cache['hash'] if self.source_cache else f'pending:{self.source_revision}'
 
     def calculation_key(self):
         # Suggested limits affect calculation only once applied. Changing the
@@ -1080,6 +1073,8 @@ class InptkPanel(QDialog):
         self.last_error = ""
         self.reference_cache = None
         self.suggestion_cache = None
+        self.input_ref = self.input_key = None
+        self.live_refs.clear(); self.restored_refs.clear()
         self.window.log(f"INP toolkit connected: {reply['toolkit_version']} (protocol 2)")
         after, self.after_connect = self.after_connect, None
         self.refresh_preview(after=after)
@@ -1088,31 +1083,65 @@ class InptkPanel(QDialog):
         if self.operation or self.client.busy: return
         if not self.client.capabilities:
             self.ensure_connected(after=lambda: self.refresh_preview(after=after)); return
-        try: text = self.source_text()
-        except ValueError as exc: self.error(str(exc)); return
-        source_hash = hashlib.sha256(text.encode()).hexdigest()
-        path = Path(self.cache.name) / f"counts-{uuid.uuid4().hex}.csv"
-        path.write_text(text)
-        self.last_error = ""
-        self.operation = True; self.update_status()
-        generation = self.generation
-        def done(reply):
-            path.unlink(missing_ok=True)
+        if not self.current_hash():
+            self.error('Import temperatures and run freezing analysis before INP analysis.'); return
+        # Copy the current table once. Preparation and hashing run on the worker;
+        # no CSV is serialized, parsed or written for analysis.
+        headers = tuple(self.window.freeze_count_timeseries_headers)
+        rows = tuple(tuple(row) for row in self.window.freeze_count_timeseries_rows)
+        metadata = [dict(row) for row in self.window.freeze_count_timeseries_summary.get('sample_column_metadata', [])]
+        revision, generation = self.source_revision, self.generation
+        self.last_error = ''; self.operation = True; self.update_status()
+        def done(source):
             self.operation = False
-            if generation != self.generation or self.current_hash() != source_hash:
+            if generation != self.generation or revision != self.source_revision:
                 self.update_status(); return
-            self.preview, self.preview_hash = reply, source_hash
-            state = reconcile_inputs(self.settings, reply)
-            if not self.settings["inputs"] and not state["curves"]:
-                state["curves"] = [{"name": key, "inputs": [key]} for key in state["inputs"]]
+            self.source_cache = source
+            self.preview, self.preview_hash = source['preview'], source['hash']
+            self.observations_cache = self.limits_cache = None
+            state = reconcile_inputs(self.settings, self.preview)
+            if not self.settings['inputs'] and not state['curves']:
+                state['curves'] = [{'name': key, 'inputs': [key]} for key in state['inputs']]
             self.restore_choices(state)
-            missing = reply.get("suspension_metadata", {}).get("error")
-            if missing: self.update_status()
-            self.window.log("INP analysis: counts and fractions updated.")
+            self.window.log('INP analysis: counts and fractions updated.')
             if after: after()
-        def failed(message):
-            path.unlink(missing_ok=True); self.error(message)
-        self.client.request(["preview", str(path), "--format", "icescopy"], done, failed)
+        self.client.compute(lambda: prepare_source(headers, rows, metadata), done, self.error)
+
+    def ensure_input(self, settings, callback, failed):
+        mapping = {key: (value['group'], tuple(value['blanks'])) for key, value in settings['inputs'].items()}
+        key = fingerprint([self.current_hash(), mapping])
+        if self.input_key == key and self.input_ref in self.live_refs:
+            callback(self.input_ref); return
+        reference = '@input-' + uuid.uuid4().hex
+        payload = upload_choices(self.source_cache, settings)
+        def uploaded(reply):
+            self.live_refs.add(reference)
+            self.input_ref, self.input_key = reference, key
+            callback(reference)
+        self.client.request_body({'import': dict(payload, out=reference)}, uploaded, failed)
+
+    def release_unused(self, *, keep=()):
+        retained = {self.input_ref, *keep}
+        if self.result:
+            retained.add(self.result_reference(self.result))
+            retained.add(self.result_reference(self.result.get('references') or {}))
+        unused = sorted(self.live_refs - retained)
+        if not unused or not self.client.capabilities: return
+        def released(_reply): self.live_refs.difference_update(unused)
+        self.client.request_body({'release': unused}, released, self.error)
+
+    def read_plot_tables(self, reference, reply, callback, failed):
+        tasks = [(name, kind) for name, info in reply['curves'].items()
+                 for kind in ('cumulative', 'excluded') if kind in info['tables']]
+        tables = {name: {} for name in reply['curves']}
+        def next_table():
+            if not tasks: callback(tables); return
+            name, kind = tasks.pop(0)
+            def received(value):
+                tables[name][kind] = value['table']; next_table()
+            self.client.request(['table', reference, '--curve', name, '--table', kind,
+                '--no-history', '--columns', *PLOT_COLUMNS], received, failed)
+        next_table()
 
     def recalculate(self):
         if self.operation or self.client.busy: return
@@ -1152,111 +1181,85 @@ class InptkPanel(QDialog):
         return fingerprint([self.current_hash(), cli_choices(self.settings, suggest=True, selected=selected)])
 
     def run_calculation(self, suggest):
-        if suggest and self.settings["method"] != "average": return
+        if suggest and self.settings['method'] != 'average': return
         row = self.single_curve_row()
-        selected = self.settings["curves"][row]["name"] if suggest and row >= 0 else None
+        selected = self.settings['curves'][row]['name'] if suggest and row >= 0 else None
         try:
-            if suggest and selected is None: raise ValueError("Select one sample group for Auto range.")
-            unrestricted = not any(self.settings['ranges'].values())
-            args = cli_choices(self.settings, suggest=suggest, selected=selected,
-                               include_individual=not suggest and unrestricted)
-            reference_choices = individual_choices(self.settings) if not suggest else None
+            if suggest and selected is None: raise ValueError('Select one sample group for Auto range.')
+            choices = copy_choices(self.settings)
+            unrestricted = not any(choices['ranges'].values())
+            args = cli_choices(choices, suggest=suggest, selected=selected,
+                               include_individual=not suggest and unrestricted, saved=True)
+            reference_choices = individual_choices(choices) if not suggest else None
             reference_key = (fingerprint([self.current_hash(), cli_choices(reference_choices)])
                              if reference_choices else None)
-            text = self.source_text()
         except (ValueError, TypeError) as exc: self.error(str(exc)); return
-        def request_key():
-            return self.range_suggestion_key() if suggest else self.calculation_key()
+        request_key = self.range_suggestion_key if suggest else self.calculation_key
         key, generation = request_key(), self.generation
-        source = Path(self.cache.name) / f"counts-{uuid.uuid4().hex}.csv"
-        output = Path(self.cache.name) / f"result-{uuid.uuid4().hex}.inptk"
-        reference_output = Path(self.cache.name) / f"references-{uuid.uuid4().hex}.inptk"
-        source.write_text(text)
-        command = ["suggest-ranges" if suggest else "analyze", str(source), "--format", "icescopy", *args]
-        if not suggest: command += ["--out", str(output)]
-        self.last_error = ""
+        source_hash = self.current_hash()
+        self.last_error = ''; self.operation = True
         self.operation_started = time.perf_counter()
-        self.operation_phase = "Suggesting ranges" if suggest else f"Calculating {self.method.currentText()} concentrations"
-        self.operation = True; self.elapsed_timer.start(); self.update_status()
-        self.window.log("INP toolkit: suggesting Average limits…" if suggest else "INP toolkit: calculating concentrations…")
+        self.operation_phase = 'Suggesting ranges' if suggest else f'Calculating {self.method.currentText()} concentrations'
+        self.elapsed_timer.start(); self.update_status()
+        self.window.log('INP toolkit: suggesting Average limits…' if suggest else 'INP toolkit: calculating concentrations…')
         def fresh(): return generation == self.generation and key == request_key()
-        def cleanup():
-            source.unlink(missing_ok=True)
-            for path in (output, reference_output):
-                if path.exists(): shutil.rmtree(path)
-        def failed(message): cleanup(); self.error(message)
-        def done(reply):
-            if not fresh():
-                cleanup(); self.operation = False; self.update_status()
-                self.window.log("INP toolkit: inputs changed; the previous result is retained."); return
+        def failed(message): self.release_unused(); self.error(message)
+        def stale():
+            self.operation = False; self.release_unused(); self.update_status()
+            self.window.log('INP toolkit: inputs changed; the previous result is retained.')
+        def finish(pending, references):
+            if not fresh(): stale(); return
+            toolkit_seconds = time.perf_counter() - self.operation_started
+            started = time.perf_counter()
+            pending['references'] = references
+            pending['individual_curves'] = {name: key for key, name in references['by_input'].items()}
+            self.reference_cache = references
+            self.reference_plot_tables.clear()
+            self.result = pending; self.operation = False
+            self.calculation_connection = self.client.capabilities
+            self.quantity.blockSignals(True); self.quantity.setCurrentIndex(2); self.quantity.blockSignals(False)
+            self.draw()
+            pending['timings'] = dict(toolkit_seconds=toolkit_seconds, display_seconds=time.perf_counter()-started)
+            self.window.log(f"INP analysis updated. Toolkit and transport: {toolkit_seconds:.2f} s; display: {pending['timings']['display_seconds']:.2f} s.")
+            self.release_unused()
+        def references_from(result):
+            return dict(result, key=reference_key, by_input={info['sources'][0]['measurement_id']: name
+                for name, info in result['reply']['curves'].items() if len(info['sources']) == 1})
+        def analyze(reference, options, received):
+            output = '@result-' + uuid.uuid4().hex
+            def done(reply):
+                self.live_refs.add(output)
+                if not fresh(): stale(); return
+                def tables_done(tables):
+                    received(dict(reference=output, reply=reply, tables=tables))
+                self.read_plot_tables(output, reply, tables_done, failed)
+            self.client.request(['analyze', reference, '--format', 'saved', *options, '--out', output], done, failed)
+        def uploaded(reference):
+            if not fresh(): stale(); return
             if suggest:
-                state = copy_choices(self.settings); state["suggestion"] = reply
-                if reply.get("complete") and reply.get("temperature_ranges_C") is not None:
-                    state["ranges"].update(reply["temperature_ranges_C"])
-                self.operation = False
-                self.suggestion_cache = (key, reply)
-                self.commit(state, "INP analysis: apply Average range suggestions" if reply.get("complete") else "INP analysis: retain incomplete range suggestions")
-                self.show_suggestion(reply); cleanup(); return
-            pending = {"key": key, "reply": reply, "choices": copy_choices(self.settings),
-                       "source_hash": self.current_hash(), "toolkit_version": reply["toolkit_version"]}
-            try:
-                pending.update(self.read_calculation(output, reply))
-            except (OSError, ValueError, KeyError, TypeError) as exc:
-                failed(f"Could not read INP toolkit result: {exc}"); return
-
-            def finish(references):
-                if not fresh():
-                    cleanup(); self.operation = False; self.update_status(); return
-                toolkit_seconds = time.perf_counter() - self.operation_started
-                started = time.perf_counter()
-                pending['references'] = references
-                pending['individual_curves'] = {name: key for key, name in references['by_input'].items()}
-                self.reference_cache = references
-                self.reference_plot_tables.clear()
-                self.result = pending; self.operation = False
-                self.calculation_connection = self.client.capabilities
-                self.quantity.blockSignals(True); self.quantity.setCurrentIndex(2); self.quantity.blockSignals(False)
-                self.draw()
-                pending['timings'] = {'toolkit_seconds': toolkit_seconds, 'display_seconds': time.perf_counter()-started}
-                self.window.log(f"INP analysis updated. Toolkit: {toolkit_seconds:.2f} s; display: {pending['timings']['display_seconds']:.2f} s.")
-                cleanup()
-
-            def references_from(result):
-                return dict(result, key=reference_key, by_input={
-                    info['sources'][0]['measurement_id']: name
-                    for name, info in result['reply']['curves'].items() if len(info['sources']) == 1})
-
-            if unrestricted:
-                finish(references_from({k: pending[k] for k in ('reply', 'tables', 'saved_result')}))
-            elif self.reference_cache and self.reference_cache['key'] == reference_key:
-                finish(self.reference_cache)
-            else:
-                self.operation_phase = "Calculating full-range individual samples"; self.show_elapsed()
-                def reference_done(reference_reply):
-                    try:
-                        reference = dict(self.read_calculation(reference_output, reference_reply), reply=reference_reply)
-                    except (OSError, ValueError, KeyError, TypeError) as exc:
-                        failed(f"Could not read individual sample results: {exc}"); return
-                    finish(references_from(reference))
-                self.client.request(['analyze', str(source), '--format', 'icescopy',
-                    *cli_choices(reference_choices), '--out', str(reference_output)], reference_done, failed)
-        self.client.request(command, done, failed)
-
-    @staticmethod
-    def read_calculation(path, reply):
-        """Read the native result once; plotting never reloads CLI tables."""
-        saved = (path / 'analysis.json').read_text(encoding='utf-8')
-        payload = json.loads(saved)
-        if (payload.get('format') != 'inptk' or payload.get('format_version') != 4
-                or payload.get('kind') != 'analysis'):
-            raise ValueError("Expected an INP toolkit format 4 analysis result.")
-        tables = {name: curve['tables'] for name, curve in payload['curves'].items()}
-        for name, info in reply['curves'].items():
-            for kind in info['tables']:
-                table = tables[name][kind]
-                if not isinstance(table.get('columns'), list) or not isinstance(table.get('rows'), list):
-                    raise ValueError(f"Invalid {kind} table for {name}.")
-        return {'tables': tables, 'saved_result': saved}
+                def suggested(reply):
+                    if not fresh(): stale(); return
+                    state = copy_choices(self.settings); state['suggestion'] = reply
+                    if reply.get('complete') and reply.get('temperature_ranges_C') is not None:
+                        state['ranges'].update(reply['temperature_ranges_C'])
+                    self.operation = False; self.suggestion_cache = (key, reply)
+                    self.commit(state, 'INP analysis: apply Average range suggestions' if reply.get('complete') else 'INP analysis: retain incomplete range suggestions')
+                    self.show_suggestion(reply); self.release_unused()
+                self.client.request(['suggest-ranges', reference, '--format', 'saved', *args, '--summary'], suggested, failed)
+                return
+            def main_done(result):
+                pending = dict(result, key=key, choices=choices, source_hash=source_hash,
+                               toolkit_version=result['reply']['toolkit_version'])
+                if unrestricted:
+                    finish(pending, references_from(result))
+                elif self.reference_cache and self.reference_cache['key'] == reference_key:
+                    finish(pending, self.reference_cache)
+                else:
+                    self.operation_phase = 'Calculating full-range individual samples'; self.show_elapsed()
+                    analyze(reference, cli_choices(reference_choices, saved=True),
+                            lambda result: finish(pending, references_from(result)))
+            analyze(reference, args, main_done)
+        self.ensure_input(choices, uploaded, failed)
 
     def show_elapsed(self):
         if not self.operation:
@@ -1353,6 +1356,7 @@ class InptkPanel(QDialog):
         self.error("Stopped. The last successful result is retained. Calculate to try again.")
 
     def source_changed(self):
+        self.source_revision += 1
         self.source_cache = None
         # Source metadata/header edits can still be in progress. Read them on
         # the next event loop turn, once the main window has finished the edit.
@@ -1570,24 +1574,73 @@ class InptkPanel(QDialog):
         if refit: self.fit_plot()
         self.draw_ranges(); self.update_status()
 
+    def result_reference(self, result):
+        reference = self.restored_refs.get(id(result), result.get('reference'))
+        return reference if reference in self.live_refs and self.client.capabilities else None
+
+    def prepare_session_save(self, *, require_native=False):
+        """Preserve full native results only at a user save/export boundary."""
+        if not self.result: return
+        saved = {}
+        for result in (self.result, self.result.get('references')):
+            if not result or result.get('saved_result'): continue
+            reference = self.result_reference(result)
+            if not reference:
+                message = 'The toolkit process no longer holds this unsaved result. The plot and choices are retained; recalculate to export native INP results.'
+                if require_native: raise ValueError(message)
+                result['native_result_unavailable'] = True
+                self.window.log(message)
+                continue
+            if reference not in saved:
+                folder = Path(self.cache.name) / ('save-' + uuid.uuid4().hex + '.inptk')
+                try:
+                    self.client.request_wait(['save', reference, '--out', str(folder)])
+                    saved[reference] = self.client.compute_wait(lambda: (folder / 'analysis.json').read_text(encoding='utf-8'))
+                finally:
+                    if folder.exists(): shutil.rmtree(folder)
+            result['saved_result'] = saved[reference]
+
+    def ensure_result_reference(self, result, callback):
+        reference = self.result_reference(result)
+        if reference: callback(reference); return
+        native = result.get('saved_result')
+        if not native:
+            self.error('The toolkit process no longer holds this result. Recalculate before exporting.'); return
+        # A reopened session already contains its exact native result. Restore it
+        # on explicit export, without fitting it again using a different version.
+        reference = '@restored-' + uuid.uuid4().hex
+        folder = Path(self.cache.name) / (uuid.uuid4().hex + '.inptk')
+        self.operation = True; self.update_status()
+        def write_native():
+            folder.mkdir(); (folder / 'analysis.json').write_text(native, encoding='utf-8')
+        def prepared(_value):
+            def loaded(_reply):
+                shutil.rmtree(folder)
+                self.live_refs.add(reference); self.restored_refs[id(result)] = reference
+                callback(reference)
+            def failed(message):
+                shutil.rmtree(folder); self.error(message)
+            self.client.request(['save', str(folder), '--out', reference], loaded, failed)
+        self.client.compute(write_native, prepared, self.error)
+
     def export_result(self):
         if not self.result: return
-        path, _ = QFileDialog.getSaveFileName(self, "Create INP result folder", "analysis.inptk", "INP result folder (*.inptk)")
+        # Native export is a user save, so capturing the full JSON is appropriate.
+        path, _ = QFileDialog.getSaveFileName(self, 'Create INP result folder', 'analysis.inptk', 'INP result folder (*.inptk)')
         if not path: return
+        if Path(path).exists(): self.error('Choose a new result folder; existing outputs are preserved.'); return
         try:
+            self.prepare_session_save(require_native=True)
             Path(path).mkdir(parents=False, exist_ok=False)
-            with (Path(path) / "analysis.json").open("x", encoding="utf-8") as handle:
-                handle.write(self.result["saved_result"])
+            (Path(path) / 'analysis.json').write_text(self.result['saved_result'], encoding='utf-8')
             references = self.result.get('references')
             if references and references['saved_result'] != self.result['saved_result']:
-                folder = Path(path) / 'individual-samples.inptk'
-                folder.mkdir()
+                folder = Path(path) / 'individual-samples.inptk'; folder.mkdir()
                 (folder / 'analysis.json').write_text(references['saved_result'], encoding='utf-8')
             if self.result['choices'].get('suggestion'):
-                (Path(path) / 'range-suggestions.json').write_text(
-                    json.dumps(self.result['choices']['suggestion'], indent=2), encoding='utf-8')
-        except (OSError, ValueError) as exc: self.error(f"Could not save result: {exc}. Choose a new filename."); return
-        self.window.log(f"Saved INP result: {path}")
+                (Path(path) / 'range-suggestions.json').write_text(json.dumps(self.result['choices']['suggestion'], indent=2), encoding='utf-8')
+        except (OSError, ValueError) as exc: self.error(f'Could not save result: {exc}'); return
+        self.window.log(f'Saved INP result: {path}')
 
     def populate_individual_exports(self):
         self.individual_exports.clear()
@@ -1608,25 +1661,23 @@ class InptkPanel(QDialog):
         except OSError as exc: self.error(f'Could not save range report: {exc}'); return
         self.window.log(f'Exported range suggestions: {path}')
 
-    def export_csv(self, kind="cumulative", *, reference_key=None):
+    def export_csv(self, kind='cumulative', *, reference_key=None):
         if not self.result: return
-        if not self.client.capabilities: self.ensure_connected(after=lambda: self.export_csv(kind, reference_key=reference_key)); return
-        path, _ = QFileDialog.getSaveFileName(self, "Export calculated INP table", "inp_results.csv", "CSV (*.csv)")
+        if not self.client.capabilities:
+            self.ensure_connected(after=lambda: self.export_csv(kind, reference_key=reference_key)); return
+        path, _ = QFileDialog.getSaveFileName(self, 'Export calculated INP table', 'inp_results.csv', 'CSV (*.csv)')
         if not path: return
-        if Path(path).exists(): self.error("Choose a new filename; existing outputs are preserved."); return
-        source = Path(self.cache.name) / f"export-{uuid.uuid4().hex}.inptk"
-        source.mkdir()
+        if Path(path).exists(): self.error('Choose a new filename; existing outputs are preserved.'); return
         result = self.result['references'] if reference_key is not None else self.result
-        (source / "analysis.json").write_text(result["saved_result"], encoding="utf-8")
-        args = ["export-csv", str(source), "--table", kind, "--out", path]
-        if reference_key is not None: args += ['--curve', result['by_input'][reference_key]]
-        # Export the complete saved calculation, as named in the menu. Raw
-        # counts/fractions have measurement IDs, not named concentration curves.
-        self.operation = True
-        def done(_):
-            shutil.rmtree(source); self.operation = False; self.update_status(); self.window.log(f"Exported INP CSV: {path}")
-        def fail(message): shutil.rmtree(source); self.error(message)
-        self.client.request(args, done, fail)
+        def ready(reference):
+            args = ['export-csv', reference, '--table', kind, '--out', path]
+            if reference_key is not None: args += ['--curve', result['by_input'][reference_key]]
+            self.operation = True; self.update_status()
+            def done(_reply):
+                self.operation = False; self.update_status(); self.window.log(f'Exported INP CSV: {path}')
+                self.release_unused()
+            self.client.request(args, done, self.error)
+        self.ensure_result_reference(result, ready)
 
     def session_state(self):
         return {"version": 1, "choices": copy_choices(self.settings), "preview": self.preview,
@@ -1634,6 +1685,8 @@ class InptkPanel(QDialog):
 
     def restore_session(self, state):
         self.generation += 1; self.client.stop(); self.operation = False
+        self.live_refs.clear(); self.restored_refs.clear(); self.input_ref = self.input_key = None
+        self.source_revision += 1
         self.last_error = ""; self.after_connect = None; self.plot_context = None; self.source_cache = None
         self.undo_stack.clear()
         self.undo_stack.setUndoLimit(self.window.undo_limit)
@@ -1648,4 +1701,4 @@ class InptkPanel(QDialog):
 
     def shutdown(self):
         self.restore_console()
-        self.client.stop(); self.cache.cleanup()
+        self.client.shutdown(); self.cache.cleanup()

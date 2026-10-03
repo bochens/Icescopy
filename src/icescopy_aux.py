@@ -1329,7 +1329,7 @@ class PreferencesDialog(QDialog):
     def build_inptk_page(self):
         from icescopy_inptk_panel import InptkPreferencesWidget
         self.inptk_settings = InptkPreferencesWidget(str(self.pref_value("InptkExecutablePath") or ""))
-        self.finished.connect(lambda _result: self.inptk_settings.client.stop())
+        self.finished.connect(lambda _result: self.inptk_settings.client.shutdown())
         self.inptk_style_fields = {}
         rows = []
         for key, label, low, high in (

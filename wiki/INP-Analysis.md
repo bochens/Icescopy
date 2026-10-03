@@ -4,7 +4,7 @@ Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolk
 
 ## Open the analysis
 
-In **Settings → INP toolkit**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2** and saved format **4**, provided by INP toolkit **0.4.0**.
+In **Settings → INP toolkit**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
 
 After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. This resizable window blocks editing in the main window while open. Closing it retains your analysis choices and results.
 
@@ -14,7 +14,7 @@ A **sample group** contains the independent samples or dilutions you want to com
 
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
-3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Without an assigned blank, that sample is not corrected. Blank roles are never inferred from names.
+3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Blank roles are never inferred from names. The toolkit requires a blank assignment for every nonblank input when a blank map is supplied; leave all assignments empty for analysis without blanks.
 4. If a sample has several freezing cycles, choose its cycle below the table. Repeated cycles are not pooled as independent droplets.
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
@@ -36,11 +36,13 @@ Each sample retains its own cold and warm limits. Faint vertical dashed lines sh
 
 Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
 
-For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion report (JSON)…** saves the full report. Repeating Auto range with unchanged inputs and settings reuses the report from the current toolkit connection. MLE ranges are set manually.
+For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion summary (JSON)…** saves the proposed limits, reasons, and completeness status. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
 
 Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
 The status shows elapsed calculation time. The console reports toolkit and display time separately. Recalculate reuses the current result when the inputs and settings are unchanged in the same toolkit connection.
+
+Counts are transferred from Icescopy's memory to one persistent toolkit process. Changing limits, method, or grid reuses those counts; changing the source data, metadata, or blank assignments transfers a new input. Calculating does not create temporary CSVs or save result folders. Superseded toolkit results are released after the replacement succeeds.
 
 ## Read the plots
 
@@ -66,14 +68,18 @@ The **Advanced** tab contains count selection on a temperature grid, handling of
 
 **Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature tag creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. **Show console** opens Icescopy's existing read-only console while the rest of the main window remains locked. The console returns to its previous position when analysis closes.
 
-Save the `.icescopy` session to retain choices, suggestion reports, and the last successful result. The analysis window has no separate results-table or console tabs; detailed data remain available under **Export**:
+Save the `.icescopy` session to retain choices, suggestion summaries, and the last successful result. At Save, Icescopy captures the complete native toolkit result in the session; reopening and exporting it does not repeat the fit. The analysis window has no separate results-table or console tabs; detailed data remain available under **Export**:
 
 - **Native result:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`; the calculation's range-suggestion report is included as JSON when available.
 - **CSV:** counts, fractions, concentrations, and excluded points from the last calculation. **Export individual concentrations** saves a selected full-range comparison curve. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
-- **Range-suggestion report (JSON):** the latest suggestion, including limits, reasons, and observation-level decisions. JSON is a structured text format readable by analysis scripts.
+- **Range-suggestion summary (JSON):** the latest proposed limits, reasons, and completeness status. Individual observation decisions are omitted to keep interactive requests small. JSON is a structured text format readable by analysis scripts.
 
-The toolkit's excluded-points export contains estimates omitted from its final concentration curve, for example by its decrease policy. This differs from the muted portions outside the user-selected ranges. Original-count exports and range reports can contain the original recording temperatures rather than the calculation grid.
+The toolkit's excluded-points export contains estimates omitted from its final concentration curve, for example by its decrease policy. This differs from the muted portions outside the user-selected ranges. Original-count exports can contain the original recording temperatures rather than the calculation grid.
 
 Calculation exports use the last successful result, even if newer edits have not been calculated. Choose a new destination; existing exports are preserved.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
+
+Stopping the toolkit or a process failure discards its unsaved native results. The displayed plot and choices remain available and can still be saved in `.icescopy`, but a result not captured by an earlier Save needs recalculation before native or CSV export. Already saved native results remain exportable.
+
+Edits to freeze events or sample metadata update Icescopy's tables in memory. CSV files inside a `.icescopy` archive are written when you save that session; separate CSV files are written when you choose Export. An earlier CSV export is never automatically rewritten.

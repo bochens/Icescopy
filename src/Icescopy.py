@@ -9639,6 +9639,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def persist_session_to_path(self, file_path, *, show_errors=True):
         while True:
             try:
+                self.inptk_panel.prepare_session_save()
                 payload = build_session_payload(self)
                 saved_fingerprint = session_content_fingerprint(self, payload=payload)
                 save_session_bundle(
