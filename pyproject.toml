@@ -80,6 +80,7 @@ py-modules = [
   "icescopy_inptk_client",
   "icescopy_inptk_state",
   "icescopy_inptk_panel",
+  "icescopy_inptk_plot",
   "icescopy_tool_options",
   "icescopy_validate",
   "icescopy_version",

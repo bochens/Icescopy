@@ -1,45 +1,59 @@
 # INP analysis
 
-Icescopy can send its Freeze Count Timeseries to a separately installed **INP toolkit** executable. The toolkit calculates concentrations and uncertainty; Icescopy supplies the controls, plots, and saved session. INP toolkit is not included in the Icescopy installer.
+Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolkit** executable. The toolkit calculates concentrations and uncertainty; Icescopy provides the controls, plots, and saved session. INP toolkit is not included in the Icescopy installer.
 
-## Connect the toolkit
+## Open the analysis
 
-In **Settings → INP toolkit**, browse to the executable, choose **Test connection**, then save the settings. This client requires CLI protocol **2** and saved format **4**, provided by INP toolkit **0.4.0**. An incompatible executable produces a connection error.
+In **Settings → INP toolkit**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2** and saved format **4**, provided by INP toolkit **0.4.0**.
 
-After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…** and choose **Connect**. This resizable window blocks editing in the main window while it is open. Close it to return to the images or sample metadata; the analysis remains available when reopened.
+After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. This resizable window blocks editing in the main window while open. Closing it retains your analysis choices and results.
 
-## Choose inputs, groups, and blanks
+## Group samples and assign blanks
 
-The **Samples & blanks** tab lists the physical inputs read from the count table. Counts and frozen fractions can be viewed before all concentration metadata is complete.
+A **sample group** contains the independent samples or dilutions you want to combine into one concentration curve. Start with the **Sample groups** list on the left. That same selection controls the settings, plot, and results table; there is no separate plot selector.
 
-1. Give dilutions of the same original sample the same **Sample group** value. Similar names do not cause automatic grouping.
-2. Choose a cycle for each input. Multiple freezing cycles are not pooled as independent droplets.
-3. Check **Blank** for a water-blank input. Select a sample input and use **Blanks for selected input** to assign its blank. No blank is inferred from its name.
-4. Define the output curves. **Add input** creates an individual curve; **Add group** combines the inputs in the selected original-sample group. Double-click a curve name to rename it. Use the selector below the list to edit its inputs.
+1. Select a group, or choose **New group**. Double-click its name to rename it.
+2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
+3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blanks for…**. Blank roles are never inferred from names.
+4. If a sample has several freezing cycles, choose its cycle below the table. Repeated cycles are not pooled as independent droplets.
 
-Turning **Apply blank correction** off retains the assignments. To change well volume, dilution, or sample normalization metadata, choose **Edit sample metadata…**. This closes the analysis window without discarding its choices.
+**Remove group** removes that output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges.
 
-## Combine dilutions and set limits
+Dilution factors are shown beside sample names. To change dilution, well volume, or other physical metadata, choose **Edit sample metadata…**. This closes the analysis window without discarding its choices. On reopening, Icescopy refreshes the counts and metadata automatically.
 
-In **Combine dilutions**, choose **MLE** or **Average** and the concentration basis: suspension, sampled air, or dry soil. The selected basis needs the corresponding physical metadata.
+Turning **Apply blank correction** off retains the blank assignments.
+
+## Combine dilutions and set ranges
+
+In **Combine**, choose the calculation method and concentration basis: suspension, sampled air, or dry soil. These calculation settings apply to all groups; each basis needs its corresponding physical metadata.
 
 - **MLE**, maximum likelihood estimation, jointly fits the sample and blank freezing counts over the cooling curve. Optional fit spacing controls the fitted curve shape.
 - **Average** takes an equal-weight mean of eligible concentration estimates at each temperature.
 
-Every input in the selected output curve has its own colored cold/warm handle pair, shown together in separate strips along the bottom of the plot. This keeps pairs accessible even when limits overlap. Drag a pair or enter temperatures in that input's table row. Both endpoints are included. An empty field leaves that boundary unrestricted. An input's limits apply to every output curve using it.
+Each sample in the selected group has its own colored cold/warm handle pair along the bottom of the plot. Separate strips keep the pairs accessible when their temperatures overlap. Drag the handles or type temperatures into the matching table row. Both endpoints are included. Empty fields leave that boundary unrestricted.
 
-For **Average**, choose the output curve in **Combine dilutions**, then choose **Suggest limits**. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves existing limits unchanged and reports which inputs need attention. Inspect the report in **Table → Range suggestions**.
+For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention. Its full report is available under **Table → Range suggestions**. MLE ranges are set manually.
 
-Choose **Recalculate** to apply changes. The last successful result remains visible until a new calculation succeeds; a status message identifies results that no longer match the current choices or source data.
+Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
-## Inspect, undo, and save
+## Read the plots
 
-The plot offers **Number frozen**, **Fraction frozen**, and **Concentration**, with a curve selector and optional logarithmic vertical axis. Counts and fractions show the original observations from the latest data refresh. Concentrations show the calculated result, with uncertainty bands. Hover over points for details; faint crosses identify excluded points. Temperature increases from left to right.
+Use the quantity control above the plot to switch between:
+
+- **Number frozen:** original counts, with a vertical range covering zero through the samples' total well counts.
+- **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
+- **Concentration:** calculated values and finite uncertainty bounds, with the concentration unit on the axis. Shading shows uncertainty; faint crosses identify excluded points.
+
+Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
+
+**Log scale** is available for concentration. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. The **Table** retains the original values, including infinite bounds.
+
+## Advanced settings, undo, and export
 
 The **Advanced** tab contains optional count selection on a temperature grid, handling of decreases, and the uncertainty setting. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
 
-**Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis choices. Moving a temperature handle creates one undo entry. Closing and reopening this window preserves its history; starting or loading a session clears it. Undo in the main window affects image, cell, and sample edits without reverting INP analysis choices. Both histories use the configured Undo History Limit. The **Console** tab shows the same messages as Icescopy's main console.
+**Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature handle creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. The **Console** tab shares Icescopy's console messages.
 
-Save the `.icescopy` session to retain choices, the latest suggestion report, and the last successful result. **Export** can save a native `.inptk` result folder or calculated counts, fractions, concentrations, and excluded points as CSV. Exports always use the last successful calculation, including when newer edits have not been calculated. Choose a new destination: existing exports are preserved.
+Save the `.icescopy` session to retain choices, suggestion reports, and the last successful result. **Export** saves a native `.inptk` result folder or CSV files containing all calculated counts, fractions, concentrations, or excluded points. Export uses the last successful calculation, even if newer edits have not been calculated. Choose a new destination; existing exports are preserved.
 
-**Cancel** stops the separate toolkit process and retains the last successful result. Closing the window during a calculation also cancels it. Use **Connect** to start the toolkit again.
+A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.

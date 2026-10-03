@@ -32,10 +32,11 @@ class InptkClient(QObject):
         self.buffer = bytearray()
         self.next_id = 0
         self.stopping = False
+        self.connecting = False
 
     @property
     def busy(self):
-        return self.active is not None or bool(self.pending)
+        return self.connecting or self.active is not None or bool(self.pending)
 
     def connect_executable(self, path):
         path = str(Path(path).expanduser()) if path else ""
@@ -48,6 +49,8 @@ class InptkClient(QObject):
             return
         self.path = path
         self.stopping = False
+        self.connecting = True
+        self.busyChanged.emit(True)
         self.process.setProgram(path)
         self.process.setArguments(["serve"])
         self.process.start()
@@ -63,11 +66,12 @@ class InptkClient(QObject):
             self._fail("This INP toolkit executable is missing required client commands.")
             return
         self.capabilities = reply
+        self.connecting = False
         self.ready.emit(reply)
 
     def request(self, args, callback, error=None):
         if self.process.state() != QProcess.Running:
-            message = "INP toolkit is not connected. Use Connect or test its executable in Settings."
+            message = "INP toolkit is unavailable. Check its executable in Settings → INP toolkit."
             (error or self.failed.emit)(message)
             return
         self.next_id += 1
@@ -135,6 +139,7 @@ class InptkClient(QObject):
 
     def stop(self):
         self.stopping = True
+        self.connecting = False
         self.timer.stop()
         self.pending.clear()
         self.active = None

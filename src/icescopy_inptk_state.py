@@ -127,3 +127,31 @@ def cli_choices(settings, *, suggest=False, selected=None):
             raise ValueError(f"Enter a valid value for {key.replace('_', ' ')}.")
         args += [flag, text]
     return args
+
+
+def set_group_inputs(settings, index, members):
+    """Assign selected physical inputs to one group, moving them from others.
+
+    Unchecking an input leaves its data available as an individual group. The
+    client never invents an additional independent replicate of a physical input.
+    """
+    result = copy.deepcopy(settings)
+    target = result['curves'][index]
+    members = list(dict.fromkeys(members))
+    removed = set(target['inputs']) - set(members)
+    target['inputs'] = members
+    for curve in result['curves']:
+        if curve is not target:
+            curve['inputs'] = [key for key in curve['inputs'] if key not in members]
+    result['curves'] = [c for c in result['curves'] if c is target or c['inputs']]
+    assigned = {key for c in result['curves'] for key in c['inputs']}
+    for key in sorted(removed - assigned):
+        if result['inputs'][key]['blank']: continue
+        name, suffix = key, 2
+        while name in {c['name'] for c in result['curves']}:
+            name = f'{key} ({suffix})'; suffix += 1
+        result['curves'].append({'name': name, 'inputs': [key]})
+    for curve in result['curves']:
+        for key in curve['inputs']:
+            result['inputs'][key]['group'] = curve['name']
+    return result

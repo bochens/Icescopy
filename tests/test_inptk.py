@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import test_freeze_review_cycles as cycle_tests
 from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QItemSelectionModel
 from PySide6.QtGui import QUndoCommand
 from icescopy_inptk_state import cli_choices, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
@@ -209,7 +209,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.settings["ranges"] = {keys[0]:{"min_C":-7,"max_C":-5}}
         before = copy.deepcopy(self.panel.settings["ranges"])
         self.panel.change_option("min_unfrozen",100)
-        self.panel.curves.setCurrentRow(0)
+        self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
         self.panel.suggest_ranges()
         self.wait(lambda:not self.panel.operation and not self.panel.client.busy)
         self.assertFalse(self.panel.settings["suggestion"]["complete"])
@@ -233,10 +233,10 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.ranges.item(0, 1).setText("-7")
         self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, -5))
         self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, -5))
-        self.panel.limit_curve.setCurrentIndex(1)
+        self.panel.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), {keys[0]})
         self.assertTrue(self.panel.ranges.isRowHidden(1))
-        self.panel.limit_curve.setCurrentIndex(0)
+        self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
 
     def test_dialog_history_is_independent_and_survives_close(self):
@@ -313,3 +313,143 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.reject()
         self.assertFalse(self.panel.client.busy)
         self.assertIs(self.panel.result, original)
+
+    def test_one_selection_controls_plot_table_and_ranges(self):
+        keys = self.configure(); self.calculate()
+        p = self.panel
+        p.tabs.setCurrentIndex(1)
+        p.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
+        self.assertEqual(p.selected_curve_names(), ['Neat'])
+        self.assertEqual(set(p.range_items), {keys[0]})
+        self.assertEqual([name for name, _ in p.selected_result_tables('cumulative')], ['Neat'])
+        self.assertEqual({r['measurement_id'] for r in p.observation_rows()}, {keys[0]})
+        p.views.setCurrentIndex(1)
+        p.table_kind.setCurrentText('Observations')
+        self.assertEqual(p.table_model.rowCount(), 4)
+        # Standard multiple selection uses the same list, not another plot picker.
+        p.curves.item(0).setSelected(True)
+        self.assertEqual(set(p.range_items), set(keys[:2]))
+        self.assertEqual(len(p.selected_result_tables('cumulative')), 2)
+        self.assertFalse(p.inputs.item(0, 0).flags() & Qt.ItemIsEnabled)
+        self.assertFalse(p.suggest.isEnabled())
+
+    def test_switching_quantity_refits_axes_including_uncertainty(self):
+        import numpy as np
+        import pyqtgraph as pg
+        self.configure(); self.calculate()
+        p = self.panel
+        p.quantity.setCurrentText('Fraction frozen')
+        self.assertLess(p.plot.viewRange()[1][0], 0)
+        self.assertGreater(p.plot.viewRange()[1][1], 1)
+        p.plot.setYRange(.4, .5, padding=0)
+        p.quantity.setCurrentText('Concentration')
+        rows = p.result['tables']['Combined']['cumulative']['rows']
+        upper = max(r['concentration'] + r['upper_error'] for r in rows)
+        self.assertGreater(p.plot.viewRange()[1][1], upper)
+        self.assertTrue(p.visible_points)
+        self.assertTrue(any(isinstance(item, pg.FillBetweenItem) and not item.path().isEmpty()
+                            for item in p.plot.getPlotItem().items))
+        p.log_y.setChecked(True)
+        for item in p.plot.listDataItems():
+            if item.opts.get('data'):
+                np.testing.assert_allclose(item.scatter.getData()[1], item.getData()[1], equal_nan=True)
+        p.quantity.setCurrentText('Number frozen')
+        self.assertFalse(p.plot.getPlotItem().ctrl.logYCheck.isChecked())
+        self.assertGreater(p.plot.viewRange()[1][1], 10)
+        self.assertLess(p.plot.viewRange()[1][1], 11)
+        p.plot.setYRange(4, 5, padding=0)
+        p.fit_button.click()
+        self.assertLess(p.plot.viewRange()[1][0], 0)
+
+    def test_open_connects_automatically_and_calculate_restarts_after_stop(self):
+        self.configure()
+        p = self.panel
+        p.client.stop(); p.preview = None
+        p.show_analysis()
+        self.wait(lambda: p.preview is not None and not p.client.busy)
+        self.assertTrue(p.client.capabilities)
+        p.cancel_operation()
+        self.assertFalse(p.client.capabilities)
+        self.assertTrue(p.calculate.isEnabled())
+        self.calculate()
+        self.assertEqual(p.last_error, '')
+        self.assertTrue(p.cancel.isHidden())
+
+    def test_error_survives_idle_notification_and_is_visible_on_blank_plot(self):
+        self.configure()
+        p = self.panel
+        p.quantity.setCurrentText('Concentration')
+        p.change_option('fit_step', '-1')
+        p.change_option('method', 'mle')
+        p.recalculate()
+        p.client.busyChanged.emit(False)
+        self.assertIn('fit step', p.status.text())
+        self.assertIn('fit step', p.empty_plot.text())
+        self.assertIsNone(p.result)
+        p.change_option('fit_step', '1')
+        self.calculate()
+        self.assertEqual(p.empty_plot.text(), '')
+
+    def test_zero_and_nonfinite_concentrations_have_explicit_display_state(self):
+        self.configure(); self.calculate()
+        p = self.panel
+        rows = p.result['tables']['Combined']['cumulative']['rows']
+        for row in rows:
+            row.update(concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'})
+        p.draw()
+        self.assertEqual(p.visible_points, 4)
+        p.log_y.setChecked(True)
+        self.assertEqual(p.visible_points, 0)
+        self.assertIn('No positive', p.empty_plot.text())
+        p.log_y.setChecked(False)
+        self.assertEqual(p.empty_plot.text(), '')
+        for row in rows: row['concentration'] = {'$nonfinite': 'inf'}
+        p.draw()
+        self.assertIn('No finite', p.empty_plot.text())
+
+    def test_group_membership_moves_samples_without_duplicate_group_field(self):
+        p = self.panel
+        p.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
+        original_names = [c['name'] for c in p.settings['curves']]
+        p.inputs.item(1, 0).setCheckState(Qt.Checked)
+        self.assertEqual(p.settings['curves'][0]['inputs'], list(p.input_ids[:2]))
+        self.assertNotIn(original_names[1], [c['name'] for c in p.settings['curves']])
+        self.assertEqual(p.settings['inputs'][p.input_ids[1]]['group'], original_names[0])
+        p.undo_stack.undo()
+        self.assertEqual([c['name'] for c in p.settings['curves']], original_names)
+        p.inputs.item(1, 0).setCheckState(Qt.Checked)
+        p.inputs.item(1, 0).setCheckState(Qt.Unchecked)
+        self.assertEqual({key for c in p.settings['curves'] for key in c['inputs']}, set(p.input_ids))
+        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.assertTrue(p.settings['inputs'][p.input_ids[2]]['blank'])
+        self.assertNotIn(p.input_ids[2], {key for c in p.settings['curves'] for key in c['inputs']})
+
+    def test_edit_does_not_reserialize_csv_or_populate_hidden_result_table(self):
+        import icescopy_inptk_panel as module
+        p = self.panel
+        p.source_cache = None
+        with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
+            p.current_hash()
+            for i in range(3): p.curves.item(0).setText(f'Renamed {i}')
+            self.assertEqual(serialize.call_count, 1)
+        self.assertEqual(p.table_model.rowCount(), 0)
+        p.views.setCurrentIndex(1)
+        self.assertEqual(p.table_model.rowCount(), 4)
+        p.source_changed()
+        with patch.object(module, 'build_freeze_count_timeseries_csv_text', wraps=module.build_freeze_count_timeseries_csv_text) as serialize:
+            p.current_hash()
+            self.assertEqual(serialize.call_count, 1)
+
+
+class InpAxisTests(unittest.TestCase):
+    def test_limits_are_finite_for_zero_single_point_and_unbounded_data(self):
+        import math
+        from icescopy_inptk_plot import axis_limits
+        for quantity in ('Number frozen', 'Fraction frozen', 'Concentration'):
+            for log in (False, True):
+                for values in ([0.], [float('inf'), float('nan')], [1e-12, 1e12]):
+                    with self.subTest(quantity=quantity, log=log, values=values):
+                        x, y = axis_limits(quantity, [-10.], values, [96.], logarithmic=log)
+                        self.assertTrue(all(math.isfinite(v) for v in (*x, *y)))
+                        self.assertLess(x[0], -10); self.assertGreater(x[1], -10)
+                        self.assertLess(y[0], y[1])
