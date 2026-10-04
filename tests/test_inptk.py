@@ -167,6 +167,9 @@ class InpCsvLayoutTests(unittest.TestCase):
         tables = {'Group': table([(0., 0.), (-.5, 2.)]),
                   'Other group': table([(-.5, 4.), (-1., 5.)]),
                   'Group / A': table([(0., 100.)])}
+        # Fit observations outside the reporting interval are not CSV values.
+        tables['Group']['excluded'] = {'rows': [dict(temperature_C=20., concentration=999.,
+            unit='INP_per_mL_suspension')]}
         headers, rows = concentration_csv(tables, [('Group', 'Group'), ('Other group', 'Other group')])
         self.assertEqual(headers, ['temperature_C', 'Group concentration (INP/mL suspension)',
                                    'Other group concentration (INP/mL suspension)'])
