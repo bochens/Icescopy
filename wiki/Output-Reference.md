@@ -118,10 +118,10 @@ The **number total** and metadata field `cell_number` both give the number of ce
 ### Which samples appear
 
 - Cells with sample assignments are grouped by sample ID, not just by name.
-- Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name and reimport.
-- Unassigned cells form an **Unassigned cells** group when named groups also exist, or **All cells** when no named groups exist.
+- Samples need nonempty names. Cells assigned to a sample with an empty name can be omitted from normal sample groups; fill in the name to refresh the counts (reimport for older sessions without retained temperature inputs).
+- Unassigned cells form an **Unassigned cells** group, including when no cells have sample assignments.
 - Blank samples appear with their own total and frozen counts, like other samples.
-- CSU image mode includes all app groups. Recorded mode includes named groups matching instrument columns. Combined mode includes those matched groups plus unassigned cells. Check the import summary for omissions.
+- **Icescopy only** includes all cell groups. **Icescopy + .dat** includes named groups matching `.dat` sample columns, plus unassigned cells using Icescopy events. Check the import summary for omissions.
 
 Separate sample IDs can share the same name, producing identical column labels. The metadata identifies the groups, but some CSV readers automatically rename duplicate headers. Distinct sample names are easier to work with; CSU rejects ambiguous duplicate names when matching an instrument column.
 
@@ -129,7 +129,7 @@ Separate sample IDs can share the same name, producing identical column labels. 
 
 For Standard, UTK, TAMU, and PKU, data row 0 corresponds to loaded frame 0, including frames outside automatic-analysis intervals. Counting within a cycle uses each cell's first event in that cycle. Later events for the same cell in that cycle do not add another frozen cell. A later cycle starts its counts again and needs its own events.
 
-CSU rows follow the instrument record. Image mode holds each image's count forward from its matching picture row; recorded mode keeps instrument counts; combined mode uses image counts as references for the intervening instrument counts. Do not join CSU rows to the event table by row number.
+CSU rows follow the instrument record. **Icescopy only** holds each image's count forward from its matching picture row; **Icescopy + .dat** uses image counts as references for the intervening instrument counts. Do not join CSU rows to the event table by row number.
 
 Analysis intervals and temperature cycles serve different purposes. Intervals restrict automatic measurement and detection; cycles reset counts based on the temperature record. Several analysis intervals can lie inside one temperature cycle, and one interval can span several cycles.
 
@@ -203,4 +203,4 @@ This keeps the comment text in `metadata_lines` and reads the table into `counts
 
 To calculate fraction frozen, divide **number frozen** by a valid, nonzero **number total**. Apply any blank correction in downstream analysis; new imports export counts without blank correction. A count table alone does not supply concentration, confidence intervals, detection accuracy, or calibration uncertainty.
 
-Exports are a snapshot of the current stored results. Changing settings does not update an already written CSV. Recalculate or reimport as needed, then export to a new file or folder. A saved `.icescopy` session retains working state and internal result tables; the external count CSV additionally carries the comment metadata described here.
+Exports are a snapshot of the current stored results. Changing settings does not update an already written CSV. With retained temperature inputs, event and sample edits automatically refresh the in-app count table. Export again to a new file or folder to save those changes. A saved `.icescopy` session retains working state and internal result tables; the external count CSV additionally carries the comment metadata described here.

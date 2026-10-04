@@ -27,7 +27,6 @@ from PySide6.QtCore import Qt, QDate, QSignalBlocker
 from icescopy_temperature_import import (
     CSU_COUNT_SOURCE_COMBINED,
     CSU_COUNT_SOURCE_IMAGES,
-    CSU_COUNT_SOURCE_INSTRUMENT,
     IMAGE_TIMESTAMP_SOURCE_CHOICES,
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_CREATED,
@@ -41,6 +40,65 @@ from icescopy_temperature_import import (
     parse_timestamp_text,
     resolve_image_timestamp,
 )
+
+
+def temperature_import_summary_text(summary, row_count, *, video_mode=False):
+    """Describe output coverage without treating included cells as sample matches."""
+    groups = summary.get("matched_samples", [])
+    included_cells = sum(group["total_cells"] for group in summary["sample_total_cells"])
+    total_cells = summary["total_cell_count"]
+    lines = [
+        "Temperature import complete.",
+        "",
+        f"Cells: {total_cells} total; {included_cells} included.",
+        f"Included cell groups: {len(groups)}.",
+    ]
+    if summary.get("analysis_required"):
+        lines.append("Frozen counts: Analysis required (blank until events are available).")
+    notices = []
+    excluded_cells = total_cells - included_cells
+    if excluded_cells:
+        notices.append(f"{excluded_cells} cell(s) are not included. Check sample names and assignments.")
+
+    if "count_source" in summary:
+        lines.append(f"Count source: {summary['count_source_label']}.")
+        if summary["sample_count_matching_used"]:
+            lines.append(
+                f".dat sample-count columns matched: "
+                f"{len(summary['dat_sample_matches'])}/{summary['total_dat_sample_count']}."
+            )
+        lines.append(
+            f"Loaded images matched: {summary['matched_image_count']}/{summary['total_image_count']}."
+        )
+        unmatched = summary["total_image_count"] - summary["matched_image_count"]
+        if unmatched:
+            notices.append(f"{unmatched} image(s) have no matching .dat Picture record.")
+    else:
+        frame_label = "Frames" if video_mode else "Images"
+        total = summary["total_images"]
+        if summary.get("source_type") == "pku_linksys32_iml":
+            lines.append(f"Images paired with .iml records (by order): {summary['image_record_count']}/{total}.")
+            temperature_count = summary["tagged_temperature_count"]
+        else:
+            temperature_count = summary["in_range_image_count"]
+            outside = summary["out_of_range_image_count"]
+            if outside:
+                notices.append(f"{outside} {frame_label.lower()} fall outside the temperature record.")
+        lines.append(f"{frame_label} with temperatures: {temperature_count}/{total}.")
+        lines.append(f"{frame_label} with readable timestamps: {summary['parsed_image_count']}/{total}.")
+        unreadable = summary["unparsed_image_count"]
+        if unreadable:
+            notices.append(f"{unreadable} {frame_label.lower()} have no readable timestamp.")
+        if temperature_count < total:
+            notices.append("Rows without temperatures are kept in the table with blank temperature fields.")
+
+    lines.append(f"Output rows: {row_count}. Cooling cycles: {summary.get('cycle_count', 1)}.")
+    if summary.get("warnings"):
+        notices.append(f"Review {len(summary['warnings'])} warning(s) in Show Details before exporting.")
+    if notices:
+        lines.extend(["", *notices])
+    lines.extend(["", "Save using Output Results → Freeze Count Timeseries CSV."])
+    return "\n".join(lines)
 
 
 TEMPERATURE_RESET_LABEL = "Reset After Warmed To (°C)"
@@ -199,9 +257,8 @@ class CSUTemperatureImportDialog(QDialog):
         form.addRow("CSU .dat file", file_row_widget)
 
         self.count_source_combo = QComboBox(self)
-        self.count_source_combo.addItem("Icescopy detections", CSU_COUNT_SOURCE_IMAGES)
-        self.count_source_combo.addItem("CSU recorded counts", CSU_COUNT_SOURCE_INSTRUMENT)
-        self.count_source_combo.addItem("Icescopy + CSU", CSU_COUNT_SOURCE_COMBINED)
+        self.count_source_combo.addItem("Icescopy only", CSU_COUNT_SOURCE_IMAGES)
+        self.count_source_combo.addItem("Icescopy + .dat", CSU_COUNT_SOURCE_COMBINED)
         source_index = self.count_source_combo.findData(initial_count_source)
         if source_index < 0:
             source_index = self.count_source_combo.findData(CSU_COUNT_SOURCE_COMBINED)
@@ -252,17 +309,12 @@ class CSUTemperatureImportDialog(QDialog):
         descriptions = {
             CSU_COUNT_SOURCE_IMAGES: (
                 "Use freeze events found or edited in Icescopy. You can use any sample names; "
-                "CSU count columns are not required."
-            ),
-            CSU_COUNT_SOURCE_INSTRUMENT: (
-                "Use CSU's recorded counts, including any decreases. They do not identify individual "
-                "frozen cells. Draw all cells and assign them to samples in Icescopy, using the "
-                ".dat column names, such as Sample_0."
+                ".dat count columns are not required. Unassigned cells are included as one group."
             ),
             CSU_COUNT_SOURCE_COMBINED: (
-                "Use Icescopy counts at image times and CSU counts between images. Run image "
+                "Use Icescopy counts at image times and .dat counts between images. Run image "
                 "analysis first. Name the samples in Icescopy to match the .dat columns, "
-                "such as Sample_0."
+                "such as Sample_0. Unassigned cells use only Icescopy freeze events."
             ),
         }
         self.count_source_help.setText(

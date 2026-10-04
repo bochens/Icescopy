@@ -165,6 +165,7 @@ def build_session_payload(main_window):
 
     payload = {
         "schema_version": SESSION_SCHEMA_VERSION,
+        "inp_analysis": main_window.inptk_panel.session_state() if hasattr(main_window, "inptk_panel") else {},
         "session_metadata": main_window.serialize_session_metadata(),
         "image_edit_state": main_window.serialize_image_edit_state(),
         "image_width": main_window.image_width,
@@ -395,6 +396,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
 
     return {
         "session_metadata": payload["session_metadata"],
+        "inp_analysis": payload.get("inp_analysis", {}),
         "image_edit_state": payload["image_edit_state"],
         "cell_items": cell_items,
         "next_cell_id": payload["next_cell_id"],

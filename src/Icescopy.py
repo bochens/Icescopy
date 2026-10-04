@@ -34,6 +34,7 @@ from icescopy_cell import CellStateManager
 from icescopy_cell_items import CellCircle, CellSnapshot
 from icescopy_dialogs import (
     CSUTemperatureImportDialog,
+    temperature_import_summary_text,
     NewSessionMetadataDialog,
     OutputResultsDialog,
     PKUTemperatureImportDialog,
@@ -54,6 +55,7 @@ from icescopy_frame_source import (
     normalize_video_grayscale_mode,
 )
 from icescopy_freeze_count_timeseries import FreezeCountTimeseriesMixin
+from icescopy_temperature_refresh import rebuild_temperature_counts
 from icescopy_freeze_cycles import restore_cycle_metadata, set_cycle_metadata
 from icescopy_sample_catalog import SampleCatalogPanelMixin
 from icescopy_video_preview import VideoPreviewDecodeController
@@ -76,6 +78,7 @@ from icescopy_image_edit import (
     qimage_to_grayscale_array,
 )
 from icescopy_plot import GrayscalePlotWidget
+from icescopy_inptk_panel import InptkPanel
 from icescopy_paths import preferences_read_path
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
@@ -269,6 +272,14 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
         self.timeseries_line_width = 2.0
+        self.inptk_sample_line_width = 2.8
+        self.inptk_combined_line_width = 4.0
+        self.inptk_marker_size = 6.0
+        self.inptk_outside_opacity = 30.0
+        self.inptk_log_concentration = True
+        self.inptk_uncertainty_opacity = 14.0
+        self.inptk_grid_opacity = 12.0
+        self.inptk_legend_font_size = 10.0
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
@@ -350,6 +361,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         self.default_circle_radius = preferences.get('DefaultCircleRadius', self.default_circle_radius)
         self.droplet_model_path = str(preferences.get("DropletModelPath", "") or "")
+        self.inptk_executable_path = str(preferences.get("InptkExecutablePath", "") or "")
+        self.inptk_sample_line_width = float(preferences.get("InptkSampleLineWidth", 2.8))
+        self.inptk_combined_line_width = float(preferences.get("InptkCombinedLineWidth", 4.0))
+        self.inptk_marker_size = float(preferences.get("InptkMarkerSize", 6.0))
+        self.inptk_outside_opacity = float(preferences.get("InptkOutsideOpacity", 30.0))
+        self.inptk_log_concentration = preferences.get("InptkLogConcentration", True)
+        self.inptk_uncertainty_opacity = float(preferences.get("InptkUncertaintyOpacity", 14.0))
+        self.inptk_grid_opacity = float(preferences.get("InptkGridOpacity", 12.0))
+        self.inptk_legend_font_size = float(preferences.get("InptkLegendFontSize", 10.0))
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -468,6 +488,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.update_grid_preview()
         if hasattr(self, "grayscale_plot_widget"):
             self.refresh_grayscale_plot()
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.draw()
         self.scene.update()
 
     def default_tool_settings(self):
@@ -1188,6 +1210,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.invalidate_freeze_count_timeseries_results(
             "freeze frame annotations changed",
             refresh_table=refresh_freeze_count_table,
+            analysis_required=False,
         )
         if refresh_tables:
             self.refresh_freeze_annotation_views()
@@ -1828,6 +1851,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.sync_tool_options_panel()
 
     def initData(self):
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.restore_session(None)
         # Gets called so wiped at loading images
         # All Attributes related to data
         if hasattr(self, 'image_cache'):
@@ -3023,13 +3048,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             image_gray = self.active_frame_source().get_gray_array(index)
             if image_gray is None:
                 raise ValueError(f"Unable to read frame: {index}")
-            image_gray = apply_image_adjustments_to_uint8(
-                image_gray,
-                self.image_edit_exposure,
-                self.image_edit_contrast,
-                crop_state=None,
-                apply_crop=False,
-            )
+            # The offset is added to exposure BEFORE contrast in both display
+            # and analysis. Estimate its ratio from original pixels, too:
+            # contrast adds a constant and clipping loses brightness information,
+            # so ratios of adjusted pixels can amplify the original mismatch.
+            # Ignore previous uniform offsets so repeated runs do not compound.
             return image_gray
 
         def area_mean(image_gray, raw_area_state):
@@ -3873,6 +3896,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grayscale_dock = None
         self.grayscale_plot_dock = self.create_dock_widget("Grayscale Plot", self.grayscale_plot_widget, "grayscalePlotDock")
         self.results_tables_dock = self.create_dock_widget("Results Tables", self.results_table_tabs, "resultsTablesDock")
+        self.inptk_panel = InptkPanel(self)
         self.freeze_dock = None
 
         self.addDockWidget(Qt.LeftDockWidgetArea, self.image_list_dock)
@@ -3892,6 +3916,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.cells_dock.hide()
         self.grayscale_plot_dock.hide()
         self.results_tables_dock.hide()
+        analysis_menu.addSeparator()
+        analysis_menu.addAction("INP Analysis…", self.inptk_panel.show_analysis)
         self.cells_dock.visibilityChanged.connect(self.handle_cells_panel_visibility_changed)
         self.grayscale_plot_dock.visibilityChanged.connect(self.handle_grayscale_plot_visibility_changed)
 
@@ -4259,7 +4285,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         image_edit_uniform_exposure_button_layout.addWidget(self.image_edit_uniform_exposure_reset_button)
         self.image_edit_tool_page.column_layout.addWidget(self.image_edit_uniform_exposure_button_row)
         self.image_edit_uniform_exposure_hint = self.image_edit_tool_page.add_hint(
-            "Use the current frame as the reference. Set one control area, then Run to match each image's area brightness to that frame."
+            "Use the current frame as the reference. Set a stable background area that does not freeze, move, or turn black or white, then Run. The correction uses original pixels, before Exposure and Contrast."
         )
         self.image_edit_uniform_exposure_separator = self.image_edit_tool_page.add_separator()
 
@@ -5477,6 +5503,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if hasattr(self, "freeze_count_timeseries_table"):
             self.set_table_data(self.freeze_count_timeseries_table, self.freeze_count_timeseries_headers, self.freeze_count_timeseries_rows)
         self.update_results_table_visibility()
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
 
     def clear_freeze_count_timeseries_table_widget(self):
         if not hasattr(self, "freeze_count_timeseries_table"):
@@ -5507,13 +5535,26 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 if visible_count == 0:
                     self.results_tables_dock.hide()
 
-    def set_freeze_count_timeseries_results(self, headers, rows, summary=None):
+    def set_freeze_count_timeseries_results(self, headers, rows, summary=None, *, automatic=False):
+        previous_headers = self.freeze_count_timeseries_headers
+        previous_rows = self.freeze_count_timeseries_rows
+        if summary and summary.get("refresh_context") and not automatic:
+            summary["analysis_required"] = not (
+                getattr(self, "freeze_results_headers", [])
+                or any(getattr(record, "freeze_event_indices", [])
+                       for record in getattr(self, "cell_records_by_id", {}).values())
+            )
         self.freeze_count_timeseries_headers = [str(value) for value in (headers or [])]
         self.freeze_count_timeseries_rows = [
             ["" if value is None else str(value) for value in row]
             for row in (rows or [])
         ]
         self.freeze_count_timeseries_summary = dict(summary or {})
+        if self.freeze_count_timeseries_summary.get("analysis_required"):
+            for column, header in enumerate(self.freeze_count_timeseries_headers):
+                if header.endswith(" number frozen"):
+                    for row in self.freeze_count_timeseries_rows:
+                        row[column] = ""
         restore_cycle_metadata(self, {
             "freeze_count_timeseries_headers": self.freeze_count_timeseries_headers,
             "freeze_count_timeseries_rows": self.freeze_count_timeseries_rows,
@@ -5523,8 +5564,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "sample_metadata_schema",
             self.serialize_sample_metadata_schema(),
         )
-        self.update_freeze_count_timeseries_table()
-        if self.freeze_count_timeseries_headers:
+        if automatic:
+            self.update_temperature_table_after_edit(previous_headers, previous_rows)
+        else:
+            self.update_freeze_count_timeseries_table()
+        if self.freeze_count_timeseries_headers and not automatic:
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(2)
             self.show_dock_widget(self.results_tables_dock)
@@ -5548,6 +5592,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         return current_header
 
     def refresh_freeze_count_timeseries_metadata_from_sample_catalog(self, *, relabel_headers=False):
+        if getattr(self, "freeze_count_timeseries_summary", {}).get("refresh_context"):
+            return self.refresh_temperature_counts()
         if not self.freeze_count_timeseries_headers:
             return False
 
@@ -5635,6 +5681,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 summary["matched_blank_samples"] = matched_blank_samples
 
         self.freeze_count_timeseries_summary = summary
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
         if headers_changed:
             self.freeze_count_timeseries_headers = refreshed_headers
             if hasattr(self, "freeze_count_timeseries_table"):
@@ -5642,7 +5690,84 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.update_session_actions_state()
         return True
 
-    def invalidate_freeze_count_timeseries_results(self, reason=None, refresh_table=True):
+    def update_temperature_table_after_edit(self, previous_headers, previous_rows):
+        """Keep the current table position and briefly mark changed values."""
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.source_changed()
+        table = getattr(self, "freeze_count_timeseries_table", None)
+        if table is None:
+            return
+        generation = getattr(self, "temperature_highlight_generation", 0) + 1
+        self.temperature_highlight_generation = generation
+        if (previous_headers != self.freeze_count_timeseries_headers
+                or len(previous_rows) != len(self.freeze_count_timeseries_rows)
+                or table.rowCount() != len(self.freeze_count_timeseries_rows)):
+            self.update_freeze_count_timeseries_table()
+            return
+        changed = []
+        table.setUpdatesEnabled(False)
+        try:
+            for row_index, row in enumerate(self.freeze_count_timeseries_rows):
+                for column, value in enumerate(row):
+                    item = table.item(row_index, column)
+                    if item is None:
+                        continue
+                    item.setBackground(QBrush())
+                    if value != previous_rows[row_index][column]:
+                        item.setText(value)
+                        item.setBackground(QColor(245, 190, 65, 90))
+                        changed.append((row_index, column))
+        finally:
+            table.setUpdatesEnabled(True)
+
+        def clear_highlights():
+            if generation != getattr(self, "temperature_highlight_generation", None):
+                return
+            for row_index, column in changed:
+                item = table.item(row_index, column)
+                if item is not None:
+                    item.setBackground(QBrush())
+        if changed:
+            QTimer.singleShot(900, table, clear_highlights)
+        self.update_results_table_visibility()
+
+    def refresh_temperature_counts(self, *, analysis_required=None):
+        previous_summary = self.freeze_count_timeseries_summary
+        context = previous_summary.get("refresh_context")
+        if not context:
+            return False
+        try:
+            headers, rows, summary = rebuild_temperature_counts(self, context)
+            summary["analysis_required"] = (
+                previous_summary.get("analysis_required", False)
+                if analysis_required is None else bool(analysis_required)
+            )
+            self.set_freeze_count_timeseries_results(headers, rows, summary, automatic=True)
+        except Exception as error:
+            # Never offer stale counts for export, but retain the inputs so a later
+            # correction can recover without reopening the temperature file.
+            self.freeze_count_timeseries_headers = []
+            self.freeze_count_timeseries_rows = []
+            self.freeze_count_timeseries_summary = dict(previous_summary, refresh_error=str(error))
+            self.update_freeze_count_timeseries_table()
+            self.update_session_actions_state()
+            self.log(f"Freeze Count Timeseries could not update: {error}")
+            return False
+        if summary["analysis_required"]:
+            self.log("Temperatures retained. Analysis required; frozen counts are blank.")
+        else:
+            self.log("Freeze Count Timeseries updated.")
+        for warning in summary.get("warnings", []):
+            if warning not in previous_summary.get("warnings", []):
+                self.log(f"Temperature import warning: {warning}")
+        return True
+
+    def invalidate_freeze_count_timeseries_results(
+        self, reason=None, refresh_table=True, *, analysis_required=None,
+    ):
+        if reason and self.freeze_count_timeseries_summary.get("refresh_context"):
+            self.refresh_temperature_counts(analysis_required=analysis_required)
+            return
         had_results = bool(self.freeze_count_timeseries_headers or self.freeze_count_timeseries_rows)
         self.freeze_count_timeseries_headers = []
         self.freeze_count_timeseries_rows = []
@@ -5672,7 +5797,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.freeze_results_rows = []
         self.clear_cell_analysis()
         self.update_results_tables()
-        self.invalidate_freeze_count_timeseries_results("analysis results changed")
+        self.invalidate_freeze_count_timeseries_results("analysis results changed", analysis_required=True)
         if had_results and reason:
             self.log(f"Analysis cleared: {reason}. Run Analysis again.")
 
@@ -5751,6 +5876,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_session_state(self):
         return {
+            "inp_analysis": self.inptk_panel.session_state() if hasattr(self, "inptk_panel") else {},
             "freeze_review_cycle_metadata": copy.deepcopy(getattr(self, "freeze_review_cycle_metadata", {})),
             "session_metadata": copy.deepcopy(self.serialize_session_metadata()),
             "image_edit_state": copy.deepcopy(self.serialize_image_edit_state()),
@@ -5871,6 +5997,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
     def capture_freeze_annotation_state(self):
         return {
+            "temperature_analysis_required": getattr(self, "freeze_count_timeseries_summary", {}).get("analysis_required", False),
             "cell_records_by_id": copy.deepcopy(self.serialize_cell_records()),
             "freeze_results_headers": self.freeze_results_headers.copy(),
             "freeze_results_rows": copy.deepcopy(self.freeze_results_rows),
@@ -6356,7 +6483,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.set_undo_status()
             self.set_redo_status()
 
-    def restore_session_state(self, state, preserve_active_tool=False):
+    def restore_session_state(self, state, preserve_active_tool=False, *, restore_inp_analysis=True):
         self.history_restoring = True
         try:
             set_cycle_metadata(self, None)
@@ -6520,6 +6647,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.show_dock_widget(self.results_tables_dock)
 
             self.restore_tool_mode_ui(restore_tool_mode)
+            if restore_inp_analysis:
+                self.inptk_panel.restore_session(state.get("inp_analysis"))
+            else:
+                self.inptk_panel.source_changed()
         finally:
             self.history_restoring = False
             self.update_freeze_event_navigation_controls()
@@ -6872,10 +7003,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.cell_records_by_id = self.deserialize_cell_records(restored_cell_records_payload)
             self.freeze_results_headers = state.get("freeze_results_headers", []).copy()
             self.freeze_results_rows = copy.deepcopy(state.get("freeze_results_rows", []))
-            self.freeze_count_timeseries_headers = []
-            self.freeze_count_timeseries_rows = []
-            self.freeze_count_timeseries_summary = {}
-            self.last_temperature_import_path = None
             self.ensure_cell_registry_matches_scene_cells()
             self.recompute_next_cell_id(preserve_if_larger=True)
             self.ensure_sample_catalog_matches_cell_records()
@@ -6888,7 +7015,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.replace_freeze_table_rows_for_cells(changed_cell_ids)
             elif hasattr(self, "freeze_table"):
                 self.set_table_data(self.freeze_table, self.freeze_results_headers, self.freeze_results_rows)
-            self.clear_freeze_count_timeseries_table_widget()
+            self.invalidate_freeze_count_timeseries_results(
+                "freeze frame annotations restored",
+                analysis_required=state.get("temperature_analysis_required", False),
+                refresh_table=False,
+            )
             self.update_results_table_visibility()
 
             desired_flag_frames = set(self.selected_cell_freeze_frames(selected_items=selected_items))
@@ -7416,7 +7547,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(1)
             self.show_dock_widget(self.results_tables_dock)
-        self.invalidate_freeze_count_timeseries_results("freeze results changed")
+        self.invalidate_freeze_count_timeseries_results("freeze results changed", analysis_required=False)
 
     def import_standard_temperature_csv(self, checked=False):
         if not self.has_frames():
@@ -7531,8 +7662,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
+            f"{frame_label} with readable timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7546,26 +7677,25 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature timestamp style: " + str(summary.get("temperature_timestamp_style", "")))
         message_lines.append("Temperature column unit: " + str(summary.get("temperature_unit", "")))
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if out_of_range_image_count:
             message_lines.append(
-                f"{frame_label} outside the timeseries range: {out_of_range_image_count}"
+                f"{frame_label} outside the temperature record: {out_of_range_image_count}"
             )
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
                 message_lines.append(
-                    f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})"
+                    f"{frame_label} without readable timestamps: {unparsed_image_count} ({preview})"
                 )
             else:
                 message_lines.append(
-                    f"{frame_label} with unparseable timestamps: {unparsed_image_count}"
+                    f"{frame_label} without readable timestamps: {unparsed_image_count}"
                 )
 
         self.show_detailed_information_dialog(
             "Standard temperature CSV import",
-            "Standard temperature CSV import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
+            temperature_import_summary_text(summary, len(rows), video_mode=video_mode),
             "\n".join(message_lines),
         )
         self.log(f"Imported standard temperature CSV: {file_path}")
@@ -7664,8 +7794,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"{frame_label} with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"{frame_label} inside timeseries range: {in_range_image_count}/{total_images}",
+            f"{frame_label} with readable timestamps: {parsed_image_count}/{total_images}",
+            f"{frame_label} with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7679,20 +7809,19 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines.append("Temperature timestamp style: UTK Time column")
         message_lines.append("Temperature column: PV(C)1")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if out_of_range_image_count:
-            message_lines.append(f"{frame_label} outside the timeseries range: {out_of_range_image_count}")
+            message_lines.append(f"{frame_label} outside the temperature record: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"{frame_label} with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "UTK CSV import",
-            "UTK CSV import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed {frame_label.lower()} timestamps.",
+            temperature_import_summary_text(summary, len(rows), video_mode=video_mode),
             "\n".join(message_lines),
         )
         self.log(f"Imported UTK CSV file: {file_path}")
@@ -7754,7 +7883,20 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.last_temperature_reset_temperature = self.normalize_temperature_reset_threshold(reset_temperature)
         self.set_freeze_count_timeseries_results(headers, rows, summary)
 
-        matched_samples = summary.get("matched_samples", [])
+        output_groups = summary.get("matched_samples", [])
+        dat_matches = summary["dat_sample_matches"]
+        group_summary = (
+            f"Cell groups: {summary['total_cell_group_count']} total; "
+            f"{len(output_groups)} included."
+        )
+        match_summary = (
+            f".dat sample-count columns matched: {len(dat_matches)}/{summary['total_dat_sample_count']}."
+            if summary["sample_count_matching_used"]
+            else None
+        )
+        image_summary = (
+            f"Loaded images matched: {summary['matched_image_count']}/{summary['total_image_count']}."
+        )
         unmatched_app = summary.get("unmatched_app_samples", [])
         unmatched_dat = summary.get("unmatched_dat_samples", [])
         matched_picture_rows = int(summary.get("matched_picture_rows", 0))
@@ -7768,33 +7910,38 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         message_lines = [
             f"Count source: {count_source_label}",
             f"Temperature column: {temperature_column}",
-            f"Matched samples: {len(matched_samples)}",
-            f"Matched picture rows: {matched_picture_rows}/{total_picture_rows}",
+            group_summary,
+            image_summary,
+            f"Picture records matched to loaded images: {matched_picture_rows}/{total_picture_rows}",
             f"Detected cycles: {cycle_count}",
         ]
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
-        if matched_samples:
-            message_lines.append("Matched sample names: " + ", ".join(matched_samples))
+        if match_summary:
+            message_lines.append(match_summary)
+        if dat_matches:
+            message_lines.append("Sample matches: " + "; ".join(
+                f"{match['sample_name']} → {match['dat_column']}" for match in dat_matches
+            ))
+        if output_groups:
+            message_lines.append("Included group names: " + ", ".join(output_groups))
         if unmatched_app:
-            message_lines.append("No CSU column match for app sample(s): " + ", ".join(unmatched_app))
+            message_lines.append("Samples without a matching .dat count column (not included): " + ", ".join(unmatched_app))
         if unmatched_dat:
-            message_lines.append("No app sample match for CSU column(s): " + ", ".join(unmatched_dat))
+            message_lines.append(".dat count columns without a matching Icescopy sample (not used): " + ", ".join(unmatched_dat))
         message_lines.extend("Warning: " + str(warning) for warning in warnings)
 
         self.show_detailed_information_dialog(
             "CSU .dat import",
-            f"Imported using {count_source_label}.\n\n"
-            f"Matched {len(matched_samples)} sample(s) across {matched_picture_rows}/{total_picture_rows} picture rows."
-            + (f"\n\nReview {len(warnings)} warning(s) in the details before exporting." if warnings else ""),
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported CSU .dat file: {file_path}")
         self.log(f"CSU count source: {count_source_label}; temperature column: {temperature_column}")
         for warning in warnings:
             self.log(f"CSU import warning: {warning}")
-        if matched_samples:
-            self.log("CSU matched samples: " + ", ".join(matched_samples))
+        if output_groups:
+            self.log("CSU included cell groups: " + ", ".join(output_groups))
         if unmatched_app:
             self.log("CSU unmatched app samples: " + ", ".join(unmatched_app))
         if unmatched_dat:
@@ -7876,8 +8023,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"Images with parsed timestamps: {parsed_image_count}/{total_images}",
-            f"Images inside timeseries range: {in_range_image_count}/{total_images}",
+            f"Images with readable timestamps: {parsed_image_count}/{total_images}",
+            f"Images with temperatures: {in_range_image_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7885,22 +8032,21 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if calibration_path:
             message_lines.append(f"Calibration applied to {calibrated_cell_count} cell(s).")
         if out_of_range_image_count:
-            message_lines.append(f"Images outside the timeseries range: {out_of_range_image_count}")
+            message_lines.append(f"Images outside the temperature record: {out_of_range_image_count}")
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "TAMU Linkam .xlsx import",
-            "TAMU Linkam .xlsx import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} parsed image timestamps.",
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported TAMU Linkam workbook: {file_path}")
@@ -7976,9 +8122,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
 
         message_lines = [
             f"Grouping: {grouping_label}",
-            f"Matched .iml image records: {image_record_count}/{total_images}",
-            f"Images with .iml timestamps: {parsed_image_count}/{total_images}",
-            f"Images with .iml tagged temperatures: {tagged_temperature_count}/{total_images}",
+            f"Images paired with .iml records (by order): {image_record_count}/{total_images}",
+            f"Images with readable timestamps: {parsed_image_count}/{total_images}",
+            f"Images with temperatures: {tagged_temperature_count}/{total_images}",
             f"Timeseries start: {summary.get('timeseries_start_timestamp', '')}",
             f"Detected cooling cycles: {cycle_count}",
             "Frozen counts reset at each cycle. Within a cycle, a cell is counted after its first freeze event.",
@@ -7986,18 +8132,17 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if reset_temperature is not None:
             message_lines.append(f"Reset threshold: {float(reset_temperature):.1f} °C")
         if matched_samples:
-            message_lines.append("Output samples: " + ", ".join(matched_samples))
+            message_lines.append("Included group names: " + ", ".join(matched_samples))
         if unparsed_image_count:
             preview = ", ".join(summary.get("unparsed_images_preview", []))
             if preview:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count} ({preview})")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count} ({preview})")
             else:
-                message_lines.append(f"Images with unparseable timestamps: {unparsed_image_count}")
+                message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
 
         self.show_detailed_information_dialog(
             "PKU Linksys32 .iml import",
-            "PKU Linksys32 .iml import completed successfully.\n\n"
-            f"Created {len(rows)} synchronized output rows from {parsed_image_count} .iml image timestamps.",
+            temperature_import_summary_text(summary, len(rows)),
             "\n".join(message_lines),
         )
         self.log(f"Imported PKU Linksys32 .iml file: {file_path}")
@@ -9504,6 +9649,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def persist_session_to_path(self, file_path, *, show_errors=True):
         while True:
             try:
+                self.inptk_panel.prepare_session_save()
                 payload = build_session_payload(self)
                 saved_fingerprint = session_content_fingerprint(self, payload=payload)
                 save_session_bundle(
@@ -10911,8 +11057,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.grayscale_results_rows = getattr(worker, 'grayscale_result_rows', [])
         self.freeze_results_headers = getattr(worker, 'freeze_result_headers', [])
         self.freeze_results_rows = getattr(worker, 'freeze_result_rows', [])
-        self.invalidate_freeze_count_timeseries_results("analysis results changed")
         self.update_results_tables()
+        self.invalidate_freeze_count_timeseries_results("analysis results changed", analysis_required=False)
         if self.grayscale_results_headers or self.freeze_results_headers:
             if hasattr(self, "results_table_tabs"):
                 self.results_table_tabs.setCurrentIndex(0 if self.grayscale_results_headers else 1)
@@ -11267,6 +11413,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             event.ignore()
             return
 
+        self.inptk_panel.shutdown()
         self.stop_video_preview_decoder()
         frame_source = getattr(self, "frame_source", None)
         if frame_source is not None:
@@ -11285,6 +11432,13 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         warnings = []
         # Keep these limits aligned with the controls in PreferencesDialog.
         numeric_fields = {
+            "InptkSampleLineWidth": (float, 1.0, 12.0),
+            "InptkCombinedLineWidth": (float, 1.0, 12.0),
+            "InptkMarkerSize": (float, 0.0, 16.0),
+            "InptkOutsideOpacity": (float, 10.0, 80.0),
+            "InptkUncertaintyOpacity": (float, 5.0, 50.0),
+            "InptkGridOpacity": (float, 0.0, 40.0),
+            "InptkLegendFontSize": (float, 8.0, 20.0),
             "DefaultCircleRadius": (float, 0.1, 100000.0),
             "MaximumZoom": (float, 0.1, 1000.0),
             "PenWidth": (float, 0.1, 100.0),
@@ -11333,6 +11487,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 )
 
         text_fields = (
+            "InptkExecutablePath",
             "SampleNamePattern", "SortMode", "GridCellIdDirection",
             "TimeseriesPalette", "TimeseriesFreezeLineColor",
             "TimeseriesCurrentFrameColor", *DEFAULT_VISUAL_COLORS,
@@ -11353,11 +11508,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             preferences["SampleMetadataSchema"] = default_sample_metadata_schema()
             warnings.append(f"SampleMetadataSchema: {err}; using the default fields.")
 
-        brightening_element = root.find("FreezeFinderDetectBrightening")
-        if brightening_element is not None and brightening_element.text is not None:
-            preferences["FreezeFinderDetectBrightening"] = (
-                brightening_element.text.strip().lower() in {"1", "true", "yes", "on"}
-            )
+        for key in ("FreezeFinderDetectBrightening", "InptkLogConcentration"):
+            element = root.find(key)
+            if element is not None and element.text is not None:
+                preferences[key] = element.text.strip().lower() in {"1", "true", "yes", "on"}
         grayscale_element = root.find("VideoGrayscaleMode")
         if grayscale_element is not None and grayscale_element.text is not None:
             preferences["VideoGrayscaleMode"] = normalize_video_grayscale_mode(

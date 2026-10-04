@@ -348,6 +348,7 @@ class SessionIoTests(unittest.TestCase):
     def bind_pku_temperature_methods(self, fake_window):
         fake_window.frame_count = lambda: len(fake_window.imageNames)
         fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
+        fake_window.frame_key = lambda index: fake_window.imagePaths[int(index)]
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
         fake_window.ensure_cell_record = lambda cell_id: None
         fake_window.build_freeze_count_timeseries_sample_groups = (
@@ -641,7 +642,7 @@ class SessionIoTests(unittest.TestCase):
         )
         fake_window.extract_cell_id_from_label = lambda label: int(str(label).split("_", 1)[1])
         fake_window.invalidate_freeze_count_timeseries_results = (
-            lambda reason=None, refresh_table=True: setattr(fake_window, "changed_reason", reason)
+            lambda reason=None, refresh_table=True, **kwargs: setattr(fake_window, "changed_reason", reason)
         )
         fake_window.update_results_tables = (
             lambda: setattr(fake_window, "result_updates", fake_window.result_updates + 1)
@@ -803,6 +804,10 @@ class SessionIoTests(unittest.TestCase):
             side_effect=lambda: self.assertFalse(fake_window.history_restoring)
         )
 
+        fake_window.log = lambda message: None
+        fake_window.invalidate_freeze_count_timeseries_results = lambda *args, **kwargs: (
+            IceScopy.invalidate_freeze_count_timeseries_results(fake_window, *args, **kwargs)
+        )
         IceScopy.restore_freeze_annotation_state(fake_window, state, preserve_active_tool=True)
 
         fake_window.update_freeze_event_navigation_controls.assert_called_once_with()
@@ -1416,7 +1421,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertEqual(metadata["sample_name"], "Unassigned cells")
         self.assertEqual(metadata["cell_number"], "2")
 
-    def test_freeze_count_timeseries_grouping_treats_no_sample_as_all_cells(self):
+    def test_freeze_count_timeseries_grouping_keeps_no_sample_unassigned(self):
         fake_window = SimpleNamespace(
             cell_records_by_id={
                 0: SimpleNamespace(sample_id=""),
@@ -1431,7 +1436,7 @@ class SessionIoTests(unittest.TestCase):
         groups = IceScopy.build_freeze_count_timeseries_sample_groups(fake_window, grouping_mode="samples")
 
         self.assertEqual(list(groups.keys()), ["__unassigned_cells__"])
-        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "All cells")
+        self.assertEqual(groups["__unassigned_cells__"]["sample_name"], "Unassigned cells")
         self.assertEqual(groups["__unassigned_cells__"]["cell_ids"], [0, 1, 2])
         self.assertEqual(groups["__unassigned_cells__"]["total_cells"], 3)
 
@@ -1524,6 +1529,7 @@ class SessionIoTests(unittest.TestCase):
         fake_window.ensure_cell_registry_matches_scene_cells = lambda: None
         fake_window.frame_count = lambda: len(fake_window.imageNames)
         fake_window.frame_name = lambda index: fake_window.imageNames[int(index)]
+        fake_window.frame_key = lambda index: fake_window.imagePaths[int(index)]
         fake_window.ensure_cell_record = lambda cell_id: fake_window.cell_records_by_id.get(cell_id)
         fake_window.sample_record_for_id = lambda sample_id: fake_window.sample_catalog[int(sample_id)]
         fake_window.build_freeze_count_timeseries_sample_groups = (

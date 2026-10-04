@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import numpy as np
 
+from icescopy_temperature_refresh import make_temperature_refresh_context
 from icescopy_sample_metadata import export_sample_metadata_field_keys
 from icescopy_freeze_cycles import capture_cycle_metadata, cycle_ids_for_window
 from icescopy_temperature_import import (
@@ -106,7 +107,7 @@ class FreezeCountTimeseriesMixin:
                 "group_key": group_key,
                 "group_role": "unassigned_cells",
                 "sample_id": "",
-                "sample_name": "Unassigned cells" if groups else "All cells",
+                "sample_name": "Unassigned cells",
                 **{
                     field_name: ""
                     for field_name in metadata_field_names
@@ -561,10 +562,11 @@ class FreezeCountTimeseriesMixin:
         temperature_timestamp_style=TIMESTAMP_STYLE_AUTO,
         temperature_unit=TEMPERATURE_UNIT_CELSIUS,
         reset_temperature=None,
+        timing_context=None,
     ):
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
-        timing_context = self.build_standard_image_timing_context(
+        timing_context = timing_context or self.build_standard_image_timing_context(
             parsed_timeseries,
             image_timestamp_source=image_timestamp_source,
             image_timestamp_style=image_timestamp_style,
@@ -661,6 +663,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "standard_csv",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
@@ -693,6 +696,17 @@ class FreezeCountTimeseriesMixin:
             "temperature_timestamp_style": str(temperature_timestamp_style),
             "temperature_unit": str(temperature_unit),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "standard", parsed_timeseries, dict(
+                image_timestamp_source=image_timestamp_source,
+                image_timestamp_style=image_timestamp_style,
+                generated_start_text=generated_start_text,
+                frame_interval_seconds=frame_interval_seconds,
+                temperature_timestamp_style=temperature_timestamp_style,
+                temperature_unit=temperature_unit, reset_temperature=reset_temperature,
+                timing_context=timing_context,
+            ),
+        )
         return headers, rows, summary
 
     def build_csu_freeze_count_timeseries_results(
@@ -700,9 +714,9 @@ class FreezeCountTimeseriesMixin:
         count_source=CSU_COUNT_SOURCE_COMBINED,
     ):
         count_source_labels = {
-            CSU_COUNT_SOURCE_IMAGES: "Icescopy detections",
+            CSU_COUNT_SOURCE_IMAGES: "Icescopy only",
             CSU_COUNT_SOURCE_INSTRUMENT: "CSU recorded counts",
-            CSU_COUNT_SOURCE_COMBINED: "Icescopy + CSU",
+            CSU_COUNT_SOURCE_COMBINED: "Icescopy + .dat",
         }
         if count_source not in count_source_labels:
             raise TemperatureImportError("Choose a valid CSU count source.")
@@ -996,7 +1010,17 @@ class FreezeCountTimeseriesMixin:
             "temperature_column": str(parsed_data.get("temperature_column", "Avg_Temp")),
             "warnings": warnings,
             "unmatched_image_count": len(unmatched_image_indexes),
+            "total_image_count": self.frame_count(),
+            "matched_image_count": self.frame_count() - len(unmatched_image_indexes),
+            "total_cell_group_count": len(sample_groups),
+            "total_dat_sample_count": len(dat_sample_columns),
+            "sample_count_matching_used": count_source != CSU_COUNT_SOURCE_IMAGES,
+            "dat_sample_matches": [
+                {"sample_name": sample["sample_name"], "dat_column": sample["dat_column"]}
+                for sample in matched_samples if sample["dat_column"] is not None
+            ],
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample["sample_id"] or ""),
@@ -1018,6 +1042,9 @@ class FreezeCountTimeseriesMixin:
             ),
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "csu", parsed_data, dict(reset_temperature=reset_temperature, count_source=count_source),
+        )
         return headers, rows, summary
 
     def build_tamu_freeze_count_timeseries_results(
@@ -1111,6 +1138,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "tamu",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
@@ -1138,6 +1166,9 @@ class FreezeCountTimeseriesMixin:
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "tamu", parsed_timeseries, dict(reset_temperature=reset_temperature, calibration_by_well=calibration_by_well),
+        )
         return headers, rows, summary
 
     def build_pku_linksys32_freeze_count_timeseries_results(
@@ -1203,6 +1234,7 @@ class FreezeCountTimeseriesMixin:
             "source_path": str(getattr(parsed_timeseries, "file_path", "")),
             "source_type": "pku_linksys32_iml",
             "matched_samples": [sample["sample_name"] for sample in matched_samples],
+            "total_cell_count": len(self.cell_records_by_id),
             "sample_total_cells": [
                 {
                     "sample_id": str(sample.get("sample_id", "") or ""),
@@ -1230,4 +1262,7 @@ class FreezeCountTimeseriesMixin:
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
         }
+        summary["refresh_context"] = make_temperature_refresh_context(
+            self, "pku", parsed_timeseries, dict(reset_temperature=reset_temperature),
+        )
         return headers, rows, summary

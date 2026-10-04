@@ -39,7 +39,6 @@ SAMPLE_CATALOG_PANEL_MIN_WIDTH = 280
 SAMPLE_CATALOG_TREE_HEADERS = ("Sample Number", "Value")
 SAMPLE_CATALOG_TREE_ROW_HEIGHT = 30
 SAMPLE_CATALOG_TREE_EDITOR_HEIGHT = 26
-SAMPLE_CATALOG_TREE_LABEL_COLUMN_WIDTH = 172
 SAMPLE_CATALOG_TREE_INDENTATION = 12
 SAMPLE_CATALOG_COLOR_SWATCH_SIZE = 12
 SAMPLE_CATALOG_TREE_EDITOR_LEFT_MARGIN = 6
@@ -208,8 +207,6 @@ class SampleCatalogTreeModel(QAbstractItemModel):
         node = self.node_from_index(index)
         column = int(index.column())
 
-        if role == Qt.SizeHintRole:
-            return QSize(0, SAMPLE_CATALOG_TREE_ROW_HEIGHT)
         if role == self.SAMPLE_ID_ROLE:
             return node.sample_id if node.kind in {"sample", "field"} else None
         if role == self.FIELD_NAME_ROLE:
@@ -236,8 +233,11 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             return None
 
         record = self.sample_record(node.sample_id)
-        if role == Qt.ToolTipRole and self.field_is_same_for_all(node.field_key):
-            return "Same for all samples. Editing this value updates every sample in the catalog."
+        if role == Qt.ToolTipRole:
+            label = self.field_display_label(node.field_key)
+            if self.field_is_same_for_all(node.field_key):
+                return f"{label}\nSame for all samples. Editing this value updates every sample in the catalog."
+            return label
         if role in (Qt.DisplayRole, Qt.EditRole):
             if column == 0:
                 return self.field_display_label(node.field_key)
@@ -339,6 +339,11 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 if hasattr(self.main_window, "reopen_sample_catalog_persistent_editors_for_sample"):
                     self.main_window.reopen_sample_catalog_persistent_editors_for_sample(sample_id)
 
+        if hasattr(self.main_window, "log"):
+            if len(changed_sample_ids) > 1:
+                self.main_window.log(f"Update {field_key} to {value_text} for all samples")
+            else:
+                self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
         refresh_metadata = getattr(self.main_window, "refresh_freeze_count_timeseries_metadata_from_sample_catalog", None)
         if callable(refresh_metadata):
             refresh_metadata(relabel_headers=(field_key == "sample_name"))
@@ -349,15 +354,14 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 callback = getattr(self.main_window, callback_name, None)
                 if callable(callback):
                     callback()
-        if hasattr(self.main_window, "log"):
-            if len(changed_sample_ids) > 1:
-                self.main_window.log(f"Update {field_key} to {value_text} for all samples")
-            else:
-                self.main_window.log(f"Update sample {node.sample_id} {field_key} to {value_text}")
         return True
 
 
 class SampleCatalogTreeDelegate(QStyledItemDelegate):
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        return QSize(size.width(), max(size.height(), SAMPLE_CATALOG_TREE_ROW_HEIGHT))
+
     def paint(self, painter, option, index):
         if int(index.column()) == 1 and str(index.data(SampleCatalogTreeModel.FIELD_NAME_ROLE) or ""):
             option_without_text = QStyleOptionViewItem(option)
@@ -545,9 +549,11 @@ class SampleCatalogPanelMixin:
         self.sample_catalog_tree.setAllColumnsShowFocus(True)
         self.sample_catalog_tree.setIndentation(SAMPLE_CATALOG_TREE_INDENTATION)
         self.sample_catalog_tree.header().setStretchLastSection(False)
-        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.Fixed)
+        # Measure full labels (including units and [all]) with the current font.
+        # Let narrow docks scroll instead of hiding units or collapsing editors.
+        self.sample_catalog_tree.header().setMinimumSectionSize(120)
+        self.sample_catalog_tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.sample_catalog_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.sample_catalog_tree.header().resizeSection(0, SAMPLE_CATALOG_TREE_LABEL_COLUMN_WIDTH)
         self.sample_catalog_tree.setStyleSheet(
             f"QTreeView::item {{ min-height: {SAMPLE_CATALOG_TREE_ROW_HEIGHT}px; }}"
         )

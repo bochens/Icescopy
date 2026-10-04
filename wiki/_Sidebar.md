@@ -12,6 +12,7 @@
 - [Manage samples](Sample-Metadata.md)
 - [Analyze and tune freezing](Analysis-and-Results.md)
 - [Import temperatures](Temperature-Import.md)
+- [Calculate INP concentrations](INP-Analysis.md)
 - [Save and export](Sessions-Export-and-Preferences.md)
 - [Troubleshoot](Troubleshooting.md)
 
