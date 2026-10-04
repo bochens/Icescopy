@@ -56,9 +56,9 @@ class PlotLegend(QGraphicsView):
         width, height = self.size_legend()
         area = QRectF(self.plot.mapFromScene(self.plot.getViewBox().sceneBoundingRect()).boundingRect())
         area.adjust(10, 10, -10, -10)
-        # Large legends scroll within the plot instead of moving to another corner.
-        width = max(1, min(width, int(area.width())))
-        height = max(1, min(height, int(area.height())))
+        # Keep long sample lists compact; scroll inside this fixed corner.
+        width = max(1, min(width, 240, int(area.width())))
+        height = max(1, min(height, 180, int(area.height())))
         self.setFixedSize(width, height)
         self.move(round(area.right() - width), round(area.top()))
         self.show()

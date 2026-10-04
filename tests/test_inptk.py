@@ -292,7 +292,7 @@ class InpIntegrationTests(unittest.TestCase):
                 temperatures = [float(r['temperature_C']) for r in rows]
                 self.assertTrue(all(-35 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
                 self.assertEqual(temperatures, sorted(temperatures, reverse=True))
-                self.assertEqual(len(rows), 7)
+                self.assertEqual(len(rows), 7 if kind == 'frozen_fraction' else 5)
                 self.assertIn('Exported', p.status.text())
                 if kind == 'frozen_fraction':
                     self.assertEqual([float(r[keys[0] + suffix]) for r in rows], [0., 0., .2, .2, .5, .5, .8])
@@ -698,7 +698,7 @@ class InpIntegrationTests(unittest.TestCase):
         for row in rows:
             row.update(concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'})
         p.draw()
-        self.assertEqual(p.visible_points, 4)
+        self.assertEqual(p.visible_points, len(rows))
         self.window.inptk_log_concentration = True; p.draw()
         self.assertEqual(p.visible_points, 0)
         self.assertIn('No positive', p.empty_plot.text())
@@ -841,9 +841,11 @@ class InpIntegrationTests(unittest.TestCase):
         entry['sample_id'] = '8'
         self.assertEqual(p.color(entry['sample_name']), self.window.sample_visual_color(8))
         self.calculate()
-        for table in p.result['tables'].values():
-            self.assertEqual([r['temperature_C'] for r in table['cumulative']['rows']],
-                             [-5., -5.5, -6., -6.5, -7., -7.5, -8.])
+        for name, table in p.result['tables'].items():
+            sources = {source['measurement_id'] for source in p.result['reply']['curves'][name]['sources']}
+            # The third fixture sample freezes only at -8 C; the others start at -6 C.
+            expected = [-8.] if sources == {p.input_ids[2]} else [-6., -6.5, -7., -7.5, -8.]
+            self.assertEqual([r['temperature_C'] for r in table['cumulative']['rows']], expected)
         p.change_option('grid_step', '')
         saved = p.session_state()
         p.restore_session(saved)
@@ -872,6 +874,74 @@ class InpIntegrationTests(unittest.TestCase):
         saved['choices'].update(grid_start='-2', grid_end='-35')
         p.restore_session(saved)
         self.assertEqual((p.grid_start.text(), p.grid_end.text()), ('-2', '-35'))
+
+    def test_catalog_columns_include_nonexported_custom_fields_and_scroll(self):
+        from PySide6.QtTest import QTest
+        keys = self.configure(); p = self.panel; w = self.window
+        before = copy.deepcopy(p.settings)
+        custom = dict(w.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False)
+        w.sample_metadata_schema.append(custom)
+        w.sample_catalog[0]['instrument'] = 'Cold stage A'
+        w.sample_catalog[0]['sampling_site'] = 'Lab'
+        w.inptk_sample_columns = [f['key'] for f in w.active_sample_metadata_schema() if f['key'] != 'sample_name']
+        p.refresh_sample_table_columns()
+        p.show(); p.tabs.setCurrentIndex(0); QTest.qWait(100)
+        headers = [p.inputs.horizontalHeaderItem(i).text() for i in range(p.inputs.columnCount())]
+        self.assertIn('Instrument', headers)
+        self.assertEqual(p.inputs.item(p.input_ids.index(keys[0]), headers.index('Instrument')).text(), 'Cold stage A')
+        range_headers = [p.ranges.horizontalHeaderItem(i).text() for i in range(p.ranges.columnCount())]
+        self.assertIn('Instrument', range_headers)
+        self.assertEqual(p.ranges.item(p.range_ids.index(keys[0]), range_headers.index('Instrument')).text(), 'Cold stage A')
+        self.assertEqual(p.inputs.horizontalScrollBarPolicy(), Qt.ScrollBarAsNeeded)
+        self.assertGreater(p.inputs.horizontalScrollBar().maximum(), 0)
+        w.inptk_sample_columns = []
+        p.refresh_sample_table_columns()
+        self.assertTrue(p.inputs.isColumnHidden(2))
+        self.assertEqual(p.inputs.columnCount(), 5)
+        self.assertEqual(p.settings, before)
+
+    def test_sample_visibility_changes_only_plot_and_survives_session_restore(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        p.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
+        choices = copy.deepcopy(p.settings)
+        result = p.result
+        calculation_key = p.calculation_key()
+        original_csv = concentration_csv(result['tables'], [(c['name'], c['name']) for c in result['choices']['curves']])
+        p.tabs.setCurrentIndex(1)
+        row = p.input_ids.index(keys[0])
+        self.assertEqual(p.inputs.item(row, 2).text(), '1×')
+        self.assertEqual(p.inputs.item(p.input_ids.index(keys[1]), 2).text(), '10×')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            p.inputs.item(row, 4).setCheckState(Qt.Unchecked)
+            self.assertNotIn(keys[0], p.range_items)
+            self.assertTrue(all(keys[0] not in label.text for _, label in p.legend.items))
+            self.assertTrue(any('(combined)' in label.text for _, label in p.legend.items))
+            p.show_combined.setChecked(False)
+            self.assertTrue(all('(combined)' not in label.text for _, label in p.legend.items))
+            p.inputs.item(p.input_ids.index(keys[1]), 4).setCheckState(Qt.Unchecked)
+            self.assertIn('All curves are hidden', p.empty_plot.text())
+            for quantity in ('Number frozen', 'Fraction frozen'):
+                p.quantity.setCurrentText(quantity)
+                self.assertEqual([label.text for _, label in p.legend.items], [f'{keys[2]} (water blank)'])
+            p.inputs.item(p.input_ids.index(keys[2]), 4).setCheckState(Qt.Unchecked)
+            self.assertIn('All curves are hidden', p.empty_plot.text())
+            self.assertEqual(requests.call_count, 0)
+        self.assertEqual(p.settings, choices)
+        self.assertIs(p.result, result)
+        self.assertEqual(p.calculation_key(), calculation_key)
+        self.assertEqual(concentration_csv(result['tables'], [(c['name'], c['name']) for c in result['choices']['curves']]), original_csv)
+        saved = p.session_state()
+        p.restore_session(saved)
+        self.assertEqual(p.hidden_plot_inputs, set(keys))
+        self.assertFalse(p.show_combined.isChecked())
+        self.assertEqual(p.inputs.item(row, 4).checkState(), Qt.Unchecked)
+        p.inputs.item(row, 4).setCheckState(Qt.Checked)
+        self.assertTrue(any(keys[0] in label.text for _, label in p.legend.items))
+        # Older sessions default to displaying every curve.
+        saved.pop('display')
+        p.restore_session(saved)
+        self.assertEqual(p.hidden_plot_inputs, set())
+        self.assertTrue(p.show_combined.isChecked())
 
     def test_uncertainty_toggle_changes_only_display(self):
         import pyqtgraph as pg
@@ -1167,7 +1237,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertNotIn('references', p.result)
         self.assertFalse(p.last_error)
         self.assertIn('Full-range individual samples unavailable', p.status.text())
-        self.assertEqual({r['temperature_C'] for r in p.result['tables']['Neat']['cumulative']['rows']}, {-5., -6.})
+        self.assertEqual({r['temperature_C'] for r in p.result['tables']['Neat']['cumulative']['rows']}, {-6.})
         p.prepare_session_save(require_native=True)
         self.assertTrue(p.result['saved_result'])
         self.assertLessEqual(len(p.live_refs), 2)

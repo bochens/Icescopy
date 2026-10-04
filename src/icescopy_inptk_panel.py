@@ -142,6 +142,7 @@ class InptkPanel(QWidget):
         self.client.busyChanged.connect(self.update_status)
         self.cache = tempfile.TemporaryDirectory(prefix="icescopy-inptk-")
         self.settings = new_settings()
+        self.hidden_plot_inputs = set()
         self.preview = None
         self.preview_hash = ""
         self.result = None
@@ -291,21 +292,29 @@ class InptkPanel(QWidget):
         help_text = self.sample_help = QLabel()
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
-        self.inputs = QTableWidget(0, 4)
-        self.inputs.setHorizontalHeaderLabels(["Use", "Sample", "Dilution", "Blank"])
-        self.inputs.setAccessibleName("Group membership and water blank roles")
+        self.inputs = QTableWidget(0, 5)
+        self.inputs.setHorizontalHeaderLabels(["Use", "Sample", "Dilution", "Blank", "Show"])
+        self.inputs.setAccessibleName("Sample membership, dilution, blank roles and plot visibility")
+        self.inputs.horizontalHeaderItem(4).setToolTip("Show this sample in the plot. Does not change calculation membership or exports.")
         self.inputs.horizontalHeaderItem(0).setToolTip("Check to move a sample into the selected group.")
         self.inputs.horizontalHeaderItem(3).setToolTip("Mark a water-control sample, then assign it under Blank correction.")
         self.inputs.verticalHeader().hide()
         self.inputs.setShowGrid(False)
+        self.inputs.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.inputs.setAlternatingRowColors(True)
         self.inputs.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.inputs.setSelectionMode(QAbstractItemView.SingleSelection)
         self.inputs.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.inputs.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.inputs.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.inputs.setColumnWidth(1, 130)
         self.inputs.itemChanged.connect(self.input_changed)
         self.inputs.itemSelectionChanged.connect(self.select_input)
         layout.addWidget(self.inputs, 1)
+        self.show_combined = QCheckBox("Show combined curve")
+        self.show_combined.setChecked(True)
+        self.show_combined.setToolTip("Show the combined concentration for the selected groups. Calculations and exports are unchanged.")
+        self.show_combined.toggled.connect(self.draw)
+        layout.addWidget(self.show_combined)
         cycle_row = QHBoxLayout()
         self.cycle_label = QLabel("Cycle")
         self.input_cycle = QComboBox()
@@ -371,9 +380,11 @@ class InptkPanel(QWidget):
         for col in (1, 2): self.ranges.setItemDelegateForColumn(col, RangeLimitDelegate(self.ranges))
         self.ranges.verticalHeader().hide()
         self.ranges.setShowGrid(False)
+        self.ranges.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.ranges.setAlternatingRowColors(True)
         self.ranges.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.ranges.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.ranges.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
+        self.ranges.setColumnWidth(0, 130)
         self.ranges.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ranges.setSelectionMode(QAbstractItemView.SingleSelection)
         self.ranges.itemChanged.connect(self.range_changed)
@@ -838,13 +849,22 @@ class InptkPanel(QWidget):
             item = QTableWidgetItem(key); item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setData(Qt.DecorationRole, self.color(key)); self.inputs.setItem(row, 1, item)
             metadata = next((m for m in (self.preview or {}).get("measurement_metadata", []) if m["measurement_id"] == key), {})
-            dilution = QTableWidgetItem(str(metadata.get("dilution", "")))
+            factor = number(metadata.get("dilution"))
+            dilution = QTableWidgetItem(f"{factor:g}×" if math.isfinite(factor) else "")
             dilution.setFlags(dilution.flags() & ~Qt.ItemIsEditable)
             self.inputs.setItem(row, 2, dilution)
             blank = QTableWidgetItem(); blank.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
             blank.setCheckState(Qt.Checked if values["blank"] else Qt.Unchecked)
             self.inputs.setItem(row, 3, blank)
+            shown = QTableWidgetItem()
+            shown.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
+            shown.setCheckState(Qt.Unchecked if key in self.hidden_plot_inputs else Qt.Checked)
+            shown.setToolTip(f"Show {key} in plots only; calculation membership and exports are unchanged.")
+            self.inputs.setItem(row, 4, shown)
+        self.refresh_sample_table_columns()
         self.fit_table_height(self.inputs, len(self.input_ids))
+        # Reserve a scrollbar row so wide metadata does not obscure sample rows.
+        self.inputs.setFixedHeight(self.inputs.height() + self.inputs.horizontalScrollBar().sizeHint().height())
         if self.input_ids: self.inputs.selectRow(self.input_ids.index(old_input) if old_input in self.input_ids else 0)
         self.curves.clear()
         for curve in self.settings["curves"]:
@@ -875,6 +895,7 @@ class InptkPanel(QWidget):
                 self.ranges.setItem(row, col, item)
         if self.range_ids:
             self.ranges.selectRow(self.range_ids.index(old_range) if old_range in self.range_ids else 0)
+        self.refresh_sample_table_columns()
         self.loading = False
         if self.settings.get("suggestion"):
             self.show_suggestion(self.settings["suggestion"], log=False)
@@ -883,6 +904,41 @@ class InptkPanel(QWidget):
         # Refreshing controls after a range edit must not reselect the last row
         # clicked in the separate Samples table. Preserve the active range by ID.
         self.select_input(sync_range=False); self.select_curve(); self.update_status()
+
+    def refresh_sample_table_columns(self):
+        """Read catalog fields by saved sample ID, without changing toolkit input."""
+        selected = set(self.window.inptk_sample_columns)
+        schema = self.window.active_sample_metadata_schema()
+        records = self.window.freeze_count_timeseries_summary.get('sample_column_metadata', [])
+        identifiers = [name[:-len(' number total')] for name in self.window.freeze_count_timeseries_headers
+                       if name.endswith(' number total')]
+        metadata = dict(zip(identifiers, records))
+        self.inputs.setColumnHidden(2, 'dilution' not in selected)
+        for table, keys, first_column, fixed_fields in (
+            (self.inputs, self.input_ids, 5, {'sample_name', 'dilution'}),
+            (self.ranges, self.range_ids, 3, {'sample_name'}),
+        ):
+            extra = [field for field in schema if field['key'] in selected and field['key'] not in fixed_fields]
+            blocked = table.blockSignals(True)
+            table.setColumnCount(first_column + len(extra))
+            for column, field in enumerate(extra, first_column):
+                header = QTableWidgetItem(field['label']); header.setToolTip(field['label'])
+                table.setHorizontalHeaderItem(column, header)
+                table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Interactive)
+                table.setColumnWidth(column, min(200, max(110, table.fontMetrics().horizontalAdvance(field['label']) + 24)))
+                for row, key in enumerate(keys):
+                    values = dict(metadata.get(key, {}))
+                    sample_id = str(values.get('sample_id', '')).strip()
+                    if sample_id:
+                        values.update(self.window.sample_record_for_id(sample_id))
+                    value = str(values.get(field['key'], '') or '')
+                    if field['key'] == 'dilution' and math.isfinite(number(value)):
+                        value = f"{number(value):g}×"
+                    item = QTableWidgetItem(value)
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    item.setToolTip(value)
+                    table.setItem(row, column, item)
+            table.blockSignals(blocked)
 
     def current_input(self):
         row = self.inputs.currentRow()
@@ -933,7 +989,13 @@ class InptkPanel(QWidget):
 
     def input_changed(self, item):
         if self.loading: return
-        key = self.input_ids[item.row()]; state = copy_choices(self.settings)
+        key = self.input_ids[item.row()]
+        if item.column() == 4:
+            if item.checkState() == Qt.Checked: self.hidden_plot_inputs.discard(key)
+            else: self.hidden_plot_inputs.add(key)
+            self.draw()
+            return
+        state = copy_choices(self.settings)
         if item.column() == 0:
             index = self.single_curve_row()
             if index < 0: return
@@ -987,6 +1049,7 @@ class InptkPanel(QWidget):
                      if row >= 0 else "Select one group to edit its samples, or several groups to compare their plots.")
         if any(len(m.get("cycle_ids", [])) > 1 for m in (self.preview or {}).get("measurements", [])):
             help_text += " Select a sample row to choose its freezing cycle below the table."
+        help_text += " Show controls plot visibility only."
         self.sample_help.setText(help_text)
         values = set(self.selected_input_ids())
         self.loading = True
@@ -1047,7 +1110,7 @@ class InptkPanel(QWidget):
         self.commit(state, f"INP analysis: rename group {previous} to {name}")
 
     def range_changed(self, item):
-        if self.loading or item.column() == 0: return
+        if self.loading or item.column() not in (1, 2): return
         key = self.range_ids[item.row()]; state = copy_choices(self.settings)
         limits = state["ranges"].setdefault(key, {})
         boundary = "min_C" if item.column() == 1 else "max_C"
@@ -1093,6 +1156,8 @@ class InptkPanel(QWidget):
         keys = [key for key in keys if key in self.range_ids]
         for row, key in enumerate(self.range_ids): self.ranges.setRowHidden(row, key not in keys)
         self.fit_table_height(self.ranges, len(keys))
+        if self.ranges.columnCount() > 3:
+            self.ranges.setFixedHeight(self.ranges.height() + self.ranges.horizontalScrollBar().sizeHint().height())
         if self.tabs.currentIndex() != 1:
             self.range_tags.set_entries([])
             return
@@ -1109,6 +1174,7 @@ class InptkPanel(QWidget):
         # coincident boundaries never silently edit the wrong sample.
         tags = []
         for key in keys:
+            if key in self.hidden_plot_inputs: continue
             values = measured.get(key)
             if not values: continue
             limits = self.settings["ranges"].get(key, {})
@@ -1484,6 +1550,8 @@ class InptkPanel(QWidget):
         if not self.selected_curve_names() and not (self.quantity.currentText() != 'Concentration'
                                                     and getattr(self, 'visible_points', 0)):
             message = "Select a sample group on the left."
+        elif getattr(self, 'hidden_curve_count', 0) and not getattr(self, 'shown_curve_count', 0):
+            message = "All curves are hidden. Use Show in the Samples table or enable Show combined curve."
         elif self.quantity.currentText() == "Concentration":
             if self.last_error:
                 message = self.last_error
@@ -1641,6 +1709,8 @@ class InptkPanel(QWidget):
         # display preference, separate from the saved calculation choices.
         logarithmic = is_concentration and self.window.inptk_log_concentration
         self.show_uncertainty.setVisible(is_concentration)
+        self.show_combined.setVisible(is_concentration and any(
+            len(c['inputs']) > 1 for c in self.settings['curves'] if c['name'] in self.selected_curve_names()))
         observed = (tuple((key, tuple(sorted(cycles))) for key, cycles in sorted(self.observation_cycles().items()))
                     if not is_concentration else ())
         context = (quantity, logarithmic, tuple(self.selected_curve_names()), self.preview_hash,
@@ -1649,7 +1719,8 @@ class InptkPanel(QWidget):
         self.plot_context = context
         widths = (self.window.inptk_sample_line_width, self.window.inptk_combined_line_width,
                   self.window.inptk_marker_size, self.window.inptk_outside_opacity)
-        appearance = (widths, self.window.inptk_uncertainty_opacity,
+        visibility = (tuple(sorted(self.hidden_plot_inputs)), self.show_combined.isChecked())
+        appearance = (visibility, widths, self.window.inptk_uncertainty_opacity,
                       self.window.inptk_grid_opacity, self.window.inptk_legend_font_size)
         render_key = (context, id(self.result), tuple((k, v['cycle'], v['blank'], tuple(v['blanks']))
                       for k, v in self.settings['inputs'].items()),
@@ -1694,7 +1765,14 @@ class InptkPanel(QWidget):
                                key, False))
         xs, ys, totals = [], [], []
         self.visible_points = 0
+        self.hidden_curve_count = 0
+        self.shown_curve_count = 0
         for name, rows, column, color_key, overlay in groups:
+            if (color_key in self.hidden_plot_inputs
+                    or (color_key is None and not self.show_combined.isChecked())):
+                self.hidden_curve_count += 1
+                continue
+            self.shown_curve_count += 1
             color = QColor(Qt.black) if color_key is None else self.color(color_key)
             chunks, chunk, previous = [], [], None
             for row in rows:
@@ -1956,7 +2034,9 @@ class InptkPanel(QWidget):
 
     def session_state(self):
         return {"version": 1, "choices": copy_choices(self.settings), "preview": self.preview,
-                "preview_hash": self.preview_hash, "result": self.result}
+                "preview_hash": self.preview_hash, "result": self.result,
+                "display": {"hidden_samples": sorted(self.hidden_plot_inputs),
+                            "show_combined": self.show_combined.isChecked()}}
 
     def restore_session(self, state):
         self.generation += 1; self.client.stop(); self.operation = False
@@ -1967,6 +2047,11 @@ class InptkPanel(QWidget):
         self.undo_stack.clear()
         self.undo_stack.setUndoLimit(self.window.undo_limit)
         state = state or {}
+        display = state.get("display") or {}
+        self.hidden_plot_inputs = set(display.get("hidden_samples", []))
+        self.show_combined.blockSignals(True)
+        self.show_combined.setChecked(display.get("show_combined", True))
+        self.show_combined.blockSignals(False)
         self.preview = state.get("preview"); self.preview_hash = state.get("preview_hash", "")
         self.result = state.get("result")
         self.reference_cache = (self.result or {}).get('references')

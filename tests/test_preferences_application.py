@@ -88,6 +88,30 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.window.undo_stack.redo()
         self.assertEqual(self.window.active_sample_metadata_schema(), after)
 
+    def test_inp_sample_columns_use_catalog_schema_and_persist_empty_selection(self):
+        from PySide6.QtCore import Qt
+        self.window.session_active = True
+        custom = dict(self.window.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False)
+        self.window.sample_metadata_schema.append(custom)
+        dialog = self.dialog()
+        items = {dialog.inptk_columns.item(i).data(Qt.UserRole): dialog.inptk_columns.item(i)
+                 for i in range(dialog.inptk_columns.count())}
+        self.assertIn('instrument', items)
+        self.assertEqual(items['dilution'].checkState(), Qt.Checked)
+        for key, item in items.items():
+            if key != 'sample_name': item.setCheckState(Qt.Checked if key in {'sampling_site', 'instrument'} else Qt.Unchecked)
+        self.save(dialog)
+        self.assertEqual(set(self.window.inptk_sample_columns), {'sampling_site', 'instrument'})
+        reopened = IceScopy(); self.addCleanup(reopened.deleteLater)
+        self.assertEqual(set(reopened.inptk_sample_columns), {'sampling_site', 'instrument'})
+        dialog = self.dialog()
+        for i in range(dialog.inptk_columns.count()):
+            item = dialog.inptk_columns.item(i)
+            if item.data(Qt.UserRole) != 'sample_name': item.setCheckState(Qt.Unchecked)
+        self.save(dialog)
+        reopened = IceScopy(); self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.inptk_sample_columns, [])
+
     def test_inp_plot_style_persists_without_changing_the_session(self):
         self.window.session_active = True
         self.window.mark_session_clean()

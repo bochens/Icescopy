@@ -19,7 +19,10 @@ A **sample group** contains the independent samples or dilutions you want to com
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
 
-Dilution factors are shown beside sample names. To change dilution, well volume, or other physical metadata, choose **Edit sample metadata…**. This closes the analysis window without discarding its choices. On reopening, Icescopy refreshes the counts and metadata automatically.
+Dilution factors are shown beside sample names (for example, **10×**). The **Show** checkbox hides or shows each sample, including its uncertainty and range guides, without changing calculation membership or exports. **Show combined curve** controls the combined concentration line. These display choices are saved with the session; hidden curves disappear from the compact legend. To change dilution, well volume, or other physical metadata, choose **Edit sample metadata…**. This closes the analysis window without discarding its choices. On reopening, Icescopy refreshes the counts and metadata automatically.
+
+In **Settings → INP toolkit client → Sample tables**, select the catalog fields to display in the Samples and temperature-limits tables, including custom fields. Dilution is shown by default. Sample identity and the Use, Blank, and Show controls stay visible. Additional columns scroll horizontally inside the table; they do not widen the analysis window. These preferences affect display only.
+
 
 Turning **Apply blank correction** off retains the blank assignments. Unchecking a sample's **Blank** role removes its assignments to other samples; Undo restores both the role and assignments.
 

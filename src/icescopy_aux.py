@@ -116,6 +116,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "InptkUncertaintyOpacity": 14.0,
     "InptkGridOpacity": 12.0,
     "InptkLegendFontSize": 10.0,
+    "InptkSampleColumns": "dilution",
     "DropletModelPath": "",
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
@@ -1134,6 +1135,7 @@ class PreferencesDialog(QDialog):
         self.category_list.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.category_list.currentRowChanged.connect(self.reset_page_scroll_position)
         self.category_list.currentRowChanged.connect(self.refresh_ml_page)
+        self.category_list.currentRowChanged.connect(self.refresh_inptk_columns)
 
         self.pages_scroll_area = QScrollArea()
         self.pages_scroll_area.setWidgetResizable(True)
@@ -1340,7 +1342,12 @@ class PreferencesDialog(QDialog):
         self.inptk_scale_field.setCurrentIndex(0 if self.pref_value('InptkLogConcentration') else 1)
         self.inptk_scale_field.setToolTip('Concentration only. Number and fraction frozen always use linear axes.')
         self.inptk_style_fields = {}
-        groups = []
+        self.inptk_columns = QListWidget()
+        self.inptk_columns.setAccessibleName("Visible sample catalog fields in INP analysis")
+        self.inptk_columns.setMaximumHeight(170)
+        self.inptk_columns.setToolTip("Choose sample-catalog fields to show. The table scrolls horizontally; calculation settings and exports are unchanged.")
+        self.refresh_inptk_columns(8)
+        groups = [("Sample tables", [("Visible fields", self.inptk_columns)])]
         for title, specs in (
             ('All INP plots', (
                 ('InptkGridOpacity', 'Grid opacity (%)', 0, 40,
@@ -1374,6 +1381,28 @@ class PreferencesDialog(QDialog):
         )
         page.content_layout.insertWidget(2, self.inptk_settings)
         return page
+
+    def refresh_inptk_columns(self, index):
+        if index != 8 or not hasattr(self, 'inptk_columns'): return
+        selected = ({self.inptk_columns.item(i).data(Qt.UserRole)
+                     for i in range(self.inptk_columns.count())
+                     if self.inptk_columns.item(i).checkState() == Qt.Checked}
+                    if self.inptk_columns.count() else set(str(self.pref_value('InptkSampleColumns')).split(',')))
+        try:
+            schema, renames = self.collect_sample_metadata_schema()
+            selected = {renames.get(key, key) for key in selected}
+        except (ValueError, SampleMetadataSchemaError):
+            return  # Keep the current list while a catalog field is incomplete.
+        self.inptk_columns.clear()
+        for field in schema:
+            item = QListWidgetItem(field['label'])
+            item.setData(Qt.UserRole, field['key'])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if field['key'] in selected or field['key'] == 'sample_name' else Qt.Unchecked)
+            if field['key'] == 'sample_name':
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                item.setToolTip("The sample identifier is always shown.")
+            self.inptk_columns.addItem(item)
 
     def build_ml_page(self):
         path = str(self.pref_value("DropletModelPath") or "")
@@ -2053,6 +2082,13 @@ class PreferencesDialog(QDialog):
 
         SubElement(root, "DropletModelPath").text = droplet_model_path
         SubElement(root, "InptkExecutablePath").text = self.inptk_settings.path.text().strip()
+        selected_columns = {self.inptk_columns.item(i).data(Qt.UserRole)
+                            for i in range(self.inptk_columns.count())
+                            if self.inptk_columns.item(i).checkState() == Qt.Checked}
+        selected_columns = {sample_metadata_rename_map.get(key, key) for key in selected_columns}
+        SubElement(root, "InptkSampleColumns").text = ','.join(
+            field['key'] for field in new_sample_metadata_schema
+            if field['key'] in selected_columns and field['key'] != 'sample_name')
         SubElement(root, "InptkLogConcentration").text = str(self.inptk_scale_field.currentData()).lower()
         for key, field in self.inptk_style_fields.items():
             SubElement(root, key).text = str(field.value())
@@ -2140,6 +2176,8 @@ class PreferencesDialog(QDialog):
                     rename_map=sample_metadata_rename_map,
                     record_history=True,
                 )
+            if hasattr(self.main_window, 'inptk_panel'):
+                self.main_window.inptk_panel.refresh_sample_table_columns()
         except Exception as err:
             # The file is already committed; distinguish application failures
             # from failed writes and keep the dialog available for retry.

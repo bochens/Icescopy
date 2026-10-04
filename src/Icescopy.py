@@ -280,6 +280,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.inptk_uncertainty_opacity = 14.0
         self.inptk_grid_opacity = 12.0
         self.inptk_legend_font_size = 10.0
+        self.inptk_sample_columns = ['dilution']
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
@@ -370,6 +371,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.inptk_uncertainty_opacity = float(preferences.get("InptkUncertaintyOpacity", 14.0))
         self.inptk_grid_opacity = float(preferences.get("InptkGridOpacity", 12.0))
         self.inptk_legend_font_size = float(preferences.get("InptkLegendFontSize", 10.0))
+        self.inptk_sample_columns = [key for key in str(preferences.get("InptkSampleColumns", "dilution")).split(',') if key]
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -489,6 +491,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if hasattr(self, "grayscale_plot_widget"):
             self.refresh_grayscale_plot()
         if hasattr(self, "inptk_panel"):
+            self.inptk_panel.refresh_sample_table_columns()
             self.inptk_panel.draw()
         self.scene.update()
 
@@ -11496,6 +11499,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             element = root.find(key)
             if element is not None and element.text is not None:
                 preferences[key] = element.text
+
+        inp_columns_element = root.find("InptkSampleColumns")
+        if inp_columns_element is not None:
+            preferences["InptkSampleColumns"] = inp_columns_element.text or ""
 
         droplet_model_element = root.find("DropletModelPath")
         preferences["DropletModelPath"] = (
