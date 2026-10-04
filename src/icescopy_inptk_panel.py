@@ -29,7 +29,7 @@ from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PL
 
 def concentration_unit(unit):
     return {"INP_per_mL_suspension": "INP/mL suspension", "INP_per_L_air": "INP/L air",
-            "INP_per_g_soil": "INP/g soil"}.get(unit, unit)
+            "INP_per_g_dry_soil": "INP/g dry soil"}.get(unit, unit)
 
 
 class ChoiceMenu(QPushButton):
@@ -576,15 +576,24 @@ class InptkPanel(QDialog):
         self.cancel = QPushButton("Stop")
         self.cancel.clicked.connect(self.cancel_operation)
         self.cancel.hide()
-        self.export = QPushButton("Export")
+        self.export = QPushButton("Export results")
         menu = QMenu(self.export)
-        menu.addAction("Save INP toolkit result…", self.export_result)
-        for label, kind in (("Frozen counts", "counts"), ("Frozen fractions", "frozen_fraction"),
-                            ("Concentrations", "cumulative"), ("Excluded points", "excluded")):
-            menu.addAction(f"Export all {label.lower()}…", lambda checked=False, kind=kind: self.export_csv(kind))
-        self.individual_exports = menu.addMenu("Export individual concentrations")
+        menu.setToolTipsVisible(True)
+        self.export_scope_action = menu.addAction("Last calculation · all groups")
+        self.export_scope_action.setEnabled(False)
+        self.export_groups_action = menu.addAction("No calculation yet")
+        self.export_groups_action.setEnabled(False)
+        native = menu.addAction("Save .inptk session…", self.export_result)
+        native.setToolTip("Save the complete toolkit result as an .inptk folder. Save the .icescopy session to retain the Icescopy controls as well.")
+        menu.addSeparator()
+        for label, kind in (("frozen count", "counts"), ("frozen fraction", "frozen_fraction")):
+            action = menu.addAction(f"Export {label} CSV…", lambda checked=False, kind=kind: self.export_csv(kind))
+            action.setToolTip("All inputs in the last calculation, including assigned water blanks. Selecting a plot group does not limit this export.")
+        self.concentration_export_action = menu.addAction("Export concentration CSV…", lambda: self.export_csv())
+        self.concentration_export_action.setToolTip("All concentration curves in the last calculation, using its saved normalization and uncertainty. Selecting a plot group does not limit this export.")
+        self.individual_exports = menu.addMenu("Export individual concentration CSV")
         self.individual_exports.aboutToShow.connect(self.populate_individual_exports)
-        menu.addAction("Export range-suggestion summary (JSON)…", self.export_range_report)
+        menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
         close = QPushButton("Close")
@@ -1806,7 +1815,7 @@ class InptkPanel(QDialog):
     def export_result(self):
         if not self.result: return
         # Native export is a user save, so capturing the full JSON is appropriate.
-        path, _ = QFileDialog.getSaveFileName(self, 'Create INP result folder', 'analysis.inptk', 'INP result folder (*.inptk)')
+        path, _ = QFileDialog.getSaveFileName(self, 'Save .inptk session folder', 'analysis.inptk', 'INP toolkit session folder (*.inptk)')
         if not path: return
         if Path(path).exists(): self.error('Choose a new result folder; existing outputs are preserved.'); return
         try:
@@ -1817,10 +1826,25 @@ class InptkPanel(QDialog):
             if references and references['saved_result'] != self.result['saved_result']:
                 folder = Path(path) / 'individual-samples.inptk'; folder.mkdir()
                 (folder / 'analysis.json').write_text(references['saved_result'], encoding='utf-8')
-            if self.result['choices'].get('suggestion'):
-                (Path(path) / 'range-suggestions.json').write_text(json.dumps(self.result['choices']['suggestion'], indent=2), encoding='utf-8')
         except (OSError, ValueError) as exc: self.error(f'Could not save result: {exc}'); return
         self.window.log(f'Saved INP result: {path}')
+
+    def export_concentration_unit(self):
+        # Pending edits must not relabel the last successful result's units.
+        basis = (self.result or {}).get('choices', {}).get('basis')
+        return {'suspension': 'INP/mL suspension', 'sampled_air': 'INP/L air',
+                'dry_soil': 'INP/g dry soil'}.get(basis, '')
+
+    def update_export_menu(self):
+        names = [curve['name'] for curve in (self.result or {}).get('choices', {}).get('curves', [])]
+        self.export_scope_action.setText(f"Last calculation · all {len(names)} {'group' if len(names) == 1 else 'groups'}")
+        text = ', '.join(names)
+        self.export_groups_action.setText('Groups: ' + (text if len(text) <= 60 else text[:57] + '…'))
+        self.export_groups_action.setToolTip('\n'.join(names))
+        unit = self.export_concentration_unit()
+        suffix = f" ({unit})" if unit else ''
+        self.concentration_export_action.setText(f"Export concentration CSV{suffix}…")
+        self.individual_exports.setTitle(f"Export individual concentration CSV{suffix}")
 
     def populate_individual_exports(self):
         self.individual_exports.clear()
@@ -1829,23 +1853,17 @@ class InptkPanel(QDialog):
             self.individual_exports.addAction(key + '…', lambda checked=False, key=key:
                 self.export_csv('cumulative', reference_key=key))
 
-    def export_range_report(self):
-        report = self.settings.get('suggestion')
-        if not report:
-            self.window.log('Run Auto range before exporting its report.'); return
-        path, _ = QFileDialog.getSaveFileName(self, 'Export range suggestions', 'range-suggestions.json', 'JSON (*.json)')
-        if not path: return
-        try:
-            with Path(path).open('x', encoding='utf-8') as handle:
-                json.dump(report, handle, indent=2)
-        except OSError as exc: self.error(f'Could not save range report: {exc}'); return
-        self.window.log(f'Exported range suggestions: {path}')
-
     def export_csv(self, kind='cumulative', *, reference_key=None):
         if not self.result: return
         if not self.client.capabilities:
             self.ensure_connected(after=lambda: self.export_csv(kind, reference_key=reference_key)); return
-        path, _ = QFileDialog.getSaveFileName(self, 'Export calculated INP table', 'inp_results.csv', 'CSV (*.csv)')
+        labels = {'counts': 'frozen counts', 'frozen_fraction': 'frozen fractions',
+                  'cumulative': 'concentrations'}
+        label = labels[kind]
+        unit = self.export_concentration_unit() if kind == 'cumulative' else ''
+        title = f"Export {label} CSV" + (f" ({unit})" if unit else '')
+        filename = f"inp_{label.replace(' ', '_')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, title, filename, 'CSV (*.csv)')
         if not path: return
         if Path(path).exists(): self.error('Choose a new filename; existing outputs are preserved.'); return
         result = self.result['references'] if reference_key is not None else self.result

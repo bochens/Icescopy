@@ -205,6 +205,24 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.panel.result,self.panel.status.text())
         self.assertIn("up to date",self.panel.status.text())
 
+    def test_export_scope_and_units_follow_the_saved_calculation(self):
+        self.configure(); self.calculate()
+        p = self.panel
+        p.curves.setCurrentRow(0)
+        p.change_option('basis', 'sampled_air')  # Pending edit, not yet calculated.
+        p.export.menu().aboutToShow.emit()
+        self.assertEqual(p.export_scope_action.text(), 'Last calculation · all 2 groups')
+        self.assertEqual(p.export_groups_action.text(), 'Groups: Combined, Neat')
+        self.assertIn('INP/mL suspension', p.concentration_export_action.text())
+        self.assertIn('INP/mL suspension', p.individual_exports.title())
+        with patch.object(p, 'export_csv') as export:
+            p.concentration_export_action.trigger()
+        export.assert_called_once_with()
+        actions = [action.text() for action in p.export.menu().actions()]
+        self.assertIn('Save .inptk session…', actions)
+        self.assertIn('Export frozen fraction CSV…', actions)
+        self.assertFalse(any('JSON' in label or 'excluded' in label or 'Diagnostics' in label for label in actions))
+
     def test_real_cli_plots_history_ranges_export_and_session(self):
         keys = self.configure(); self.calculate()
         self.assertEqual(set(self.panel.result["tables"]),{"Combined","Neat","Combined / Sample_1"})
@@ -225,6 +243,7 @@ class InpIntegrationTests(unittest.TestCase):
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName',return_value=(str(path),'')):
             self.panel.export_result()
         self.assertTrue((path/'analysis.json').is_file())
+        self.assertFalse((path/'range-suggestions.json').exists())
         original = copy.deepcopy(self.panel.result)
         session = self.fixture.root/'with_inp.icescopy'
         save_session_bundle(session, build_session_payload(self.window),
@@ -799,10 +818,6 @@ class InpIntegrationTests(unittest.TestCase):
             p.suggest_ranges()
             self.assertEqual(requests.call_count, 0)
         self.assertIs(p.settings['suggestion'], report)
-        report_path = self.fixture.root / 'range-suggestions.json'
-        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(report_path), '')):
-            p.export_range_report()
-        self.assertEqual(json.loads(report_path.read_text()), report)
 
     def test_assigned_blank_uses_the_selected_sample_cycle(self):
         keys = self.configure(); p = self.panel

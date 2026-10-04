@@ -38,7 +38,7 @@ Both endpoints are included. Gray italic numbers show the default endpoints: the
 
 The limits table displays two decimal places. Dragging, calculations, and saved sessions retain the original precision; only editing a value changes it.
 
-For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion summary (JSON)…** saves the proposed limits, reasons, and completeness status. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
+For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
 
 Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
@@ -79,15 +79,17 @@ The **Advanced** tab contains count selection on a temperature grid, handling of
 
 **Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature tag creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. **Show console** opens Icescopy's existing read-only console while the rest of the main window remains locked. The console returns to its previous position when analysis closes.
 
-Save the `.icescopy` session to retain choices, suggestion summaries, and the last successful result. At Save, Icescopy captures the complete native toolkit result in the session; reopening and exporting it does not repeat the fit. The analysis window has no separate results-table or console tabs; detailed data remain available under **Export**:
+Save the `.icescopy` session to retain choices, suggestion summaries, and the last successful result. At Save, Icescopy captures the complete native toolkit result in the session; reopening and exporting it does not repeat the fit. The analysis window has no separate results-table or console tabs; data remain available under **Export results**:
 
-- **Native result:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`; the calculation's range-suggestion report is included as JSON when available.
-- **CSV:** counts, fractions, concentrations, and excluded points from the last calculation. **Export individual concentrations** saves a selected full-range comparison curve. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
-- **Range-suggestion summary (JSON):** the latest proposed limits, reasons, and completeness status. Individual observation decisions are omitted to keep interactive requests small. JSON is a structured text format readable by analysis scripts.
+- **Save .inptk session:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`. Save the `.icescopy` session as well to retain the Icescopy controls.
+- **Export frozen count CSV / Export frozen fraction CSV:** measured counts or fractions for inputs included in the last calculation, including assigned water blanks.
+- **Export concentration CSV:** all concentration curves in the last calculation, using its one saved normalization: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. The menu shows these units. It does not export all three normalizations. This includes individual curves when they are part of that native result. **Export individual concentration CSV** saves the full-range comparison for the sample explicitly chosen in its submenu. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
 
-The toolkit's excluded-points export contains estimates omitted from its final concentration curve, for example by its decrease policy. This differs from the muted portions outside the user-selected ranges. Original-count exports can contain the original recording temperatures rather than the calculation grid.
+Original-count exports can contain the original recording temperatures rather than the calculation grid.
 
 Calculation exports use the last successful result, even if newer edits have not been calculated. A result saved in the session can be exported after reconnecting to the toolkit, even when the current count table is missing or needs updating. Choose a new destination; existing exports are preserved.
+
+Selecting a group changes the plot, not the bulk export. The **Export results** menu names the groups in the last calculation; bulk CSV exports cover all of those groups. Pending normalization changes do not relabel the saved result's units: recalculate to export the new normalization.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
 
