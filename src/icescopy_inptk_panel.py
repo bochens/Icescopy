@@ -586,9 +586,8 @@ class InptkPanel(QDialog):
         native = menu.addAction("Save .inptk session…", self.export_result)
         native.setToolTip("Save the complete toolkit result as an .inptk folder. Save the .icescopy session to retain the Icescopy controls as well.")
         menu.addSeparator()
-        for label, kind in (("frozen count", "counts"), ("frozen fraction", "frozen_fraction")):
-            action = menu.addAction(f"Export {label} CSV…", lambda checked=False, kind=kind: self.export_csv(kind))
-            action.setToolTip("All inputs in the last calculation, including assigned water blanks. Selecting a plot group does not limit this export.")
+        fractions = menu.addAction("Export frozen fraction CSV…", lambda: self.export_csv('frozen_fraction'))
+        fractions.setToolTip("All inputs in the last calculation, including assigned water blanks. Selecting a plot group does not limit this export.")
         self.concentration_export_action = menu.addAction("Export concentration CSV…", lambda: self.export_csv())
         self.concentration_export_action.setToolTip("All concentration curves in the last calculation, using its saved normalization and uncertainty. Selecting a plot group does not limit this export.")
         self.individual_exports = menu.addMenu("Export individual concentration CSV")
@@ -1857,8 +1856,7 @@ class InptkPanel(QDialog):
         if not self.result: return
         if not self.client.capabilities:
             self.ensure_connected(after=lambda: self.export_csv(kind, reference_key=reference_key)); return
-        labels = {'counts': 'frozen counts', 'frozen_fraction': 'frozen fractions',
-                  'cumulative': 'concentrations'}
+        labels = {'frozen_fraction': 'frozen fractions', 'cumulative': 'concentrations'}
         label = labels[kind]
         unit = self.export_concentration_unit() if kind == 'cumulative' else ''
         title = f"Export {label} CSV" + (f" ({unit})" if unit else '')

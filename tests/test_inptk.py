@@ -221,6 +221,7 @@ class InpIntegrationTests(unittest.TestCase):
         actions = [action.text() for action in p.export.menu().actions()]
         self.assertIn('Save .inptk session…', actions)
         self.assertIn('Export frozen fraction CSV…', actions)
+        self.assertNotIn('Export frozen count CSV…', actions)
         self.assertFalse(any('JSON' in label or 'excluded' in label or 'Diagnostics' in label for label in actions))
 
     def test_real_cli_plots_history_ranges_export_and_session(self):

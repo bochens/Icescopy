@@ -82,10 +82,10 @@ The **Advanced** tab contains count selection on a temperature grid, handling of
 Save the `.icescopy` session to retain choices, suggestion summaries, and the last successful result. At Save, Icescopy captures the complete native toolkit result in the session; reopening and exporting it does not repeat the fit. The analysis window has no separate results-table or console tabs; data remain available under **Export results**:
 
 - **Save .inptk session:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`. Save the `.icescopy` session as well to retain the Icescopy controls.
-- **Export frozen count CSV / Export frozen fraction CSV:** measured counts or fractions for inputs included in the last calculation, including assigned water blanks.
+- **Export frozen fraction CSV:** measured fractions for inputs included in the last calculation, including assigned water blanks.
 - **Export concentration CSV:** all concentration curves in the last calculation, using its one saved normalization: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. The menu shows these units. It does not export all three normalizations. This includes individual curves when they are part of that native result. **Export individual concentration CSV** saves the full-range comparison for the sample explicitly chosen in its submenu. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
 
-Original-count exports can contain the original recording temperatures rather than the calculation grid.
+Frozen-fraction exports can contain the original recording temperatures rather than the calculation grid.
 
 Calculation exports use the last successful result, even if newer edits have not been calculated. A result saved in the session can be exported after reconnecting to the toolkit, even when the current count table is missing or needs updating. Choose a new destination; existing exports are preserved.
 
