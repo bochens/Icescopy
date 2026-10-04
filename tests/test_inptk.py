@@ -19,6 +19,7 @@ from icescopy_session_io import build_session_payload, build_restore_state, load
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
 from icescopy_inptk_data import PLOT_COLUMNS, upload_choices
+from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 from icescopy_session import SessionSnapshotCommand
 
@@ -81,6 +82,16 @@ class InpChoiceTests(unittest.TestCase):
         state["method"] = "average"
         self.assertNotIn("--fit-step-C", cli_choices(state))
         self.assertNotIn("--temperature-ranges", cli_choices(state, suggest=True, selected="Combined"))
+
+    def test_default_grid_endpoints_are_explicit_and_blank_fields_use_them(self):
+        state = self.settings()
+        for warm, cold in (('0', '-40'), ('', '')):
+            state.update(grid_start=warm, grid_end=cold)
+            args = cli_choices(state)
+            self.assertEqual(args[args.index('--temperature-start-C') + 1], '0')
+            self.assertEqual(args[args.index('--temperature-end-C') + 1], '-40')
+        state['grid_step'] = ''
+        self.assertNotIn('--temperature-start-C', cli_choices(state))
 
     def test_preview_does_not_infer_blank_or_cycle(self):
         state = reconcile_inputs(new_settings(), {"measurements": [
@@ -145,6 +156,34 @@ class InpProtocolTests(unittest.TestCase):
             self.assertFalse(received)
         worker.feed(b'\n')
         self.assertEqual(len(received),1)
+
+
+class InpCsvLayoutTests(unittest.TestCase):
+    def test_wide_export_separates_groups_preserves_zero_and_leaves_missing_empty(self):
+        def table(rows):
+            return {'cumulative': {'rows': [dict(temperature_C=t, concentration=v,
+                lower_error=0, upper_error=9, unit='INP_per_mL_suspension',
+                source_measurement_ids=['private'], qc_flag=7) for t, v in rows]}}
+        tables = {'Group': table([(0., 0.), (-.5, 2.)]),
+                  'Other group': table([(-.5, 4.), (-1., 5.)]),
+                  'Group / A': table([(0., 100.)])}
+        headers, rows = concentration_csv(tables, [('Group', 'Group'), ('Other group', 'Other group')])
+        self.assertEqual(headers, ['temperature_C', 'Group concentration (INP/mL suspension)',
+                                   'Other group concentration (INP/mL suspension)'])
+        self.assertEqual(rows, [[0., 0., ''], [-.5, 2., 4.], [-1., '', 5.]])
+
+    def test_failed_csv_write_does_not_leave_partial_output_or_overwrite_existing_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.csv'
+            def broken_rows():
+                yield [0, 1]
+                raise OSError('Cannot finish writing')
+            with self.assertRaises(OSError): write_csv(path, ['temperature_C', 'A'], broken_rows())
+            self.assertFalse(path.exists())
+            path.write_text('original')
+            with self.assertRaises(FileExistsError): write_csv(path, ['temperature_C', 'A'], [])
+            self.assertEqual(path.read_text(), 'original')
 
 
 @unittest.skipUnless(os.environ.get("INPTK_TEST_EXECUTABLE"), "Set INPTK_TEST_EXECUTABLE to run real CLI integration")
@@ -214,15 +253,81 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.export_scope_action.text(), 'Last calculation · all 2 groups')
         self.assertEqual(p.export_groups_action.text(), 'Groups: Combined, Neat')
         self.assertIn('INP/mL suspension', p.concentration_export_action.text())
-        self.assertIn('INP/mL suspension', p.individual_exports.title())
+        self.assertIn('INP/mL suspension', p.individual_export_action.text())
         with patch.object(p, 'export_csv') as export:
             p.concentration_export_action.trigger()
         export.assert_called_once_with()
+        with patch.object(p, 'export_csv') as export:
+            p.individual_export_action.trigger()
+        export.assert_called_once_with('individual')
         actions = [action.text() for action in p.export.menu().actions()]
         self.assertIn('Save .inptk session…', actions)
         self.assertIn('Export frozen fraction CSV…', actions)
         self.assertNotIn('Export frozen count CSV…', actions)
         self.assertFalse(any('JSON' in label or 'excluded' in label or 'Diagnostics' in label for label in actions))
+
+    def test_both_concentration_exports_use_the_default_grid_and_only_requested_columns(self):
+        import csv
+        keys = self.configure(); p = self.panel
+        # A positive warm-up reading must not shift the grid to .155/.655 °C.
+        extra = list(self.window.freeze_count_timeseries_rows[0])
+        extra[self.window.freeze_count_timeseries_headers.index('temperature_C')] = 20.655
+        self.window.freeze_count_timeseries_rows.insert(0, extra)
+        p.source_changed()
+        p.change_option('grid_step', '0.5')
+        self.calculate()
+        for kind, names in (('cumulative', ['Combined', 'Neat']), ('individual', keys[:2]),
+                            ('frozen_fraction', keys)):
+            with self.subTest(kind=kind):
+                target = self.fixture.root / f'{kind}.csv'
+                with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+                    p.export_csv(kind)
+                self.wait(lambda:not p.operation and not p.client.busy)
+                self.assertFalse(p.last_error, p.last_error)
+                with target.open() as handle:
+                    reader = csv.DictReader(handle); rows = list(reader)
+                suffix = ' fraction_frozen' if kind == 'frozen_fraction' else ' concentration (INP/mL suspension)'
+                self.assertEqual(reader.fieldnames, ['temperature_C'] + [name + suffix for name in names])
+                temperatures = [float(r['temperature_C']) for r in rows]
+                self.assertTrue(all(-40 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
+                self.assertEqual(temperatures, sorted(temperatures, reverse=True))
+                self.assertEqual(len(rows), 7)
+                self.assertIn('Exported', p.status.text())
+                if kind == 'frozen_fraction':
+                    self.assertEqual([float(r[keys[0] + suffix]) for r in rows], [0., 0., .2, .2, .5, .5, .8])
+                    self.assertEqual(float(rows[-1][keys[2] + suffix]), .1)
+        before = (self.fixture.root / 'cumulative.csv').read_bytes()
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(self.fixture.root / 'cumulative.csv'), '')):
+            p.export_csv()
+        self.assertIn('existing outputs are preserved', p.last_error)
+        self.assertEqual((self.fixture.root / 'cumulative.csv').read_bytes(), before)
+
+    def test_pending_calculation_changes_do_not_export_old_results(self):
+        self.configure(); self.calculate(); p = self.panel
+        p.change_option('grid_step', '1')
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName') as chooser:
+            p.export_csv()
+        chooser.assert_not_called()
+        self.assertIn('Recalculate before exporting', p.status.text())
+
+    def test_missing_individual_fits_are_disabled_and_reported(self):
+        self.configure(); self.calculate(); p = self.panel
+        p.result.pop('references')
+        p.update_export_menu()
+        self.assertFalse(p.individual_export_action.isEnabled())
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName') as chooser:
+            p.export_csv('individual')
+        chooser.assert_not_called()
+        self.assertIn('Individual sample fits are unavailable', p.last_error)
+
+    def test_native_save_failure_removes_only_the_new_partial_folder(self):
+        self.configure(); self.calculate(); p = self.panel
+        target = self.fixture.root / 'failed.inptk'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+            with patch.object(Path, 'write_text', side_effect=OSError('Disk full')):
+                p.export_result()
+        self.assertFalse(target.exists())
+        self.assertIn('Could not save result', p.last_error)
 
     def test_real_cli_plots_history_ranges_export_and_session(self):
         keys = self.configure(); self.calculate()
@@ -786,12 +891,13 @@ class InpIntegrationTests(unittest.TestCase):
                          p.result['references']['saved_result'])
         csv_path = self.fixture.root / 'individual.csv'
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(csv_path), '')):
-            p.export_csv(reference_key=keys[1])
+            p.export_csv('individual')
         self.wait(lambda:not p.operation and not p.client.busy)
         import csv
         with csv_path.open() as handle: exported = list(csv.DictReader(handle))
         expected = p.result['references']['tables'][keys[1]]['cumulative']['rows']
-        self.assertEqual([float(r['concentration']) for r in exported], [r['concentration'] for r in expected])
+        column = f'{keys[1]} concentration (INP/mL suspension)'
+        self.assertEqual([float(r[column]) for r in exported if r[column]], [r['concentration'] for r in expected])
 
     def test_range_edits_reuse_full_range_fits_and_report_history_is_lightweight(self):
         keys = self.configure(); self.calculate()
@@ -966,19 +1072,19 @@ class InpIntegrationTests(unittest.TestCase):
         keys = self.configure(); self.calculate(); p = self.panel; w = self.window
         p.prepare_session_save(require_native=True)
         saved = copy.deepcopy(p.session_state())
-        for reference_key in (None, keys[1]):
-            with self.subTest(reference_key=reference_key):
+        for kind in ('cumulative', 'individual'):
+            with self.subTest(kind=kind):
                 p.restore_session(copy.deepcopy(saved))
-                if reference_key is None:
+                if kind == 'cumulative':
                     w.freeze_count_timeseries_summary['analysis_required'] = True
                 else:
                     w.freeze_count_timeseries_headers = []
                     w.freeze_count_timeseries_rows = []
-                target = self.fixture.root / ('saved-group.csv' if reference_key is None else 'saved-individual.csv')
+                target = self.fixture.root / ('saved-group.csv' if kind == 'cumulative' else 'saved-individual.csv')
                 with patch.object(p.client, 'request', wraps=p.client.request) as requests:
                     with patch.object(p, 'refresh_preview', wraps=p.refresh_preview) as refresh:
                         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')) as chooser:
-                            p.export_csv(reference_key=reference_key)
+                            p.export_csv(kind)
                             self.wait(lambda:not p.operation and not p.client.busy)
                     self.assertFalse(refresh.called)
                     chooser.assert_called_once()

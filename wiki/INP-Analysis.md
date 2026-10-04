@@ -75,24 +75,25 @@ These controls change the INP display only. Number and fraction frozen always us
 
 ## Advanced settings, undo, and export
 
-The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. New analyses use a **0.5 °C temperature grid**. Turn **Use a temperature grid** off to use every measured temperature. Existing saved grid settings are preserved. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
+The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. The default grid runs from **0 to −40 °C in 0.5 °C steps**. The warm and cold endpoint fields are directly below the step field; clearing either restores its default. Explicit saved endpoints are preserved. The toolkit uses available measurements at these grid temperatures; it does not invent measurements beyond the recording. Turn **Use a temperature grid** off to use measured temperatures. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
 
 **Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature tag creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. **Show console** opens Icescopy's existing read-only console while the rest of the main window remains locked. The console returns to its previous position when analysis closes.
 
 Save the `.icescopy` session to retain choices, suggestion summaries, and the last successful result. At Save, Icescopy captures the complete native toolkit result in the session; reopening and exporting it does not repeat the fit. The analysis window has no separate results-table or console tabs; data remain available under **Export results**:
 
 - **Save .inptk session:** an `.inptk` folder containing the toolkit's `analysis.json`. Separate full-range fits, when needed, are included in `individual-samples.inptk`. Save the `.icescopy` session as well to retain the Icescopy controls.
-- **Export frozen fraction CSV:** measured fractions for inputs included in the last calculation, including assigned water blanks.
-- **Export concentration CSV:** all concentration curves in the last calculation, using its one saved normalization: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. The menu shows these units. It does not export all three normalizations. This includes individual curves when they are part of that native result. **Export individual concentration CSV** saves the full-range comparison for the sample explicitly chosen in its submenu. **Lower error** and **Upper error** are distances from the estimate to its confidence limits.
+- **Export frozen fraction CSV:** one temperature column and one frozen-fraction column per input, including water blanks selected by the toolkit. Fractions come from the same observations the toolkit selected on the calculation grid, before blank correction.
+- **Export combined concentration CSV:** one temperature column and one concentration column per calculated sample group. Individual dilution curves are excluded from this file.
+- **Export individual sample concentrations CSV:** one temperature column and one concentration column per individual sample or dilution, using its full-range comparison fit. This is a direct menu action that exports all individual samples together.
 
-Frozen-fraction exports can contain the original recording temperatures rather than the calculation grid.
+Concentration headers state the saved units: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. Both concentration files contain only temperatures and concentrations. The `.inptk` session retains the full result, including uncertainty. Rows run from warm to cold on the calculation grid; empty cells mean there is no calculated value at that temperature. A zero is an actual toolkit estimate. When the grid is explicitly disabled, exports use native calculation temperatures; measured frozen fractions use a compact sample/cycle layout.
 
-Calculation exports use the last successful result, even if newer edits have not been calculated. A result saved in the session can be exported after reconnecting to the toolkit, even when the current count table is missing or needs updating. Choose a new destination; existing exports are preserved.
+Recalculate after changing analysis inputs or settings before exporting CSVs. A stored result remains exportable when the current count table is unavailable; the file chooser identifies it as a saved calculation. CSVs are written only when Export is chosen. Choose a new destination; existing files are preserved and an incomplete new output is removed if writing fails.
 
-Selecting a group changes the plot, not the bulk export. The **Export results** menu names the groups in the last calculation; bulk CSV exports cover all of those groups. Pending normalization changes do not relabel the saved result's units: recalculate to export the new normalization.
+Selecting a group changes the plot, not the export scope. The **Export results** menu names the calculated groups; combined CSVs cover all of them, while individual CSVs cover their member samples. Recalculate to export a different normalization.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
 
-Stopping the toolkit or a process failure discards its unsaved native results. The displayed plot and choices remain available and can still be saved in `.icescopy`, but a result not captured by an earlier Save needs recalculation before native or CSV export. Already saved native results remain exportable.
+Stopping the toolkit or a process failure discards its unsaved native results. Concentration CSVs remain available from Icescopy's retained calculation tables. Native session and frozen-fraction exports need a previously saved native result or a new calculation. The displayed plot and choices can still be saved in `.icescopy`.
 
 Edits to freeze events or sample metadata update Icescopy's tables in memory. CSV files inside a `.icescopy` archive are written when you save that session; separate CSV files are written when you choose Export. An earlier CSV export is never automatically rewritten.

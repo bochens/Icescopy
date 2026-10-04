@@ -9,7 +9,7 @@ def new_settings():
     return {
         "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
         "blank_correction": True, "basis": "suspension", "fit_step": "",
-        "grid_step": "0.5", "grid_start": "", "grid_end": "", "grid_method": "latest",
+        "grid_step": "0.5", "grid_start": "0", "grid_end": "-40", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
         "min_frozen": 3, "min_unfrozen": 3, "suggestion": None,
     }
@@ -170,6 +170,10 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
         args += ["--temperature-ranges", json.dumps(ranges)]
     for key, flag in numeric.items():
         text = settings[key].strip()
+        # Blank endpoint fields mean the same defaults displayed in the client,
+        # including sessions saved before these endpoints were explicit.
+        if key in {"grid_start", "grid_end"} and not text:
+            text = {"grid_start": "0", "grid_end": "-40"}[key]
         if not text:
             continue
         label = {"z": "Uncertainty z", "fit_step": "Fit spacing (°C)",

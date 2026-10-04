@@ -25,6 +25,7 @@ from icescopy_inptk_plot import ConcentrationAxis, PlotLegend, TemperatureRangeI
 from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
+from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
 
 
 def concentration_unit(unit):
@@ -452,15 +453,15 @@ class InptkPanel(QDialog):
         self.grid_enabled = QCheckBox("Use a temperature grid")
         self.grid_enabled.toggled.connect(self.toggle_grid)
         layout.addWidget(self.grid_enabled)
-        note = QLabel("New analyses use a 0.5 °C grid. Turn off to use every measured temperature.")
+        note = QLabel("Default grid: 0 to −40 °C in 0.5 °C steps. Turn off to use measured temperatures.")
         note.setWordWrap(True)
         layout.addWidget(note)
         self.grid_controls = QWidget()
         form = self.grid_form = QFormLayout(self.grid_controls)
         form.setContentsMargins(0, 0, 0, 0)
         self.grid_step = self.option_edit("grid_step", "Off")
-        self.grid_start = self.option_edit("grid_start", "Measured warm limit")
-        self.grid_end = self.option_edit("grid_end", "Measured cold limit")
+        self.grid_start = self.option_edit("grid_start", "0 (default)")
+        self.grid_end = self.option_edit("grid_end", "−40 (default)")
         self.grid_window = self.option_edit("grid_window", "Required for centered window")
         self.grid_method = QComboBox()
         for name, key in (("Latest warmer", "latest"), ("Maximum warmer fraction", "max"), ("Centered window", "window")):
@@ -587,11 +588,11 @@ class InptkPanel(QDialog):
         native.setToolTip("Save the complete toolkit result as an .inptk folder. Save the .icescopy session to retain the Icescopy controls as well.")
         menu.addSeparator()
         fractions = menu.addAction("Export frozen fraction CSV…", lambda: self.export_csv('frozen_fraction'))
-        fractions.setToolTip("All inputs in the last calculation, including assigned water blanks. Selecting a plot group does not limit this export.")
-        self.concentration_export_action = menu.addAction("Export concentration CSV…", lambda: self.export_csv())
-        self.concentration_export_action.setToolTip("All concentration curves in the last calculation, using its saved normalization and uncertainty. Selecting a plot group does not limit this export.")
-        self.individual_exports = menu.addMenu("Export individual concentration CSV")
-        self.individual_exports.aboutToShow.connect(self.populate_individual_exports)
+        fractions.setToolTip("Sample columns on the calculation grid, including selected water blanks. Selecting a plot group does not limit this export.")
+        self.concentration_export_action = menu.addAction("Export combined concentration CSV…", lambda: self.export_csv())
+        self.concentration_export_action.setToolTip("Temperature rows and one concentration column per combined group. Includes all calculated groups, using their saved units.")
+        self.individual_export_action = menu.addAction("Export individual sample concentrations CSV…", lambda: self.export_csv('individual'))
+        self.individual_export_action.setToolTip("Temperature rows and one concentration column per individual sample/dilution. Uses full-range fits in the saved units.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
@@ -1176,6 +1177,9 @@ class InptkPanel(QDialog):
         # freezing limit is marked stale, rather than silently reused.
         choices['ranges'] = {key: temperature_range(self.settings, key)
                              for key, value in self.settings['inputs'].items() if not value['blank']}
+        if self.settings['grid_step'].strip():
+            choices['grid_start'] = self.settings['grid_start'].strip() or '0'
+            choices['grid_end'] = self.settings['grid_end'].strip() or '-40'
         return fingerprint([self.current_hash(), choices])
 
     def ensure_connected(self, after=None):
@@ -1273,6 +1277,7 @@ class InptkPanel(QDialog):
 
     def recalculate(self):
         if self.operation or self.client.busy: return
+        self.export_notice = None
         if not self.client.capabilities:
             self.ensure_connected(after=self.recalculate); return
         if self.preview_hash != self.current_hash() or not self.preview:
@@ -1430,7 +1435,7 @@ class InptkPanel(QDialog):
         self.cancel.setVisible(busy)
         self.suggest.setEnabled(not busy and self.settings["method"] == "average" and self.single_curve_row() >= 0)
         self.export.setEnabled(bool(self.result) and not busy)
-        self.export.setToolTip("Export the last calculation for all groups. Recalculate first to include any pending changes.")
+        self.export.setToolTip("Export combined groups or individual samples as separate CSVs. Recalculate first if analysis inputs or settings changed.")
         self.calculate.setToolTip("Calculate concentrations for all sample groups using the current settings.")
         if connected:
             self.connection.setText(f"INP toolkit {self.client.capabilities['toolkit_version']}")
@@ -1441,6 +1446,8 @@ class InptkPanel(QDialog):
         elif self.last_error: message = self.last_error
         elif self.result and self.result["key"] == self.calculation_key():
             message = "Result is up to date."
+            notice = getattr(self, 'export_notice', None)
+            if notice and notice[0] == self.result['key']: message += ' ' + notice[1]
             if self.result.get('comparison_error'):
                 message += " Full-range individual samples unavailable; see Console."
         elif self.result:
@@ -1817,16 +1824,32 @@ class InptkPanel(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, 'Save .inptk session folder', 'analysis.inptk', 'INP toolkit session folder (*.inptk)')
         if not path: return
         if Path(path).exists(): self.error('Choose a new result folder; existing outputs are preserved.'); return
+        target = Path(path)
+        if target.suffix.lower() != '.inptk': target = target.with_name(target.name + '.inptk')
+        created, written = False, []
         try:
             self.prepare_session_save(require_native=True)
-            Path(path).mkdir(parents=False, exist_ok=False)
-            (Path(path) / 'analysis.json').write_text(self.result['saved_result'], encoding='utf-8')
+            target.mkdir(parents=False, exist_ok=False)
+            created = True
+            written.append(target / 'analysis.json')
+            written[-1].write_text(self.result['saved_result'], encoding='utf-8')
             references = self.result.get('references')
             if references and references['saved_result'] != self.result['saved_result']:
-                folder = Path(path) / 'individual-samples.inptk'; folder.mkdir()
-                (folder / 'analysis.json').write_text(references['saved_result'], encoding='utf-8')
-        except (OSError, ValueError) as exc: self.error(f'Could not save result: {exc}'); return
-        self.window.log(f'Saved INP result: {path}')
+                folder = target / 'individual-samples.inptk'; folder.mkdir()
+                written.append(folder / 'analysis.json')
+                written[-1].write_text(references['saved_result'], encoding='utf-8')
+        except (OSError, ValueError) as exc:
+            if created:
+                # Remove only files we created, never unrelated contents.
+                for file in reversed(written):
+                    try: file.unlink(missing_ok=True)
+                    except OSError: pass
+                for folder in (target / 'individual-samples.inptk', target):
+                    try: folder.rmdir()
+                    except OSError: pass
+            self.error(f'Could not save result: {exc}'); return
+        self.window.log(f'Saved INP result: {target}')
+        self.status.setText(f'Saved .inptk session: {target.name}')
 
     def export_concentration_unit(self):
         # Pending edits must not relabel the last successful result's units.
@@ -1842,38 +1865,85 @@ class InptkPanel(QDialog):
         self.export_groups_action.setToolTip('\n'.join(names))
         unit = self.export_concentration_unit()
         suffix = f" ({unit})" if unit else ''
-        self.concentration_export_action.setText(f"Export concentration CSV{suffix}…")
-        self.individual_exports.setTitle(f"Export individual concentration CSV{suffix}")
-
-    def populate_individual_exports(self):
-        self.individual_exports.clear()
+        self.concentration_export_action.setText(f"Export combined concentration CSV{suffix}…")
+        self.individual_export_action.setText(f"Export individual sample concentrations CSV{suffix}…")
         references = (self.result or {}).get('references') or {}
-        for key in references.get('by_input', {}):
-            self.individual_exports.addAction(key + '…', lambda checked=False, key=key:
-                self.export_csv('cumulative', reference_key=key))
+        available = bool(references.get('by_input'))
+        self.individual_export_action.setEnabled(available)
+        if not available:
+            self.individual_export_action.setToolTip('Individual sample fits are unavailable. Recalculate to generate them; see Console if that calculation fails.')
 
-    def export_csv(self, kind='cumulative', *, reference_key=None):
-        if not self.result: return
-        if not self.client.capabilities:
-            self.ensure_connected(after=lambda: self.export_csv(kind, reference_key=reference_key)); return
-        labels = {'frozen_fraction': 'frozen fractions', 'cumulative': 'concentrations'}
+    def export_csv(self, kind='cumulative'):
+        if not self.result:
+            self.error('Calculate INP results before exporting.'); return
+        if self.operation or self.client.busy:
+            self.window.log('Wait for the current INP operation to finish before exporting.'); return
+        if self.current_hash() and not self.source_cache:
+            self.refresh_preview(after=lambda: self.export_csv(kind)); return
+        if self.current_hash() and self.result['key'] != self.calculation_key():
+            self.error('Analysis inputs or settings changed. Recalculate before exporting CSV results.'); return
+        if kind == 'individual' and not self.result.get('references', {}).get('by_input'):
+            self.error('Individual sample fits are unavailable. Recalculate before exporting.'); return
+        if kind == 'frozen_fraction' and not self.client.capabilities:
+            self.ensure_connected(after=lambda: self.export_csv(kind)); return
+        labels = {'frozen_fraction': 'frozen fractions', 'cumulative': 'combined concentrations',
+                  'individual': 'individual sample concentrations'}
         label = labels[kind]
-        unit = self.export_concentration_unit() if kind == 'cumulative' else ''
+        unit = self.export_concentration_unit() if kind != 'frozen_fraction' else ''
         title = f"Export {label} CSV" + (f" ({unit})" if unit else '')
+        if not self.current_hash(): title += ' — saved calculation'
         filename = f"inp_{label.replace(' ', '_')}.csv"
         path, _ = QFileDialog.getSaveFileName(self, title, filename, 'CSV (*.csv)')
         if not path: return
+        if Path(path).suffix.lower() != '.csv': path += '.csv'
         if Path(path).exists(): self.error('Choose a new filename; existing outputs are preserved.'); return
-        result = self.result['references'] if reference_key is not None else self.result
-        def ready(reference):
-            args = ['export-csv', reference, '--table', kind, '--out', path]
-            if reference_key is not None: args += ['--curve', result['by_input'][reference_key]]
-            self.operation = True; self.update_status()
-            def done(_reply):
-                self.operation = False; self.update_status(); self.window.log(f'Exported INP CSV: {path}')
-                self.release_unused()
-            self.client.request(args, done, self.error)
-        self.ensure_result_reference(result, ready)
+        result = self.result
+        self.last_error = ''; self.operation = True; self.update_status()
+        def done(row_count):
+            self.operation = False; self.update_status()
+            message = f'Exported {label}: {row_count} rows · {Path(path).name}'
+            self.export_notice = (result['key'], message)
+            self.update_status()
+            self.window.log(message + f' ({path})')
+            self.release_unused()
+        def save(layout):
+            headers, rows = layout
+            write_csv(path, headers, rows)
+            return len(rows)
+        if kind == 'frozen_fraction':
+            def ready(reference):
+                def received(reply):
+                    if not result['choices']['grid_step'].strip():
+                        self.client.compute(lambda: save(frozen_fraction_csv(reply['table'], result['choices'])), done, self.error)
+                        return
+                    # The toolkit retains the exact selected observation IDs.
+                    # Join those to its fractions; never repeat count selection
+                    # in the client or round recording temperatures onto a grid.
+                    selected = []
+                    tasks = ['cumulative']
+                    if any(info['tables'].get('excluded', {}).get('row_count', 0)
+                           for info in result['reply']['curves'].values()): tasks.append('excluded')
+                    def next_table():
+                        if not tasks:
+                            self.client.compute(lambda: save(frozen_fraction_csv(reply['table'], result['choices'], selected)), done, self.error)
+                            return
+                        def received_selection(selection):
+                            selected.extend(selection['table']['rows']); next_table()
+                        self.client.request(['table', reference, '--table', tasks.pop(0), '--no-history',
+                            '--columns', 'temperature_C', 'source_observations'], received_selection, self.error)
+                    next_table()
+                self.client.request(['table', reference, '--table', 'frozen_fraction', '--no-history',
+                    '--columns', 'temperature_C', 'measurement_id', 'run_id', 'cycle_id', 'observation_id', 'fraction_frozen'], received, self.error)
+            self.ensure_result_reference(result, ready)
+        else:
+            if kind == 'individual':
+                references = result['references']
+                tables = references['tables']
+                curves = list(references['by_input'].items())
+            else:
+                tables = result['tables']
+                curves = [(curve['name'], curve['name']) for curve in result['choices']['curves']]
+            self.client.compute(lambda: save(concentration_csv(tables, curves)), done, self.error)
 
     def session_state(self):
         return {"version": 1, "choices": copy_choices(self.settings), "preview": self.preview,
@@ -1884,6 +1954,7 @@ class InptkPanel(QDialog):
         self.live_refs.clear(); self.restored_refs.clear(); self.input_ref = self.input_key = None
         self.source_revision += 1
         self.last_error = ""; self.after_connect = None; self.plot_context = None; self.source_cache = None
+        self.export_notice = None
         self.undo_stack.clear()
         self.undo_stack.setUndoLimit(self.window.undo_limit)
         state = state or {}
