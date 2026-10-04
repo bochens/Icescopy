@@ -102,3 +102,13 @@ Use **Analysis → Import Temperature Data** to match freeze events with CSV or 
 Save a `.icescopy` session to resume later. **File → Output Results** exports brightness measurements, freeze events, or temperature-based counts with sample information. Keep the original images or videos: the session refers to them.
 
 Use **Save Session As...** and a new export folder to preserve earlier work. See [saving and exporting](wiki/Sessions-Export-and-Preferences.md).
+
+### 6. Calculate INP concentrations
+
+The **INP toolkit client** sends Icescopy's Freeze Count Timeseries to [INP toolkit (`inptk`)](https://github.com/bochens/inptk) to calculate temperature-dependent **ice-nucleating particle (INP) concentrations** and uncertainty. Install the toolkit separately; Icescopy runs its command-line executable as a separate process.
+
+Choose the executable in **Preferences → INP toolkit client**, test the connection, and save. Then open **Analysis → INP Analysis…** to load the current counts automatically. Group samples or dilutions, mark water blanks, and assign blanks to the samples they correct. Choose **MLE (maximum likelihood estimation)** or **Average**, and select concentration in suspension, sampled air, or dry soil using the corresponding sample metadata.
+
+Compare **number frozen**, **fraction frozen**, and **concentration** in the interactive plot. Concentration shows the combined group in black alongside each dilution in its sample color, with uncertainty visible by default. Set each dilution's temperature limits by dragging its tags below the plot or typing values; **Recalculate** applies changes. **Auto range** can suggest limits for Average.
+
+Save the `.icescopy` session to retain analysis choices and results, or export CSV tables and native toolkit results from the analysis window. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and the [INP toolkit repository](https://github.com/bochens/inptk) for installation and calculation details.
