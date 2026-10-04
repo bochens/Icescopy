@@ -13,7 +13,7 @@ import test_freeze_review_cycles as cycle_tests
 from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QItemSelectionModel
-from PySide6.QtGui import QUndoCommand
+from PySide6.QtGui import QColor, QUndoCommand
 from icescopy_inptk_state import cli_choices, concentration_curves, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
@@ -45,6 +45,18 @@ class InpChoiceTests(unittest.TestCase):
         state["blank_correction"] = False
         self.assertIn("--no-water-blank-correction", cli_choices(state))
         self.assertEqual(state["inputs"]["A"]["blanks"], ["water"])
+
+    def test_full_freezing_range_ends_at_zero_and_keeps_explicit_limits(self):
+        state = self.settings()
+        before = copy.deepcopy(state)
+        args = cli_choices(state)
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
+                         {'A': {'max_C': 0.}, 'B': {'max_C': 0.}})
+        self.assertEqual(state, before)
+        state['ranges'] = {'A': {'min_C': -20}, 'B': {'max_C': -15}}
+        args = cli_choices(state)
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
+                         {'A': {'min_C': -20, 'max_C': 0.}, 'B': {'max_C': -15}})
 
     def test_invalid_choices_are_not_silently_corrected(self):
         edits = [
@@ -198,7 +210,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(set(self.panel.result["tables"]),{"Combined","Neat","Combined / Sample_1"})
         self.panel.show_analysis()
         QApplication.processEvents()
-        self.assertLess(self.panel.plot.viewRange()[0][1], -4)
+        self.assertEqual(self.panel.plot.viewRange()[0][1], 0.)
         original = copy.deepcopy(self.panel.result)
         self.panel.tabs.setCurrentIndex(1)
         self.panel.ranges.selectRow(0)
@@ -278,8 +290,8 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.undo_stack.undo()
         self.assertEqual(self.panel.settings["ranges"], {})
         self.panel.ranges.item(0, 1).setText("-7")
-        self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, -5))
-        self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, -5))
+        self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, 0))
+        self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, 0))
         self.panel.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), {keys[0]})
         self.assertTrue(self.panel.ranges.isRowHidden(1))
@@ -295,7 +307,9 @@ class InpIntegrationTests(unittest.TestCase):
         self.window.undo_stack.undo()
         main_index = self.window.undo_stack.index()
         self.panel.show_analysis()
-        self.assertEqual(self.panel.windowModality(), Qt.WindowModal)
+        self.assertEqual(self.panel.windowModality(), Qt.ApplicationModal)
+        self.assertTrue(self.panel.windowFlags() & Qt.WindowTitleHint)
+        self.assertFalse(self.panel.windowFlags() & Qt.FramelessWindowHint)
         self.assertFalse(self.panel.undo_action.isEnabled())
         self.panel.change_option("method", "mle")
         self.assertTrue(self.panel.undo_action.isEnabled())
@@ -433,7 +447,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.tag_moved(keys[0], 0, -7.5, True)
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         self.assertEqual([entry[0] for entry in p.range_tags.entries], [keys[0]])
-        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': -5}})
+        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': 0}})
         self.assertEqual(p.current_input(), keys[1])
         self.assertEqual(p.undo_stack.index(), undo_index + 1)
         p.undo_stack.undo()
@@ -448,8 +462,8 @@ class InpIntegrationTests(unittest.TestCase):
         self.configure(); self.calculate()
         p = self.panel
         p.show_uncertainty.setChecked(True)
-        self.assertTrue(p.log_y.isChecked())
-        p.log_y.setChecked(False)
+        self.assertTrue(self.window.inptk_log_concentration)
+        self.window.inptk_log_concentration = False; p.draw()
         p.quantity.setCurrentText('Fraction frozen')
         self.assertLess(p.plot.viewRange()[1][0], 0)
         self.assertGreater(p.plot.viewRange()[1][1], 1)
@@ -461,7 +475,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertTrue(p.visible_points)
         self.assertTrue(any(isinstance(item, pg.FillBetweenItem) and not item.path().isEmpty()
                             for item in p.plot.getPlotItem().items))
-        p.log_y.setChecked(True)
+        self.window.inptk_log_concentration = True; p.draw()
         for item in p.plot.listDataItems():
             if item.opts.get('data'):
                 np.testing.assert_allclose(item.scatter.getData()[1], item.getData()[1], equal_nan=True)
@@ -506,16 +520,16 @@ class InpIntegrationTests(unittest.TestCase):
         self.configure(); self.calculate()
         p = self.panel
         p.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
-        p.log_y.setChecked(False)
+        self.window.inptk_log_concentration = False; p.draw()
         rows = p.result['tables']['Neat']['cumulative']['rows']
         for row in rows:
             row.update(concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'})
         p.draw()
         self.assertEqual(p.visible_points, 4)
-        p.log_y.setChecked(True)
+        self.window.inptk_log_concentration = True; p.draw()
         self.assertEqual(p.visible_points, 0)
         self.assertIn('No positive', p.empty_plot.text())
-        p.log_y.setChecked(False)
+        self.window.inptk_log_concentration = False; p.draw()
         self.assertEqual(p.empty_plot.text(), '')
         for row in rows: row['concentration'] = {'$nonfinite': 'inf'}
         p.render_key = None  # Production results are immutable between completed runs.
@@ -565,13 +579,13 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(p.settings['ranges'])
         self.assertEqual(p.ranges.item(0, 1).text(), '')
         self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8')
-        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-5')
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '0')
         p.ranges.item(0, 1).setText('-7')
         p.ranges.item(1, 2).setText('-6')
         before = copy.deepcopy(p.settings['ranges'])
         p.full_range.click()
         self.assertFalse(p.settings['ranges'])
-        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -5.))
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., 0.))
         p.undo_stack.undo()
         self.assertEqual(p.settings['ranges'], before)
         self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
@@ -645,17 +659,40 @@ class InpIntegrationTests(unittest.TestCase):
         p = self.panel
         original = copy.deepcopy(p.result)
         key, undo_index = p.calculation_key(), p.undo_stack.index()
-        self.assertFalse(p.show_uncertainty.isChecked())
+        self.assertTrue(p.show_uncertainty.isChecked())
+        uncertainty_top = p.plot_limits[1][1]
+        self.assertTrue(any(isinstance(item, pg.FillBetweenItem) for item in p.plot.getPlotItem().items))
+        p.show_uncertainty.setChecked(False)
         curve_top = p.plot_limits[1][1]
+        self.assertLess(curve_top, uncertainty_top)
         self.assertFalse(any(isinstance(item, pg.FillBetweenItem) for item in p.plot.getPlotItem().items))
         p.show_uncertainty.setChecked(True)
-        self.assertGreater(p.plot_limits[1][1], curve_top)
-        self.assertTrue(any(isinstance(item, pg.FillBetweenItem) for item in p.plot.getPlotItem().items))
+        self.assertEqual(p.plot_limits[1][1], uncertainty_top)
         self.assertEqual(p.result, original)
         self.assertEqual(p.calculation_key(), key)
         self.assertEqual(p.undo_stack.index(), undo_index)
         p.show_uncertainty.setChecked(False)
         self.assertEqual(p.plot_limits[1][1], curve_top)
+
+    def test_individual_uncertainty_uses_sample_colors_and_outside_muting(self):
+        import pyqtgraph as pg
+        keys = self.configure(); self.calculate()
+        p = self.panel
+        state = copy.deepcopy(p.settings)
+        state['ranges'][keys[0]] = {'min_C': -6, 'max_C': -5}
+        p.commit(state, 'Restrict first dilution')
+        # Linear display allows bounds equal to zero; the toolkit values remain unchanged.
+        self.window.inptk_log_concentration = False; p.draw()
+        bands = [item for item in p.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)]
+        colors = [item.brush().color() for item in bands if not item.path().isEmpty()]
+        for key in keys[:2]:
+            matching = [color for color in colors if color.rgb() == p.color(key).rgb()]
+            self.assertTrue(matching, f'Missing uncertainty for {key}')
+            self.assertTrue(any(abs(color.alphaF() - .14) < .01 for color in matching))
+        first = [color for color in colors if color.rgb() == p.color(keys[0]).rgb()]
+        self.assertTrue(any(color.alphaF() < .1 for color in first))
+        self.assertTrue(any(color.rgb() == QColor(Qt.black).rgb() for color in colors))
+        self.assertEqual(p.plot_limits[0][1], 0.)
 
     def test_full_individual_fits_preserve_combined_results_and_reuse_cached_references(self):
         keys = self.configure()
@@ -1027,6 +1064,13 @@ class InpLegendTests(unittest.TestCase):
 
 
 class InpAxisTests(unittest.TestCase):
+    def test_fit_axes_stops_at_zero_even_with_warm_recording_frames(self):
+        from icescopy_inptk_plot import axis_limits
+        for quantity in ('Number frozen', 'Fraction frozen', 'Concentration'):
+            x, _ = axis_limits(quantity, [-30., -15., 0., 20.], [0., 1.])
+            self.assertLess(x[0], -30.)
+            self.assertEqual(x[1], 0.)
+
     def test_limits_are_finite_for_zero_single_point_and_unbounded_data(self):
         import math
         from icescopy_inptk_plot import axis_limits

@@ -93,13 +93,20 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.window.mark_session_clean()
         dialog = self.dialog()
         styles = {'InptkSampleLineWidth': 3.5, 'InptkCombinedLineWidth': 5.0,
-                  'InptkMarkerSize': 0.0, 'InptkOutsideOpacity': 45.0}
+                  'InptkMarkerSize': 0.0, 'InptkOutsideOpacity': 45.0,
+                  'InptkUncertaintyOpacity': 20., 'InptkGridOpacity': 0., 'InptkLegendFontSize': 12.}
         for key, value in styles.items(): dialog.inptk_style_fields[key].setValue(value)
+        dialog.inptk_scale_field.setCurrentIndex(1)
         self.save(dialog)
         reopened = IceScopy()
         self.addCleanup(reopened.deleteLater)
         self.assertEqual((reopened.inptk_sample_line_width, reopened.inptk_combined_line_width,
                           reopened.inptk_marker_size, reopened.inptk_outside_opacity), (3.5, 5.0, 0.0, 45.0))
+        self.assertEqual((reopened.inptk_uncertainty_opacity, reopened.inptk_grid_opacity,
+                          reopened.inptk_legend_font_size), (20., 0., 12.))
+        self.assertFalse(reopened.inptk_log_concentration)
+        self.assertEqual(reopened.inptk_panel.legend.labelTextSize(), '12pt')
+        self.assertFalse(hasattr(reopened.inptk_panel, 'log_y'))
         self.assertFalse(self.window.has_unsaved_session_changes())
 
     def test_unrelated_save_preserves_opened_session_metadata_schema(self):

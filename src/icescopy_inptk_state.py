@@ -121,6 +121,11 @@ def concentration_curves(settings):
     return specs, individual
 
 
+def temperature_range(settings, key):
+    """The client's full freezing range ends at 0 °C unless explicitly edited."""
+    return {"max_C": 0., **settings["ranges"].get(key, {})}
+
+
 def cli_choices(settings, *, suggest=False, selected=None, include_individual=False, saved=False):
     specs = curve_specs(settings, selected=selected)
     if include_individual and not suggest: specs, _ = concentration_curves(settings)
@@ -156,7 +161,7 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
                  "--decrease-policy", settings["decrease_policy"]]
         if settings["method"] == "mle":
             numeric["fit_step"] = "--fit-step-C"
-        ranges = {key: value for key, value in settings["ranges"].items() if key in used and value}
+        ranges = {key: temperature_range(settings, key) for key in used}
         for key, limits in ranges.items():
             if any(not math.isfinite(float(v)) for v in limits.values()):
                 raise ValueError(f"{key}: limits must be finite temperatures.")

@@ -6,7 +6,7 @@ Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolk
 
 In **Settings → INP toolkit client**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
 
-After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. This resizable window blocks editing in the main window while open. Closing it retains your analysis choices and results.
+After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. Other Icescopy windows are blocked while it is open. Closing it retains your analysis choices and results.
 
 ## Group samples and assign blanks
 
@@ -34,7 +34,7 @@ Expand **Equations and uncertainty** under Combine for the formulas and assumpti
 
 Each sample retains its own cold and warm limits. Faint vertical dashed lines show all limits in the selected group, using the sample catalog colors. Select a row in the limits table or click an individual sample's curve to show its two draggable tags in a single row **below the plot**. Only that sample's controls are active, so overlapping limits cannot silently edit a different sample. You can also type temperatures into the table. Dragging elsewhere in the plot pans the view.
 
-Both endpoints are included. Gray italic numbers show the measured endpoints when a limit is unrestricted. Clear a field to return that boundary to the measured range, or choose **Full range** to clear limits for all samples in the selected groups. Full range can be undone.
+Both endpoints are included. Gray italic numbers show the default endpoints: the sample's measured cold limit and a **0 °C warm limit**. Clear a field to return that boundary to its default, or choose **Full range** to reset limits for all samples in the selected groups. These defaults are also sent to the toolkit; readings above 0 °C are omitted from the concentration fit unless you explicitly set a warmer limit. Full range can be undone.
 
 For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion summary (JSON)…** saves the proposed limits, reasons, and completeness status. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
 
@@ -60,11 +60,16 @@ Individual concentration curves are independent **full-range fits**, using the s
 
 If a full-range comparison fails, the successful calculation within your selected limits remains visible and exportable. The status and console explain the comparison failure. Choose **Recalculate** to retry it.
 
-Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
+Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the cold extent through **0 °C**. Warmer original-count readings remain accessible by panning. Temperature increases from left to right.
 
-Concentration opens with **Log scale** enabled and **Uncertainty** off so that wide intervals do not obscure comparison of the curves. These controls only change the display. Zero values and nonpositive bounds cannot appear on a logarithmic axis. When uncertainty is shown, shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. Exports retain the original values, including infinite bounds. Older saved results need one recalculation to include full-range individual sample curves.
+Concentration uses a logarithmic axis by default. **Uncertainty** starts on and can be toggled above the plot. It shows confidence limits for both the combined result and individual samples; individual bands use their sample colors and are muted outside the selected limits. This toggle changes the display only. Zero values and nonpositive bounds cannot appear on a logarithmic axis. Shading is drawn only where both bounds can be displayed, without bridging missing intervals. An all-zero or unavailable result shows an explanation instead of an unexplained blank plot. Exports retain the original values, including infinite bounds. Older saved results need one recalculation to include full-range individual sample curves.
 
-In **Settings → INP toolkit client → Plot appearance**, adjust sample and combined line widths, point size, and the opacity outside selected limits. These preferences change the display only.
+In **Settings → INP toolkit client**, display controls are grouped by their scope:
+
+- **All INP plots:** horizontal grid opacity, legend text size, sample line width, and point size. Sample line width applies to samples and blanks in count/fraction plots, and individual dilutions in concentration plots. Set point size or grid opacity to zero to hide them.
+- **Concentration plots:** logarithmic or linear axes, group-result line width, uncertainty shading opacity, and opacity outside selected limits. Group-result width controls the combined curve, or the sole sample when a group has one member. Outside-limit opacity affects individual concentration curves and their uncertainty bands.
+
+These controls change the INP display only. Number and fraction frozen always use linear axes. Calculations, exports, and Icescopy's separate brightness Timeseries plot are unchanged.
 
 ## Advanced settings, undo, and export
 

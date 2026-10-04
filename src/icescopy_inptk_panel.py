@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import ConcentrationAxis, PlotLegend, TemperatureRangeItem, TemperatureTags, axis_limits
-from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
+from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
 
@@ -127,7 +127,9 @@ class InptkPanel(QDialog):
     def __init__(self, window):
         super().__init__(window)
         self.setWindowTitle("INP Analysis")
-        self.setWindowModality(Qt.WindowModal)
+        # Keep a normal, movable Qt window while blocking other Icescopy input.
+        # WindowModal can create an attached sheet without a draggable title bar.
+        self.setWindowModality(Qt.ApplicationModal)
         self.setSizeGripEnabled(True)
         self.resize(1080, 740)
         self.window = window
@@ -393,7 +395,7 @@ class InptkPanel(QDialog):
         self.suggest.setToolTip("Suggest Average limits for the selected sample group.")
         self.suggest.clicked.connect(self.suggest_ranges)
         self.full_range = QPushButton("Full range")
-        self.full_range.setToolTip("Clear limits for every sample in the selected groups. Available temperatures will be used.")
+        self.full_range.setToolTip("Use each sample's measured cold limit and a warm limit of 0 °C.")
         self.full_range.clicked.connect(self.reset_ranges)
         range_actions = QHBoxLayout()
         range_actions.addWidget(self.suggest)
@@ -506,24 +508,20 @@ class InptkPanel(QDialog):
         self.quantity.setAccessibleName("Plotted quantity")
         self.quantity.setCurrentIndex(1)
         self.quantity.currentIndexChanged.connect(self.draw)
-        self.log_y = QCheckBox("Log scale")
-        self.log_y.setChecked(True)
-        self.log_y.toggled.connect(self.draw)
         self.show_uncertainty = QCheckBox("Uncertainty")
-        self.show_uncertainty.setToolTip("Show the group's full confidence limits and fit the axes to them. Exported values are unchanged.")
+        self.show_uncertainty.setChecked(True)
+        self.show_uncertainty.setToolTip("Show confidence limits for the combined result and individual samples, and fit the axes to them. Exported values are unchanged.")
         self.show_uncertainty.toggled.connect(self.draw)
         self.fit_button = QPushButton("Fit axes")
         self.fit_button.clicked.connect(self.fit_plot)
         controls.addWidget(self.quantity)
         controls.addStretch(1)
         controls.addWidget(self.show_uncertainty)
-        controls.addWidget(self.log_y)
         controls.addWidget(self.fit_button)
         plot_layout.addLayout(controls)
         self.plot = pg.PlotWidget(axisItems={'left': ConcentrationAxis('left')})
         self.plot.setBackground(self.palette().color(QPalette.Base))
         self.plot.getAxis('left').setWidth(100)
-        self.plot.showGrid(x=False, y=True, alpha=.12)
         for side in ("left", "bottom"):
             self.plot.getAxis(side).setStyle(maxTickLevel=1)
             self.plot.getAxis(side).setTickDensity(.6)
@@ -843,7 +841,7 @@ class InptkPanel(QDialog):
             self.curves.setCurrentRow(max(0, min(old_curve, self.curves.count()-1)), QItemSelectionModel.ClearAndSelect)
         self.range_ids = [key for key, value in self.settings["inputs"].items() if not value["blank"]]
         self.ranges.setRowCount(len(self.range_ids))
-        measured = self.measured_limits()
+        measured = self.full_range_limits()
         for row, key in enumerate(self.range_ids):
             item = QTableWidgetItem(key); item.setFlags(item.flags() & ~Qt.ItemIsEditable); item.setData(Qt.DecorationRole, self.color(key))
             self.ranges.setItem(row, 0, item)
@@ -851,8 +849,8 @@ class InptkPanel(QDialog):
                 item = QTableWidgetItem(str(self.settings["ranges"].get(key, {}).get(limit, "")))
                 endpoint = measured.get(key, {}).get(limit)
                 item.setData(Qt.UserRole, f"{endpoint:g}" if endpoint is not None else "Auto")
-                item.setToolTip("Clear this field to follow the measured range. Both endpoints are included.")
-                item.setData(Qt.AccessibleTextRole, item.text() or f"Measured limit: {item.data(Qt.UserRole)} °C; unrestricted")
+                item.setToolTip("Clear this field to use the measured cold limit or a warm limit of 0 °C. Both endpoints are included.")
+                item.setData(Qt.AccessibleTextRole, item.text() or f"Full-range limit: {item.data(Qt.UserRole)} °C")
                 self.ranges.setItem(row, col, item)
         if self.range_ids:
             self.ranges.selectRow(self.range_ids.index(old_range) if old_range in self.range_ids else 0)
@@ -1044,9 +1042,9 @@ class InptkPanel(QDialog):
     def reset_ranges(self):
         state = copy_choices(self.settings)
         for key in self.selected_input_ids(): state["ranges"].pop(key, None)
-        self.commit(state, "INP analysis: use the full measured range for selected groups")
+        self.commit(state, "INP analysis: use the full freezing range through 0 °C for selected groups")
 
-    def measured_limits(self):
+    def full_range_limits(self):
         cache_key = (id(self.preview), self.preview_hash, tuple((k, v['cycle']) for k, v in self.settings['inputs'].items()))
         if self.limits_cache and self.limits_cache[0] == cache_key:
             return self.limits_cache[1]
@@ -1059,7 +1057,7 @@ class InptkPanel(QDialog):
             if math.isfinite(value):
                 lo, hi = temperatures.get(key, (value, value))
                 temperatures[key] = (min(lo, value), max(hi, value))
-        result = {key: {"min_C": values[0], "max_C": values[1]} for key, values in temperatures.items()}
+        result = {key: {"min_C": min(values[0], 0.), "max_C": 0.} for key, values in temperatures.items()}
         self.limits_cache = (cache_key, result)
         return result
 
@@ -1074,7 +1072,7 @@ class InptkPanel(QDialog):
         if self.tabs.currentIndex() != 1:
             self.range_tags.set_entries([])
             return
-        measured = self.measured_limits()
+        measured = self.full_range_limits()
         selected = self.ranges.currentRow()
         active = self.range_ids[selected] if 0 <= selected < len(self.range_ids) else None
         if active not in keys:
@@ -1470,9 +1468,9 @@ class InptkPanel(QDialog):
             elif not self.selected_result_tables("cumulative"):
                 message = "This sample group has not been calculated. Choose Recalculate."
             elif not getattr(self, "visible_points", 0):
-                message = ("No positive concentration values on log scale. Turn off Log scale to see zeros."
-                           if self.log_y.isChecked() else
-                           "No finite concentration points. Check the selected ranges and excluded-point table.")
+                message = ("No positive concentration values on log scale. Choose Linear concentration scale in Settings → INP toolkit client to see zeros."
+                           if self.window.inptk_log_concentration else
+                           "No finite concentration points. Check the selected ranges and calculation settings.")
         elif not self.preview:
             message = self.last_error or "Loading freezing counts…"
         elif not getattr(self, 'visible_points', 0):
@@ -1613,10 +1611,9 @@ class InptkPanel(QDialog):
         if self.loading: return
         quantity = self.quantity.currentText()
         is_concentration = quantity == "Concentration"
-        # Counts and fractions always retain their physical linear scale. The
-        # concentration scale choice is remembered when switching quantities.
-        logarithmic = is_concentration and self.log_y.isChecked()
-        self.log_y.setVisible(is_concentration)
+        # Counts and fractions are linear; the concentration scale is a global
+        # display preference, separate from the saved calculation choices.
+        logarithmic = is_concentration and self.window.inptk_log_concentration
         self.show_uncertainty.setVisible(is_concentration)
         observed = (tuple((key, tuple(sorted(cycles))) for key, cycles in sorted(self.observation_cycles().items()))
                     if not is_concentration else ())
@@ -1626,9 +1623,11 @@ class InptkPanel(QDialog):
         self.plot_context = context
         widths = (self.window.inptk_sample_line_width, self.window.inptk_combined_line_width,
                   self.window.inptk_marker_size, self.window.inptk_outside_opacity)
+        appearance = (widths, self.window.inptk_uncertainty_opacity,
+                      self.window.inptk_grid_opacity, self.window.inptk_legend_font_size)
         render_key = (context, id(self.result), tuple((k, v['cycle'], v['blank'], tuple(v['blanks']))
                       for k, v in self.settings['inputs'].items()),
-                      fingerprint(self.settings['ranges']) if is_concentration else '', widths)
+                      fingerprint(self.settings['ranges']) if is_concentration else '', appearance)
         if self.render_key == render_key:
             self.draw_ranges(); self.update_status(); return
         self.render_key = render_key
@@ -1639,12 +1638,16 @@ class InptkPanel(QDialog):
         if logarithmic != self.plot.getPlotItem().ctrl.logYCheck.isChecked():
             self.plot.setYRange(0, 1, padding=0)
         self.plot.setLogMode(x=False, y=logarithmic)
+        self.plot.showGrid(x=False, y=self.window.inptk_grid_opacity > 0,
+                           alpha=self.window.inptk_grid_opacity / 100.)
         foreground = self.palette().color(self.foregroundRole())
         for side in ("left", "bottom"):
             self.plot.getAxis(side).setTextPen(foreground)
             self.plot.getAxis(side).setPen(foreground)
             self.plot.getAxis(side).enableAutoSIPrefix(False)
-        if legend: legend.setLabelTextColor(foreground)
+        if legend:
+            legend.setLabelTextColor(foreground)
+            legend.setLabelTextSize(f"{self.window.inptk_legend_font_size:g}pt")
         self.plot.setLabel("left", quantity, units="")
         groups = []
         if is_concentration:
@@ -1685,7 +1688,7 @@ class InptkPanel(QDialog):
                 symbol = "o" if len(chunk) <= 500 and widths[2] > 0 else None
                 shown = y
                 if overlay:
-                    limits = self.settings['ranges'].get(color_key, {})
+                    limits = temperature_range(self.settings, color_key)
                     active = (x >= limits.get('min_C', -math.inf)) & (x <= limits.get('max_C', math.inf))
                     if not active.all():
                         dull = QColor(color); dull.setAlphaF(widths[3] / 100.)
@@ -1703,31 +1706,46 @@ class InptkPanel(QDialog):
                     unit = str(chunk[0].get("unit", ""))
                     unit = concentration_unit(unit)
                     self.plot.setLabel("left", "Concentration", units=unit)
-                    if overlay or not self.show_uncertainty.isChecked(): continue
+                    if not self.show_uncertainty.isChecked(): continue
                     lower = y - np.array([number(row.get("lower_error")) for row in chunk])
                     upper = y + np.array([number(row.get("upper_error")) for row in chunk])
                     for bound in (lower, upper):
                         bound[~np.isfinite(bound)] = np.nan
                         if logarithmic: bound[bound <= 0] = np.nan
                         ys.extend(bound[np.isfinite(x) & np.isfinite(bound)])
-                    edge = QColor(color); edge.setAlpha(90)
-                    lo = self.plot.plot(x, lower, pen=pg.mkPen(edge, width=1), connect="finite")
-                    hi = self.plot.plot(x, upper, pen=pg.mkPen(edge, width=1), connect="finite")
-                    fill = QColor(color); fill.setAlpha(35)
-                    # The two paths must cover identical temperatures. Pairing
-                    # unequal paths closes a diagonal polygon across missing or
-                    # zero log bounds, falsely shading outside the interval.
-                    paired = np.flatnonzero(np.isfinite(x) & np.isfinite(lower) & np.isfinite(upper))
-                    for indices in np.split(paired, np.flatnonzero(np.diff(paired) != 1) + 1):
-                        if len(indices) < 2: continue
-                        boundary = pg.mkPen(QColor(0, 0, 0, 0))
-                        band_lo = self.plot.plot(x[indices], lower[indices], pen=boundary)
-                        band_hi = self.plot.plot(x[indices], upper[indices], pen=boundary)
-                        self.plot.addItem(pg.FillBetweenItem(band_lo, band_hi, brush=fill), ignoreBounds=True)
+                    # Individual uncertainty uses its sample color and the same
+                    # outside-range muting as its curve. Combined bounds are black.
+                    if overlay:
+                        self.draw_uncertainty(x, lower, upper, color, active, 1.)
+                        if not active.all():
+                            self.draw_uncertainty(x, lower, upper, color, ~active, widths[3] / 100.)
+                    else:
+                        self.draw_uncertainty(x, lower, upper, color, np.ones(len(x), dtype=bool), 1.)
         self.plot_limits = axis_limits(quantity, xs, ys, totals, logarithmic=logarithmic)
         self.update_legend_geometry()
         if refit: self.fit_plot()
         self.draw_ranges(); self.update_status()
+
+    def draw_uncertainty(self, x, lower, upper, color, mask, opacity):
+        lower, upper = lower.copy(), upper.copy()
+        lower[~mask] = np.nan; upper[~mask] = np.nan
+        fill = QColor(color)
+        fill.setAlphaF(self.window.inptk_uncertainty_opacity / 100. * opacity)
+        edge = QColor(color)
+        edge.setAlphaF(min(1., self.window.inptk_uncertainty_opacity / 100. * 2.5) * opacity)
+        for bound in (lower, upper):
+            self.plot.plot(x, bound, pen=pg.mkPen(edge, width=1), connect="finite").setZValue(-1)
+        # Pair identical temperatures and split at gaps. Unequal or nonpositive
+        # log bounds must never close a diagonal polygon across missing values.
+        paired = np.flatnonzero(np.isfinite(x) & np.isfinite(lower) & np.isfinite(upper))
+        for indices in np.split(paired, np.flatnonzero(np.diff(paired) != 1) + 1):
+            if len(indices) < 2: continue
+            boundary = pg.mkPen(QColor(0, 0, 0, 0))
+            band_lo = self.plot.plot(x[indices], lower[indices], pen=boundary)
+            band_hi = self.plot.plot(x[indices], upper[indices], pen=boundary)
+            band = pg.FillBetweenItem(band_lo, band_hi, brush=fill)
+            band.setZValue(-2)
+            self.plot.addItem(band, ignoreBounds=True)
 
     def result_reference(self, result):
         reference = self.restored_refs.get(id(result), result.get('reference'))

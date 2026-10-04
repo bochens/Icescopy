@@ -276,6 +276,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.inptk_combined_line_width = 4.0
         self.inptk_marker_size = 6.0
         self.inptk_outside_opacity = 30.0
+        self.inptk_log_concentration = True
+        self.inptk_uncertainty_opacity = 14.0
+        self.inptk_grid_opacity = 12.0
+        self.inptk_legend_font_size = 10.0
         self.timeseries_convolution_line_width = 1.0
         self.timeseries_freeze_line_color = "220,20,60,180"
         self.timeseries_freeze_line_width = 1.0
@@ -362,6 +366,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.inptk_combined_line_width = float(preferences.get("InptkCombinedLineWidth", 4.0))
         self.inptk_marker_size = float(preferences.get("InptkMarkerSize", 6.0))
         self.inptk_outside_opacity = float(preferences.get("InptkOutsideOpacity", 30.0))
+        self.inptk_log_concentration = preferences.get("InptkLogConcentration", True)
+        self.inptk_uncertainty_opacity = float(preferences.get("InptkUncertaintyOpacity", 14.0))
+        self.inptk_grid_opacity = float(preferences.get("InptkGridOpacity", 12.0))
+        self.inptk_legend_font_size = float(preferences.get("InptkLegendFontSize", 10.0))
         self.circle_radius = self.default_circle_radius
         self.maximum_zoom = preferences.get('MaximumZoom', self.maximum_zoom)
         self.pen_width = max(1, preferences.get('PenWidth', self.pen_width))
@@ -480,6 +488,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.update_grid_preview()
         if hasattr(self, "grayscale_plot_widget"):
             self.refresh_grayscale_plot()
+        if hasattr(self, "inptk_panel"):
+            self.inptk_panel.draw()
         self.scene.update()
 
     def default_tool_settings(self):
@@ -11426,6 +11436,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "InptkCombinedLineWidth": (float, 1.0, 12.0),
             "InptkMarkerSize": (float, 0.0, 16.0),
             "InptkOutsideOpacity": (float, 10.0, 80.0),
+            "InptkUncertaintyOpacity": (float, 5.0, 50.0),
+            "InptkGridOpacity": (float, 0.0, 40.0),
+            "InptkLegendFontSize": (float, 8.0, 20.0),
             "DefaultCircleRadius": (float, 0.1, 100000.0),
             "MaximumZoom": (float, 0.1, 1000.0),
             "PenWidth": (float, 0.1, 100.0),
@@ -11495,11 +11508,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             preferences["SampleMetadataSchema"] = default_sample_metadata_schema()
             warnings.append(f"SampleMetadataSchema: {err}; using the default fields.")
 
-        brightening_element = root.find("FreezeFinderDetectBrightening")
-        if brightening_element is not None and brightening_element.text is not None:
-            preferences["FreezeFinderDetectBrightening"] = (
-                brightening_element.text.strip().lower() in {"1", "true", "yes", "on"}
-            )
+        for key in ("FreezeFinderDetectBrightening", "InptkLogConcentration"):
+            element = root.find(key)
+            if element is not None and element.text is not None:
+                preferences[key] = element.text.strip().lower() in {"1", "true", "yes", "on"}
         grayscale_element = root.find("VideoGrayscaleMode")
         if grayscale_element is not None and grayscale_element.text is not None:
             preferences["VideoGrayscaleMode"] = normalize_video_grayscale_mode(

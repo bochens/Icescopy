@@ -286,9 +286,11 @@ def axis_limits(quantity, x_values, y_values, totals=(), *, logarithmic=False):
     """
     xs = [v for v in x_values if math.isfinite(v)]
     ys = [v for v in y_values if math.isfinite(v)]
-    xmin, xmax = (min(xs), max(xs)) if xs else (-30., 0.)
-    pad = max((xmax - xmin) * .04, .1)
-    xlim = (xmin - pad, xmax + pad)
+    # Fit axes shows the freezing region through 0 °C. Warmer observations
+    # remain plotted and are still accessible by panning or zooming out.
+    xmin = min((v for v in xs if v < 0), default=-30.)
+    pad = max(abs(xmin) * .04, .1)
+    xlim = (xmin - pad, 0.)
     if logarithmic:
         positive = [math.log10(v) for v in ys if v > 0]
         if not positive:

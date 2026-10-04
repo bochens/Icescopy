@@ -112,6 +112,10 @@ DEFAULT_PREFERENCE_VALUES = {
     "InptkCombinedLineWidth": 4.0,
     "InptkMarkerSize": 6.0,
     "InptkOutsideOpacity": 30.0,
+    "InptkLogConcentration": True,
+    "InptkUncertaintyOpacity": 14.0,
+    "InptkGridOpacity": 12.0,
+    "InptkLegendFontSize": 10.0,
     "DropletModelPath": "",
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
@@ -1330,20 +1334,43 @@ class PreferencesDialog(QDialog):
         from icescopy_inptk_panel import InptkPreferencesWidget
         self.inptk_settings = InptkPreferencesWidget(str(self.pref_value("InptkExecutablePath") or ""))
         self.finished.connect(lambda _result: self.inptk_settings.client.shutdown())
+        self.inptk_scale_field = QComboBox()
+        self.inptk_scale_field.addItem('Logarithmic', True)
+        self.inptk_scale_field.addItem('Linear', False)
+        self.inptk_scale_field.setCurrentIndex(0 if self.pref_value('InptkLogConcentration') else 1)
+        self.inptk_scale_field.setToolTip('Concentration only. Number and fraction frozen always use linear axes.')
         self.inptk_style_fields = {}
-        rows = []
-        for key, label, low, high in (
-            ('InptkSampleLineWidth', 'Sample line width (px)', 1, 12),
-            ('InptkCombinedLineWidth', 'Combined line width (px)', 1, 12),
-            ('InptkMarkerSize', 'Point size (px; 0 hides points)', 0, 16),
-            ('InptkOutsideOpacity', 'Outside-range opacity (%)', 10, 80),
+        groups = []
+        for title, specs in (
+            ('All INP plots', (
+                ('InptkGridOpacity', 'Grid opacity (%)', 0, 40,
+                 'Horizontal grid for number frozen, fraction frozen, and concentration. Set to 0 to hide it.'),
+                ('InptkLegendFontSize', 'Legend text size (pt)', 8, 20,
+                 'Legend text in every INP plot, measured in font points.'),
+                ('InptkSampleLineWidth', 'Sample line width (px)', 1, 12,
+                 'Sample and blank lines in count and fraction plots, and individual dilution lines in concentration plots. Width in pixels.'),
+                ('InptkMarkerSize', 'Point size (px)', 0, 16,
+                 'Point symbols in every INP plot. Size in pixels; set to 0 to hide them.'),
+            )),
+            ('Concentration plots', (
+                ('InptkCombinedLineWidth', 'Group line width (px)', 1, 12,
+                 'Concentration result for the selected group: the combined black curve, or the sole sample if the group has one member. Width in pixels.'),
+                ('InptkOutsideOpacity', 'Outside-limit opacity (%)', 10, 80,
+                 'Individual concentration curves and their uncertainty outside the sample\'s selected temperature limits. Lower values are more muted.'),
+                ('InptkUncertaintyOpacity', 'Uncertainty opacity (%)', 5, 50,
+                 'Confidence-limit shading for combined and individual concentrations. Controls opacity, not the calculated uncertainty; toggle visibility above the plot.'),
+            )),
         ):
-            field = self.make_double_spinbox(low, high, self.pref_value(key), 1)
-            self.inptk_style_fields[key] = field
-            rows.append((label, field))
+            rows = [('Concentration scale', self.inptk_scale_field)] if title == 'Concentration plots' else []
+            for key, label, low, high, tooltip in specs:
+                field = self.make_double_spinbox(low, high, self.pref_value(key), 1)
+                field.setToolTip(tooltip)
+                self.inptk_style_fields[key] = field
+                rows.append((label, field))
+            groups.append((title, rows))
         page = self.build_preferences_page(
-            "INP toolkit client", "Connect a separately installed INP toolkit executable. Analysis choices are saved with the session.",
-            [('Plot appearance', rows)]
+            "INP toolkit client", "Connect a separately installed INP toolkit executable. These display settings apply only to INP Analysis, not Icescopy's brightness Timeseries plot. Calculations and exports are unchanged.",
+            groups
         )
         page.content_layout.insertWidget(2, self.inptk_settings)
         return page
@@ -2026,6 +2053,7 @@ class PreferencesDialog(QDialog):
 
         SubElement(root, "DropletModelPath").text = droplet_model_path
         SubElement(root, "InptkExecutablePath").text = self.inptk_settings.path.text().strip()
+        SubElement(root, "InptkLogConcentration").text = str(self.inptk_scale_field.currentData()).lower()
         for key, field in self.inptk_style_fields.items():
             SubElement(root, key).text = str(field.value())
         SubElement(root, "DefaultCircleRadius").text = str(self.default_circle_radius_field.value())
