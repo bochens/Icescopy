@@ -309,6 +309,8 @@ class InptkPanel(QWidget):
         cycle_row = QHBoxLayout()
         self.cycle_label = QLabel("Cycle")
         self.input_cycle = QComboBox()
+        self.input_cycle.setAccessibleName("Freezing cycle for the selected sample")
+        self.input_cycle.setToolTip("Choose the freezing cycle used for this sample. Repeated cycles are not pooled.")
         self.input_cycle.currentIndexChanged.connect(
             lambda: self.change_input_cycle(self.current_input(), self.input_cycle.currentData()))
         cycle_row.addWidget(self.cycle_label)
@@ -339,7 +341,7 @@ class InptkPanel(QWidget):
 
         combine = QWidget()
         layout = QVBoxLayout(combine)
-        layout.addWidget(self.heading("Calculation · all groups"))
+        layout.addWidget(self.heading("Calculation"))
         form = QFormLayout()
         self.method = QComboBox()
         self.method.addItem("MLE", "mle")
@@ -447,7 +449,7 @@ class InptkPanel(QWidget):
 
         advanced = QWidget()
         layout = QVBoxLayout(advanced)
-        layout.addWidget(self.heading("Count selection · all groups"))
+        layout.addWidget(self.heading("Count selection"))
         self.grid_enabled = QCheckBox("Use a temperature grid")
         self.grid_enabled.toggled.connect(self.toggle_grid)
         layout.addWidget(self.grid_enabled)
@@ -472,7 +474,7 @@ class InptkPanel(QWidget):
         form.addRow("Window width (°C)", self.grid_window)
         layout.addWidget(self.grid_controls)
         layout.addSpacing(12)
-        layout.addWidget(self.heading("Concentration · all groups"))
+        layout.addWidget(self.heading("Concentration"))
         form = QFormLayout()
         self.decrease_policy = QComboBox()
         self.decrease_policy.addItem("Stop at first decrease", "stop_at_decrease")
@@ -981,8 +983,11 @@ class InptkPanel(QWidget):
     def select_curve(self):
         if self.loading: return
         row = self.single_curve_row()
-        self.sample_help.setText("Check samples to move them into this group. Mark water controls as Blank."
-                                 if row >= 0 else "Select one group to edit its samples, or several groups to compare their plots.")
+        help_text = ("Check samples to move them into this group. Mark water controls as Blank."
+                     if row >= 0 else "Select one group to edit its samples, or several groups to compare their plots.")
+        if any(len(m.get("cycle_ids", [])) > 1 for m in (self.preview or {}).get("measurements", [])):
+            help_text += " Select a sample row to choose its freezing cycle below the table."
+        self.sample_help.setText(help_text)
         values = set(self.selected_input_ids())
         self.loading = True
         for i, key in enumerate(self.input_ids):
@@ -1677,13 +1682,16 @@ class InptkPanel(QWidget):
                 groups.append((label, table["rows"], "concentration", color_key, overlay))
         else:
             by_input = {}
+            multiple_cycles = {m["measurement_id"] for m in (self.preview or {}).get("measurements", [])
+                               if len(m.get("cycle_ids", [])) > 1}
             for row in self.observation_rows():
-                label = row['measurement_id']
-                if self.settings['inputs'].get(label, {}).get('blank'): label += " (water blank)"
-                by_input.setdefault(f"{label} · cycle {row['cycle_id']}", []).append(row)
-            for name, rows in by_input.items():
-                groups.append((name, rows, "n_frozen" if quantity == "Number frozen" else "fraction_frozen",
-                               rows[0]['measurement_id'], False))
+                by_input.setdefault((row['measurement_id'], str(row['cycle_id'])), []).append(row)
+            for (key, cycle), rows in by_input.items():
+                label = key
+                if self.settings['inputs'].get(key, {}).get('blank'): label += " (water blank)"
+                if key in multiple_cycles: label += f" · cycle {cycle}"
+                groups.append((label, rows, "n_frozen" if quantity == "Number frozen" else "fraction_frozen",
+                               key, False))
         xs, ys, totals = [], [], []
         self.visible_points = 0
         for name, rows, column, color_key, overlay in groups:

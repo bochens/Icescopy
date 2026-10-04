@@ -15,7 +15,7 @@ A **sample group** contains the independent samples or dilutions you want to com
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
 3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Blank roles are never inferred from names. When a blank map is supplied, every sample included in the calculation needs an assignment; leave all assignments empty for analysis without blanks. Samples outside the requested groups and unassigned blanks do not enter the calculation.
-4. If a sample has several freezing cycles, choose its cycle below the table. Repeated cycles are not pooled as independent droplets.
+4. If a sample has several freezing cycles, select its row and choose **Cycle for [sample]** below the table. The selector and legend cycle suffix are hidden for samples with only one cycle. Repeated cycles are not pooled as independent droplets.
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
 

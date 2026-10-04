@@ -1003,6 +1003,39 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertEqual(requests.call_count, 0)
         self.assertIs(p.settings['suggestion'], report)
 
+    def test_cycle_selector_and_legend_only_show_multiple_cycles(self):
+        keys = self.configure(); p = self.panel
+        for quantity in ('Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            self.assertTrue(p.input_cycle.isHidden())
+            self.assertTrue(all(' · cycle ' not in label.text for _, label in p.legend.items))
+            self.assertTrue(any('(water blank)' in label.text for _, label in p.legend.items))
+        # Add a second actual count-table cycle, then reload through the client.
+        headers = self.window.freeze_count_timeseries_headers
+        rows = self.window.freeze_count_timeseries_rows
+        cycle_col = headers.index('cycle')
+        temperature_col = headers.index('temperature_C')
+        later = copy.deepcopy(rows)
+        for row in later:
+            row[cycle_col] = 1
+            row[temperature_col] = float(row[temperature_col]) - 10
+        rows.extend(later)
+        p.source_changed(); p.refresh_preview()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        p.inputs.selectRow(p.input_ids.index(keys[0]))
+        self.assertFalse(p.input_cycle.isHidden())
+        self.assertIn('below the table', p.sample_help.text())
+        p.input_cycle.setCurrentIndex(p.input_cycle.findData('1'))
+        self.assertEqual(p.settings['inputs'][keys[0]]['cycle'], '1')
+        for quantity in ('Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            names = [label.text for _, label in p.legend.items]
+            self.assertIn(f'{keys[0]} · cycle 1', names)
+            self.assertIn(f'{keys[2]} (water blank) · cycle 1', names)
+        args = cli_choices(p.settings)
+        curves = json.loads(args[args.index('--curves') + 1])
+        self.assertEqual(curves['Combined']['inputs'][0]['cycle_id'], '1')
+
     def test_assigned_blank_uses_the_selected_sample_cycle(self):
         keys = self.configure(); p = self.panel
         original = p.preview['table']['rows']
