@@ -73,12 +73,14 @@ class InpChoiceTests(unittest.TestCase):
                 state = self.settings(); edit(state)
                 with self.assertRaises(ValueError): cli_choices(state)
 
-    def test_grid_and_fit_spacing_are_separate(self):
+    def test_grid_selection_uses_automatic_mle_fit(self):
         state = self.settings()
-        state.update(grid_step="0.5", grid_start="-4.7", grid_end="-19.2", fit_step="1", grid_method="window", grid_window="0.5")
+        state.update(grid_step="0.5", grid_start="-4.7", grid_end="-19.2", grid_method="window", grid_window="0.5")
         args = cli_choices(state)
         self.assertEqual(args[args.index("--temperature-start-C")+1], "-4.7")
-        self.assertEqual(args[args.index("--fit-step-C")+1], "1")
+        self.assertNotIn("fit_step", state)
+        self.assertNotIn("--fit-step-C", args)
+        self.assertNotIn("--fit-step-C", cli_choices(state, saved=True))
         self.assertEqual(args[args.index("--temperature-window-C")+1], "0.5")
         state["method"] = "average"
         self.assertNotIn("--fit-step-C", cli_choices(state))
@@ -713,14 +715,14 @@ class InpIntegrationTests(unittest.TestCase):
         self.configure()
         p = self.panel
         p.quantity.setCurrentText('Concentration')
-        p.change_option('fit_step', '-1')
+        p.change_option('z', '-1')
         p.change_option('method', 'mle')
         p.recalculate()
         p.client.busyChanged.emit(False)
-        self.assertIn('Fit spacing', p.status.text())
-        self.assertIn('Fit spacing', p.empty_plot.text())
+        self.assertIn('Uncertainty z', p.status.text())
+        self.assertIn('Uncertainty z', p.empty_plot.text())
         self.assertIsNone(p.result)
-        p.change_option('fit_step', '1')
+        p.change_option('z', '1.96')
         self.calculate()
         self.assertEqual(p.empty_plot.text(), '')
 

@@ -8,7 +8,7 @@ import math
 def new_settings():
     return {
         "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
-        "blank_correction": True, "basis": "suspension", "fit_step": "",
+        "blank_correction": True, "basis": "suspension",
         "grid_step": "0.5", "grid_start": "0", "grid_end": "-35", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
         "min_frozen": 3, "min_unfrozen": 3, "suggestion": None,
@@ -183,8 +183,6 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
     else:
         args += ["--method", settings["method"], "--output-basis", settings["basis"],
                  "--decrease-policy", settings["decrease_policy"]]
-        if settings["method"] == "mle":
-            numeric["fit_step"] = "--fit-step-C"
         ranges = {key: temperature_range(settings, key) for key in sorted(used)}
         for key, limits in ranges.items():
             if any(not math.isfinite(float(v)) for v in limits.values()):
@@ -200,12 +198,12 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
             text = {"grid_start": "0", "grid_end": "-35"}[key]
         if not text:
             continue
-        label = {"z": "Uncertainty z", "fit_step": "Fit spacing (°C)",
+        label = {"z": "Uncertainty z",
                  "grid_step": "Count step (°C)", "grid_start": "Warm end (°C)",
                  "grid_end": "Cold end (°C)", "grid_window": "Window width (°C)"}[key]
         try: value = float(text)
         except (ValueError, TypeError): value = math.nan
-        if not math.isfinite(value) or (key in {"z", "fit_step", "grid_step", "grid_window"} and value <= 0):
+        if not math.isfinite(value) or (key in {"z", "grid_step", "grid_window"} and value <= 0):
             raise ValueError(f"Enter a valid number for {label}.")
         args += [flag, text]
     return args

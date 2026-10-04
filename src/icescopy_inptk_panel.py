@@ -326,8 +326,6 @@ class InptkPanel(QWidget):
         self.method.addItem("Average", "average")
         self.method.currentIndexChanged.connect(lambda: self.change_option("method", self.method.currentData()))
         form.addRow("Method", self.method)
-        self.fit_step = self.option_edit("fit_step", "Automatic")
-        form.addRow("Fit spacing (°C)", self.fit_step)
         self.combine_form = form
         self.basis = QComboBox()
         for text, key in (("Suspension", "suspension"), ("Sampled air", "sampled_air"), ("Dry soil", "dry_soil")):
@@ -839,14 +837,13 @@ class InptkPanel(QWidget):
         selected_names = set(self.selected_curve_names())
         range_row = self.ranges.currentRow()
         old_range = self.range_ids[range_row] if 0 <= range_row < len(self.range_ids) else None
-        for key in ("fit_step", "grid_step", "grid_start", "grid_end", "grid_window", "z"):
+        for key in ("grid_step", "grid_start", "grid_end", "grid_window", "z"):
             getattr(self, key).setText(str(self.settings[key]))
         for key in ("method", "basis", "grid_method", "decrease_policy"):
             widget = getattr(self, key); widget.setCurrentIndex(widget.findData(self.settings[key]))
         self.blank_enabled.setChecked(self.settings["blank_correction"])
         self.min_frozen.setValue(self.settings["min_frozen"])
         self.min_unfrozen.setValue(self.settings["min_unfrozen"])
-        self.combine_form.setRowVisible(self.fit_step, self.settings["method"] == "mle")
         self.auto_range_options.setVisible(self.settings["method"] == "average")
         self.suggest.setVisible(self.settings["method"] == "average")
         self.grid_enabled.setChecked(bool(self.settings["grid_step"]))
