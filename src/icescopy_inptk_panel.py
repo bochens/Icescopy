@@ -1719,8 +1719,9 @@ class InptkPanel(QWidget):
         # Counts and fractions are linear; the concentration scale is a global
         # display preference, separate from the saved calculation choices.
         logarithmic = is_concentration and self.window.inptk_log_concentration
-        self.show_uncertainty.setVisible(is_concentration)
-        self.show_combined.setVisible(is_concentration and any(
+        # Keep display controls in place as the quantity or group changes.
+        self.show_uncertainty.setEnabled(is_concentration)
+        self.show_combined.setEnabled(is_concentration and any(
             len(c['inputs']) > 1 for c in self.settings['curves'] if c['name'] in self.selected_curve_names()))
         observed = (tuple((key, tuple(sorted(cycles))) for key, cycles in sorted(self.observation_cycles().items()))
                     if not is_concentration else ())
