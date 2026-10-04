@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
     QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
-    QToolButton, QVBoxLayout, QWidget, QFrame, QGroupBox, QStyledItemDelegate,
+    QToolButton, QVBoxLayout, QWidget, QWidgetAction, QFrame, QGroupBox, QStyledItemDelegate,
 )
 
 from icescopy_inptk_client import InptkClient
@@ -570,8 +570,14 @@ class InptkPanel(QWidget):
         self.export = QPushButton("Export results")
         menu = QMenu(self.export)
         menu.setToolTipsVisible(True)
-        self.export_scope_action = menu.addAction("All groups")
+        self.export_scope_label = QLabel("All groups")
+        self.export_scope_label.setTextFormat(Qt.PlainText)
+        self.export_scope_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.export_scope_label.setContentsMargins(12, 4, 12, 4)
+        self.export_scope_action = QWidgetAction(menu)
+        self.export_scope_action.setDefaultWidget(self.export_scope_label)
         self.export_scope_action.setEnabled(False)
+        menu.addAction(self.export_scope_action)
         native = menu.addAction("Save .inptk session…", self.export_result)
         native.setToolTip("Save the complete toolkit result as an .inptk folder. Save the .icescopy session to retain the Icescopy controls as well.")
         menu.addSeparator()
@@ -1853,6 +1859,8 @@ class InptkPanel(QWidget):
         text = text if len(text) <= 60 else text[:57] + '…'
         self.export_scope_action.setText(f"All {len(names)} {'group' if len(names) == 1 else 'groups'}: {text}")
         self.export_scope_action.setToolTip('\n'.join(names))
+        self.export_scope_label.setText(self.export_scope_action.text())
+        self.export_scope_label.setToolTip('\n'.join(names))
         unit = self.export_concentration_unit()
         suffix = f" ({unit})" if unit else ''
         self.concentration_export_action.setText(f"Export combined concentration CSV{suffix}…")
