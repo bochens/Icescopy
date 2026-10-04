@@ -36,6 +36,8 @@ Each sample retains its own cold and warm limits. Faint vertical dashed lines sh
 
 Both endpoints are included. Gray italic numbers show the default endpoints: the sample's measured cold limit and a **0 °C warm limit**. Clear a field to return that boundary to its default, or choose **Full range** to reset limits for all samples in the selected groups. These defaults are also sent to the toolkit; readings above 0 °C are omitted from the concentration fit unless you explicitly set a warmer limit. Full range can be undone.
 
+The limits table displays two decimal places. Dragging, calculations, and saved sessions retain the original precision; only editing a value changes it.
+
 For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. **Export → Export range-suggestion summary (JSON)…** saves the proposed limits, reasons, and completeness status. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
 
 Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.

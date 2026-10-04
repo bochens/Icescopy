@@ -286,7 +286,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(self.panel.undo_stack.index(), before + 1)
         self.assertNotIn(keys[0], self.panel.settings["ranges"])
         self.assertEqual(self.panel.settings["ranges"][keys[1]], {"min_C":-7.5,"max_C":-5.5})
-        self.assertEqual(self.panel.ranges.item(1, 1).text(), "-7.5")
+        self.assertEqual(self.panel.ranges.item(1, 1).text(), "-7.50")
         self.panel.undo_stack.undo()
         self.assertEqual(self.panel.settings["ranges"], {})
         self.panel.ranges.item(0, 1).setText("-7")
@@ -578,8 +578,8 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(len(keys), 2)
         self.assertFalse(p.settings['ranges'])
         self.assertEqual(p.ranges.item(0, 1).text(), '')
-        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8')
-        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '0')
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8.00')
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '0.00')
         p.ranges.item(0, 1).setText('-7')
         p.ranges.item(1, 2).setText('-6')
         before = copy.deepcopy(p.settings['ranges'])
@@ -617,10 +617,33 @@ class InpIntegrationTests(unittest.TestCase):
         other = dict(p.preview['table']['rows'][0], measurement_id=key, cycle_id='later', temperature_C=-20.)
         p.preview['table']['rows'].append(other)
         p.restore_choices(p.settings)
-        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8')
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8.00')
         p.change_input_cycle(key, 'later')
-        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-20')
+        self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-20.00')
         self.assertFalse(p.settings['ranges'])
+
+    def test_range_display_rounding_preserves_drag_and_saved_precision(self):
+        keys = self.configure(); p = self.panel
+        p.tabs.setCurrentIndex(1)
+        exact = -7.670121751025988
+        p.tag_moved(keys[0], 0, exact, True)
+        self.assertEqual(p.settings['ranges'][keys[0]]['min_C'], exact)
+        self.assertEqual(p.ranges.item(0, 1).text(), '-7.67')
+        saved = p.session_state()
+        self.assertEqual(saved['choices']['ranges'][keys[0]]['min_C'], exact)
+        p.restore_session(saved)
+        self.assertEqual(p.settings['ranges'][keys[0]]['min_C'], exact)
+        self.assertEqual(p.ranges.item(0, 1).text(), '-7.67')
+
+    def test_previous_unrestricted_saved_fit_is_stale_after_zero_degree_default(self):
+        from icescopy_inptk_state import fingerprint
+        self.configure(); self.calculate()
+        p = self.panel
+        old_choices = {k: v for k, v in p.settings.items()
+                       if k not in {'suggestion', 'min_frozen', 'min_unfrozen'}}
+        p.result['key'] = fingerprint([p.current_hash(), old_choices])
+        p.draw()
+        self.assertIn('Changes not calculated', p.status.text())
 
     def test_optional_grid_and_plot_changes_preserve_export_data(self):
         p = self.panel

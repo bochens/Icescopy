@@ -846,10 +846,13 @@ class InptkPanel(QDialog):
             item = QTableWidgetItem(key); item.setFlags(item.flags() & ~Qt.ItemIsEditable); item.setData(Qt.DecorationRole, self.color(key))
             self.ranges.setItem(row, 0, item)
             for col, limit in ((1, "min_C"), (2, "max_C")):
-                item = QTableWidgetItem(str(self.settings["ranges"].get(key, {}).get(limit, "")))
+                value = self.settings["ranges"].get(key, {}).get(limit)
+                # Only the display is rounded. Choices and drag positions retain
+                # their original values until the user explicitly edits a limit.
+                item = QTableWidgetItem(f"{number(value):.2f}" if value is not None else "")
                 endpoint = measured.get(key, {}).get(limit)
-                item.setData(Qt.UserRole, f"{endpoint:g}" if endpoint is not None else "Auto")
-                item.setToolTip("Clear this field to use the measured cold limit or a warm limit of 0 °C. Both endpoints are included.")
+                item.setData(Qt.UserRole, f"{endpoint:.2f}" if endpoint is not None else "Auto")
+                item.setToolTip("Displayed to two decimal places; stored limits retain their original precision. Clear this field to use the measured cold limit or a warm limit of 0 °C. Both endpoints are included.")
                 item.setData(Qt.AccessibleTextRole, item.text() or f"Full-range limit: {item.data(Qt.UserRole)} °C")
                 self.ranges.setItem(row, col, item)
         if self.range_ids:
@@ -1136,8 +1139,8 @@ class InptkPanel(QDialog):
             cold, warm = region.getRegion()
             row = self.range_ids.index(key)
             self.ranges.selectRow(row)
-            self.ranges.item(row, 1).setText(f"{cold:.4f}")
-            self.ranges.item(row, 2).setText(f"{warm:.4f}")
+            self.ranges.item(row, 1).setText(f"{cold:.2f}")
+            self.ranges.item(row, 2).setText(f"{warm:.2f}")
         finally: self.loading = False
         self.range_tags.set_entries([
             (k, self.range_items[k].getRegion() if k in self.range_items else limits, color, k == key)
@@ -1161,6 +1164,10 @@ class InptkPanel(QDialog):
         # suggestion thresholds/report alone does not change a fitted result.
         choices = {k: v for k, v in self.settings.items()
                    if k not in {"suggestion", "min_frozen", "min_unfrozen"}}
+        # Include effective defaults so a saved fit made before the 0 °C
+        # freezing limit is marked stale, rather than silently reused.
+        choices['ranges'] = {key: temperature_range(self.settings, key)
+                             for key, value in self.settings['inputs'].items() if not value['blank']}
         return fingerprint([self.current_hash(), choices])
 
     def ensure_connected(self, after=None):

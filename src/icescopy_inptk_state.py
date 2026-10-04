@@ -161,7 +161,7 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
                  "--decrease-policy", settings["decrease_policy"]]
         if settings["method"] == "mle":
             numeric["fit_step"] = "--fit-step-C"
-        ranges = {key: temperature_range(settings, key) for key in used}
+        ranges = {key: temperature_range(settings, key) for key in sorted(used)}
         for key, limits in ranges.items():
             if any(not math.isfinite(float(v)) for v in limits.values()):
                 raise ValueError(f"{key}: limits must be finite temperatures.")
