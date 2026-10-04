@@ -24,6 +24,8 @@ Install [INP-toolkit 0.4.2](https://github.com/bochens/inptk/releases/tag/v0.4.2
 
 **macOS, Apple Silicon:** download `Icescopy-macos-arm64.zip`, unzip it, and replace `Icescopy.app` in Applications after saving work and closing the app. The bundle is ad-hoc signed for integrity, not Apple-notarized.
 
-**Windows:** the 2.6.0 installer is not yet available. The previous Windows installer remains on the [2.5.0 release](https://github.com/bochens/Icescopy/releases/tag/v2.5.0).
+**Windows:** download [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.0/Icescopy-windows-installer.exe) for 64-bit x64 Windows 10 (1809 or later) or Windows 11. Save work and close Icescopy before upgrading, run the installer, then open Icescopy from the Start menu. It installs for your Windows account and includes Python, the required libraries, and the General droplets 1.0.0 model. No separate Python installation or GPU is required. Install INP-toolkit 0.4.2 separately as described above.
+
+GitHub displays a SHA-256 checksum beside each uploaded file under Assets.
 
 The bundled General droplets 1.0.0 model is unchanged. Standalone inference and training weights remain available on the [2.5.0 release](https://github.com/bochens/Icescopy/releases/tag/v2.5.0).
