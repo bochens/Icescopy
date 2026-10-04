@@ -1352,7 +1352,7 @@ class PreferencesDialog(QDialog):
             widget.setToolTip("Choose catalog columns for this table. Horizontal scrolling keeps columns readable. Calculation controls remain visible.")
         self.refresh_inptk_columns(8)
         groups = [("Table columns", [("Samples tab", self.inptk_columns),
-                                    ("Combine tab · temperature limits", self.inptk_range_columns)])]
+                                    ("Combine tab\nTemperature limits", self.inptk_range_columns)])]
         for title, specs in (
             ('All INP plots', (
                 ('InptkGridOpacity', 'Grid opacity (%)', 0, 40,

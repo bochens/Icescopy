@@ -14,7 +14,7 @@ from icescopy_inptk_state import curve_specs
 
 NORMALIZATION_FIELDS = ('air_volume_L', 'suspension_volume_mL', 'filter_fraction_used', 'dry_mass_g')
 PLOT_COLUMNS = ('temperature_C', 'concentration', 'lower_error', 'upper_error', 'unit',
-                'basis', 'segment_id', 'point_order', 'contributor_count', 'qc_flag')
+                'basis', 'segment_id', 'point_order', 'contributor_count', 'qc_flag', 'reporting_status')
 
 
 def prepare_source(headers, rows, metadata):

@@ -148,6 +148,7 @@ class InpProtocolTests(unittest.TestCase):
                 self.assertFalse(received)
                 self.assertFalse(client.busy)
 
+
     def test_partial_response_waits_for_newline(self):
         worker = ToolkitTransport(); received = []
         worker.response.connect(lambda epoch, reply: received.append(reply))
@@ -320,10 +321,10 @@ class InpIntegrationTests(unittest.TestCase):
                 temperatures = [float(r['temperature_C']) for r in rows]
                 self.assertTrue(all(-35 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
                 self.assertEqual(temperatures, sorted(temperatures, reverse=True))
-                self.assertEqual(len(rows), 7 if kind == 'frozen_fraction' else 5)
+                self.assertEqual(len(rows), 17 if kind == 'frozen_fraction' else 5)
                 self.assertIn('Exported', p.status.text())
                 if kind == 'frozen_fraction':
-                    self.assertEqual([float(r[keys[0] + suffix]) for r in rows], [0., 0., .2, .2, .5, .5, .8])
+                    self.assertEqual([float(r[keys[0] + suffix]) for r in rows], [0.] * 10 + [0., 0., .2, .2, .5, .5, .8])
                     self.assertEqual(float(rows[-1][keys[2] + suffix]), .1)
         before = (self.fixture.root / 'cumulative.csv').read_bytes()
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(self.fixture.root / 'cumulative.csv'), '')):
@@ -347,7 +348,7 @@ class InpIntegrationTests(unittest.TestCase):
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName') as chooser:
             p.export_csv('individual')
         chooser.assert_not_called()
-        self.assertIn('Individual sample fits are unavailable', p.last_error)
+        self.assertIn('Individual sample concentrations are unavailable', p.last_error)
 
     def test_native_save_failure_removes_only_the_new_partial_folder(self):
         self.configure(); self.calculate(); p = self.panel
@@ -414,6 +415,11 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(self.panel.settings["suggestion"]["complete"])
         self.assertEqual(self.panel.settings["ranges"],before)
         self.assertIn("Incomplete",self.panel.suggestion_status.text())
+        self.panel.recalculate()
+        self.assertIn('Review incomplete Auto ranges', self.panel.last_error)
+        self.assertIn(keys[1], self.panel.last_error)
+        self.assertIsNone(self.panel.result)
+
 
     def test_each_group_input_has_independent_handles_and_numeric_limits(self):
         keys = self.configure()
@@ -1023,7 +1029,7 @@ class InpIntegrationTests(unittest.TestCase):
         reference = p.result['references']
         table = reference['tables'][reference['by_input'][keys[0]]]
         point = dict(table['cumulative']['rows'].pop(0))
-        point.update(concentration=3., lower_error=1., upper_error=2.)
+        point.update(concentration=3., lower_error=1., upper_error=2., reporting_status='within_freezing_interval')
         table['excluded']['rows'].append(point)
         before = copy.deepcopy(table)
         p.reference_plot_tables.clear(); p.render_key = None; p.draw()
@@ -1074,7 +1080,7 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertEqual(p.result['tables'][name]['cumulative']['rows'], expected_rows)
         individual = p.result['references']['reply']['curves'][keys[1]]
         self.assertEqual(individual['sources'][0]['water_blank_ids'], [keys[2]])
-        self.assertEqual([r['temperature_C'] for r in tables[('individual', keys[1])]['rows']], [-5., -6., -7., -8.])
+        self.assertEqual([r['temperature_C'] for r in tables[('individual', keys[1])]['rows']], [-6., -7., -8.])
         curves = [item for item in p.plot.listDataItems() if item.opts.get('data') and item.opts.get('name')]
         self.assertEqual(len(curves), 3)
         self.assertEqual(sum(item.opts['pen'].style() == Qt.DashLine for item in curves), 2)
@@ -1277,32 +1283,48 @@ class InpIntegrationTests(unittest.TestCase):
                 self.assertEqual(set(uploads[-1]['counts']['measurement_id']), expected)
 
     def test_limited_result_survives_failed_full_range_comparison_and_can_retry(self):
-        keys = self.configure(); p = self.panel; w = self.window
-        frozen_col = w.freeze_count_timeseries_headers.index(keys[0] + ' number frozen')
-        for row, frozen in zip(w.freeze_count_timeseries_rows, [0, 3, 2, 1]):
-            row[frozen_col] = frozen
-        p.source_changed()
+        keys = self.configure(); p = self.panel
         state = copy.deepcopy(p.settings)
-        state['curves'] = [{'name': 'Neat', 'inputs': [keys[0]]}]
-        state['inputs'][keys[0]]['blanks'] = []
-        state['method'] = 'mle'
         state['ranges'] = {keys[0]: {'min_C': -6, 'max_C': -5}}
-        p.commit(state, 'Use the valid cooling interval')
-        self.calculate()
-        self.assertIn('cumulative first-freezing counts', p.result['comparison_error'])
+        p.commit(state, 'Restrict the first sample')
+        original = p.client.request
+        analyzes = []
+        def fail_comparison(args, callback, error=None):
+            if args[0] == 'analyze':
+                analyzes.append(args)
+                if len(analyzes) == 2:
+                    error('Comparison request failed'); return
+            return original(args, callback, error)
+        with patch.object(p.client, 'request', side_effect=fail_comparison):
+            self.calculate()
+        self.assertEqual(p.result['comparison_error'], 'Comparison request failed')
         self.assertNotIn('references', p.result)
         self.assertFalse(p.last_error)
         self.assertIn('Full-range individual samples unavailable', p.status.text())
-        self.assertEqual({r['temperature_C'] for r in p.result['tables']['Neat']['cumulative']['rows']}, {-6.})
         p.prepare_session_save(require_native=True)
         self.assertTrue(p.result['saved_result'])
         self.assertLessEqual(len(p.live_refs), 2)
-        # Retry after correcting the source also restores comparison overlays.
-        for row, frozen in zip(w.freeze_count_timeseries_rows, [0, 3, 5, 8]):
-            row[frozen_col] = frozen
-        p.source_changed(); self.calculate()
+        self.calculate()
         self.assertIn('references', p.result)
         self.assertNotIn('comparison_error', p.result)
+
+
+    def test_signed_individual_average_matches_toolkit_and_survives_group_range_edits(self):
+        keys = self.configure(); p = self.panel; w = self.window
+        column = w.freeze_count_timeseries_headers.index(keys[2] + ' number frozen')
+        for row, frozen in zip(w.freeze_count_timeseries_rows, [0, 6, 6, 6]): row[column] = frozen
+        p.source_changed(); self.calculate()
+        reference = p.result['references']
+        table = reference['tables'][reference['by_input'][keys[0]]]['cumulative']
+        self.assertEqual([row['temperature_C'] for row in table['rows']], [-6., -7., -8.])
+        self.assertTrue(any(row['concentration'] < 0 for row in table['rows']))
+        w.inptk_log_concentration = False; p.draw()
+        plotted = dict(p.concentration_tables('cumulative'))[('individual', keys[1])]['rows']
+        self.assertTrue(any(row['concentration'] < 0 for row in plotted))
+        p.settings['ranges'][keys[0]] = {'min_C': -8, 'max_C': -7}
+        self.calculate()
+        self.assertIs(p.result['references'], reference)
+        self.assertEqual(reference['tables'][reference['by_input'][keys[0]]]['cumulative'], table)
 
     def test_saved_csv_export_reconnects_without_current_counts_or_refitting(self):
         keys = self.configure(); self.calculate(); p = self.panel; w = self.window
