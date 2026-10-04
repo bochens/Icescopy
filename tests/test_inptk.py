@@ -1,6 +1,7 @@
 """Client checks; optional real-CLI integration via INPTK_TEST_EXECUTABLE."""
 import copy
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -993,10 +994,10 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_individual_uncertainty_uses_sample_colors_and_outside_muting(self):
         import pyqtgraph as pg
-        keys = self.configure(); self.calculate()
-        p = self.panel
+        keys = self.configure(); p = self.panel
+        p.change_option('grid_step', '0.5'); self.calculate()
         state = copy.deepcopy(p.settings)
-        state['ranges'][keys[0]] = {'min_C': -6, 'max_C': -5}
+        state['ranges'][keys[0]] = {'min_C': -7, 'max_C': -5}
         p.commit(state, 'Restrict first dilution')
         # Linear display allows bounds equal to zero; the toolkit values remain unchanged.
         self.window.inptk_log_concentration = False; p.draw()
@@ -1010,6 +1011,29 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertTrue(any(color.alphaF() < .1 for color in first))
         self.assertTrue(any(color.rgb() == QColor(Qt.black).rgb() for color in colors))
         self.assertEqual(p.plot_limits[0][1], 0.)
+
+    def test_excluded_individual_point_inside_limits_is_faded_without_changing_saved_tables(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        self.window.inptk_log_concentration = False
+        reference = p.result['references']
+        table = reference['tables'][reference['by_input'][keys[0]]]
+        point = dict(table['cumulative']['rows'].pop(0))
+        point.update(concentration=3., lower_error=1., upper_error=2.)
+        table['excluded']['rows'].append(point)
+        before = copy.deepcopy(table)
+        p.reference_plot_tables.clear(); p.render_key = None; p.draw()
+        curves = p.plot.listDataItems()
+        full = [c for c in curves if c.opts.get('name') and c.opts.get('data')
+                and any(r.get('_display_excluded') for r in c.opts['data'])]
+        self.assertTrue(full)
+        for curve in full:
+            for row, y in zip(curve.opts['data'], curve.yData):
+                if row.get('_display_excluded'): self.assertTrue(math.isnan(y))
+        faded = [c for c in curves if c.opts['pen'].color().rgb() == p.color(keys[0]).rgb()
+                 and abs(c.opts['pen'].color().alphaF() - self.window.inptk_outside_opacity / 100.) < .01]
+        self.assertTrue(any(any(x == point['temperature_C'] and y == 3.
+                               for x, y in zip(c.xData, c.yData)) for c in faded))
+        self.assertEqual(table, before)
 
     def test_full_individual_fits_preserve_combined_results_and_reuse_cached_references(self):
         keys = self.configure()

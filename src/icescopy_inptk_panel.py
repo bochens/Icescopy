@@ -600,9 +600,9 @@ class InptkPanel(QWidget):
         fractions = menu.addAction("Export frozen fraction CSV…", lambda: self.export_csv('frozen_fraction'))
         fractions.setToolTip("Sample columns on the calculation grid, including selected water blanks. Selecting a plot group does not limit this export.")
         self.concentration_export_action = menu.addAction("Export combined concentration CSV…", lambda: self.export_csv())
-        self.concentration_export_action.setToolTip("Temperature rows and one concentration column per combined group. Includes all calculated groups, using their saved units.")
+        self.concentration_export_action.setToolTip("Temperature rows with concentration and lower/upper uncertainty bounds per combined group. Includes all calculated groups, using their saved units.")
         self.individual_export_action = menu.addAction("Export individual sample concentrations CSV…", lambda: self.export_csv('individual'))
-        self.individual_export_action.setToolTip("Temperature rows and one concentration column per individual sample/dilution. Uses full-range fits in the saved units.")
+        self.individual_export_action.setToolTip("Temperature rows with concentration and lower/upper uncertainty bounds per individual sample/dilution. Uses full-range fits in the saved units.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
@@ -1538,8 +1538,8 @@ class InptkPanel(QWidget):
                 note += (" · Full-range comparison failed; Calculate to retry."
                          if self.result.get('comparison_error') else
                          " · Calculate for full-range individual samples.")
-            self.plot_note.setText(note + " · Muted: outside selected limits")
-            self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Muting follows the current limits; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures and concentrations.")
+            self.plot_note.setText(note + " · Muted: excluded or outside selected limits")
+            self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Excluded points and points outside the current limits are muted; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures, concentrations and lower/upper uncertainty bounds.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
             self.plot_note.setToolTip("Each line represents one sample or marked water blank. Showing a blank does not assign it for correction.")
@@ -1623,7 +1623,8 @@ class InptkPanel(QWidget):
                     # by the toolkit's final monotonic selection. Do not alter the fit.
                     cache = self.reference_plot_tables
                     if name not in cache:
-                        rows = sorted(original['cumulative']['rows'] + original['excluded']['rows'],
+                        rows = sorted(original['cumulative']['rows'] +
+                                      [dict(row, _display_excluded=True) for row in original['excluded']['rows']],
                                       key=lambda r: r.get('point_order', 0))
                         cache[name] = {'columns': original['cumulative']['columns'], 'rows': rows}
                     tables.append((('individual', key), cache[name]))
@@ -1797,9 +1798,11 @@ class InptkPanel(QWidget):
                 if overlay:
                     limits = temperature_range(self.settings, color_key)
                     active = (x >= limits.get('min_C', -math.inf)) & (x <= limits.get('max_C', math.inf))
+                    active &= np.array([not row.get('_display_excluded', False) for row in chunk])
                     if not active.all():
                         dull = QColor(color); dull.setAlphaF(widths[3] / 100.)
-                        muted = self.plot.plot(x, y, pen=pg.mkPen(dull, width=width), connect='finite')
+                        muted = self.plot.plot(x, y, pen=pg.mkPen(dull, width=width, style=Qt.DashLine),
+                            symbol=symbol, symbolSize=widths[2], symbolBrush=dull, symbolPen=dull, connect='finite')
                         self.make_sample_clickable(muted, color_key)
                         shown = y.copy(); shown[~active] = np.nan
                 curve = self.plot.plot(x, shown, pen=pg.mkPen(color, width=width,
