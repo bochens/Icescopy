@@ -1,4 +1,4 @@
-"""Modal INP analysis workspace. All calculations run in the external CLI."""
+"""INP analysis window. All calculations run in the external CLI."""
 import hashlib
 import json
 import math
@@ -14,7 +14,7 @@ from shiboken6 import isValid
 from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel, QSize
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
     QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
     QToolButton, QVBoxLayout, QWidget, QFrame, QGroupBox, QStyledItemDelegate,
@@ -124,14 +124,10 @@ class InptkPreferencesWidget(QWidget):
         self.client.stop()
 
 
-class InptkPanel(QDialog):
+class InptkPanel(QWidget):
     def __init__(self, window):
-        super().__init__(window)
+        super().__init__(window, Qt.Window)
         self.setWindowTitle("INP Analysis")
-        # Keep a normal, movable Qt window while blocking other Icescopy input.
-        # WindowModal can create an attached sheet without a draggable title bar.
-        self.setWindowModality(Qt.ApplicationModal)
-        self.setSizeGripEnabled(True)
         self.resize(1080, 740)
         self.window = window
         self.undo_stack = QUndoStack(self)
@@ -146,7 +142,6 @@ class InptkPanel(QDialog):
         self.preview = None
         self.preview_hash = ""
         self.result = None
-        self.calculation_connection = None
         self.loading = False
         self.operation = False
         self.operation_started = None
@@ -210,14 +205,14 @@ class InptkPanel(QDialog):
         if self.client.capabilities and self.preview_hash != self.current_hash():
             self.refresh_preview()
 
-    def done(self, result):
+    def closeEvent(self, event):
         if self.operation or self.client.busy:
             self.cancel_operation()
         self.restore_console()
-        super().done(result)
+        super().closeEvent(event)
 
     def show_console(self):
-        """Temporarily float the existing read-only console inside the modal family."""
+        """Temporarily float the existing read-only console alongside the analysis window."""
         dock = self.window.console_dock
         if self.console_layout is None:
             self.console_layout = (self.window.saveState(), self.window.dockWidgetArea(dock), dock.features())
@@ -241,7 +236,7 @@ class InptkPanel(QDialog):
         self.window.restoreState(state)
 
     def edit_metadata(self):
-        self.reject()
+        self.close()
         self.window.show_dock_widget(self.window.sample_catalog_dock)
 
     def make_ui(self):
@@ -453,15 +448,15 @@ class InptkPanel(QDialog):
         self.grid_enabled = QCheckBox("Use a temperature grid")
         self.grid_enabled.toggled.connect(self.toggle_grid)
         layout.addWidget(self.grid_enabled)
-        note = QLabel("Default grid: 0 to −40 °C in 0.5 °C steps. Turn off to use measured temperatures.")
+        note = QLabel("Default grid: 0 to −35 °C in 0.5 °C steps. Turn off to use measured temperatures.")
         note.setWordWrap(True)
         layout.addWidget(note)
         self.grid_controls = QWidget()
         form = self.grid_form = QFormLayout(self.grid_controls)
         form.setContentsMargins(0, 0, 0, 0)
         self.grid_step = self.option_edit("grid_step", "Off")
-        self.grid_start = self.option_edit("grid_start", "0 (default)")
-        self.grid_end = self.option_edit("grid_end", "−40 (default)")
+        self.grid_start = self.option_edit("grid_start", "")
+        self.grid_end = self.option_edit("grid_end", "")
         self.grid_window = self.option_edit("grid_window", "Required for centered window")
         self.grid_method = QComboBox()
         for name, key in (("Latest warmer", "latest"), ("Maximum warmer fraction", "max"), ("Centered window", "window")):
@@ -515,9 +510,10 @@ class InptkPanel(QDialog):
         self.show_uncertainty.toggled.connect(self.draw)
         self.fit_button = QPushButton("Fit axes")
         self.fit_button.clicked.connect(self.fit_plot)
+        controls.setSpacing(16)
         controls.addWidget(self.quantity)
-        controls.addStretch(1)
         controls.addWidget(self.show_uncertainty)
+        controls.addStretch(1)
         controls.addWidget(self.fit_button)
         plot_layout.addLayout(controls)
         self.plot = pg.PlotWidget(axisItems={'left': ConcentrationAxis('left')})
@@ -527,12 +523,7 @@ class InptkPanel(QDialog):
             self.plot.getAxis(side).setStyle(maxTickLevel=1)
             self.plot.getAxis(side).setTickDensity(.6)
         self.plot.setLabel("bottom", "Temperature", units="°C")
-        self.legend_footer = QWidget()
-        footer_layout = QHBoxLayout(self.legend_footer)
-        footer_layout.setContentsMargins(0, 2, 0, 0)
-        footer_layout.setAlignment(Qt.AlignLeft)
-        self.legend_footer.hide()
-        self.legend_view = PlotLegend(self.plot, self.legend_footer, f"{max(10, help_font.pointSizeF()):g}pt")
+        self.legend_view = PlotLegend(self.plot, f"{max(10, help_font.pointSizeF()):g}pt")
         self.legend = self.legend_view.legend
         self.plot.getPlotItem().legend = self.legend
         self.empty_plot = QLabel()
@@ -548,7 +539,6 @@ class InptkPanel(QDialog):
         self.range_tags.moved.connect(self.tag_moved)
         chart_column.addWidget(self.range_tags)
         plot_layout.addLayout(chart_column, 1)
-        plot_layout.addWidget(self.legend_footer)
         self.plot_note = QLabel()
         self.plot_note.setWordWrap(True)
         plot_layout.addWidget(self.plot_note)
@@ -580,10 +570,8 @@ class InptkPanel(QDialog):
         self.export = QPushButton("Export results")
         menu = QMenu(self.export)
         menu.setToolTipsVisible(True)
-        self.export_scope_action = menu.addAction("Last calculation · all groups")
+        self.export_scope_action = menu.addAction("All groups")
         self.export_scope_action.setEnabled(False)
-        self.export_groups_action = menu.addAction("No calculation yet")
-        self.export_groups_action.setEnabled(False)
         native = menu.addAction("Save .inptk session…", self.export_result)
         native.setToolTip("Save the complete toolkit result as an .inptk folder. Save the .icescopy session to retain the Icescopy controls as well.")
         menu.addSeparator()
@@ -597,10 +585,12 @@ class InptkPanel(QDialog):
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
         close = QPushButton("Close")
-        close.clicked.connect(self.reject)
+        close.clicked.connect(self.close)
         bottom.addWidget(close)
         # Enter commits a field; it must not accidentally run or close analysis.
-        for button in self.findChildren(QPushButton): button.setAutoDefault(False)
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
+            button.setDefault(False)
         outer.addLayout(bottom)
         self.tabs.currentChanged.connect(self.draw_ranges)
         for form in (self.combine_form, self.thresholds, self.grid_form, form):
@@ -768,6 +758,11 @@ class InptkPanel(QDialog):
 
     def change_option(self, key, value):
         if self.loading: return
+        if key in {'grid_start', 'grid_end'} and not value.strip():
+            value = {'grid_start': '0', 'grid_end': '-35'}[key]
+            # Restore the actual text even when the setting was already the
+            # default, so the no-change path cannot leave an empty field.
+            getattr(self, key).setText(value)
         state = copy_choices(self.settings); state[key] = value
         self.commit(state, f"INP analysis: change {key.replace('_', ' ')} to {value}")
 
@@ -776,6 +771,9 @@ class InptkPanel(QDialog):
 
     def restore_choices(self, choices):
         self.loading = True
+        choices = dict(choices)
+        for key, default in (('grid_start', '0'), ('grid_end', '-35')):
+            if not choices.get(key, '').strip(): choices[key] = default
         # Renaming does not change any measured counts. Avoid rebuilding their
         # potentially long plot or the controls while an inline edit commits.
         def without_group_names(state):
@@ -1179,7 +1177,7 @@ class InptkPanel(QDialog):
                              for key, value in self.settings['inputs'].items() if not value['blank']}
         if self.settings['grid_step'].strip():
             choices['grid_start'] = self.settings['grid_start'].strip() or '0'
-            choices['grid_end'] = self.settings['grid_end'].strip() or '-40'
+            choices['grid_end'] = self.settings['grid_end'].strip() or '-35'
         return fingerprint([self.current_hash(), choices])
 
     def ensure_connected(self, after=None):
@@ -1282,13 +1280,6 @@ class InptkPanel(QDialog):
             self.ensure_connected(after=self.recalculate); return
         if self.preview_hash != self.current_hash() or not self.preview:
             self.refresh_preview(after=self.recalculate); return
-        if (self.result and self.result['key'] == self.calculation_key()
-                and self.calculation_connection is self.client.capabilities
-                and 'references' in self.result):
-            self.window.log("INP analysis is already up to date; no calculation needed.")
-            self.quantity.setCurrentText("Concentration")
-            self.draw()
-            return
         self.run_calculation(False)
 
     def suggest_ranges(self):
@@ -1357,7 +1348,6 @@ class InptkPanel(QDialog):
             self.reference_cache = references
             self.reference_plot_tables.clear()
             self.result = pending; self.operation = False
-            self.calculation_connection = self.client.capabilities
             self.quantity.blockSignals(True); self.quantity.setCurrentIndex(2); self.quantity.blockSignals(False)
             self.draw()
             pending['timings'] = dict(toolkit_seconds=toolkit_seconds, display_seconds=time.perf_counter()-started)
@@ -1365,7 +1355,7 @@ class InptkPanel(QDialog):
             if comparison_error:
                 self.window.log('INP analysis: the selected-limit result is retained. '
                     f'Full-range individual samples could not be calculated: {comparison_error} '
-                    'Recalculate to retry the comparison.')
+                    'Calculate to retry the comparison.')
             self.release_unused()
         def references_from(result):
             return dict(result, key=reference_key, by_input={info['sources'][0]['measurement_id']: name
@@ -1431,11 +1421,11 @@ class InptkPanel(QDialog):
         busy = self.operation or self.client.busy
         connected = bool(self.client.capabilities)
         self.calculate.setEnabled(not busy and bool(self.current_hash()))
-        self.calculate.setText("Recalculate" if self.result else "Calculate")
+        self.calculate.setText("Calculate")
         self.cancel.setVisible(busy)
         self.suggest.setEnabled(not busy and self.settings["method"] == "average" and self.single_curve_row() >= 0)
         self.export.setEnabled(bool(self.result) and not busy)
-        self.export.setToolTip("Export combined groups or individual samples as separate CSVs. Recalculate first if analysis inputs or settings changed.")
+        self.export.setToolTip("Export combined groups or individual samples as separate CSVs. Calculate first if analysis inputs or settings changed.")
         self.calculate.setToolTip("Calculate concentrations for all sample groups using the current settings.")
         if connected:
             self.connection.setText(f"INP toolkit {self.client.capabilities['toolkit_version']}")
@@ -1451,7 +1441,7 @@ class InptkPanel(QDialog):
             if self.result.get('comparison_error'):
                 message += " Full-range individual samples unavailable; see Console."
         elif self.result:
-            message = ("Counts are current. Recalculate to update concentration."
+            message = ("Counts are current. Calculate to update concentration."
                        if self.quantity.currentText() != 'Concentration' and self.preview_hash == self.current_hash()
                        else "Changes not calculated — showing the last successful result.")
         elif missing: message = f"Counts available. Concentration needs sample metadata: {missing}"
@@ -1465,11 +1455,11 @@ class InptkPanel(QDialog):
             note = "Solid: combined · Dashed: individual samples" if overlays else "Concentration"
             if self.show_uncertainty.isChecked(): note += " · Shading: uncertainty"
             if self.result and 'references' not in self.result:
-                note += (" · Full-range comparison failed; Recalculate to retry."
+                note += (" · Full-range comparison failed; Calculate to retry."
                          if self.result.get('comparison_error') else
-                         " · Recalculate for full-range individual samples.")
+                         " · Calculate for full-range individual samples.")
             self.plot_note.setText(note + " · Muted: outside selected limits")
-            self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Muting follows the current limits; the combined curve changes after Calculate. Log scale omits zeros. Export retains confidence values.")
+            self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Muting follows the current limits; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures and concentrations.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
             self.plot_note.setToolTip("Each line represents one sample or marked water blank. Showing a blank does not assign it for correction.")
@@ -1488,7 +1478,7 @@ class InptkPanel(QDialog):
                 message = (f"Concentration needs sample metadata. {missing}" if missing else
                            "Choose samples and blanks, then Calculate to show concentration.")
             elif not self.selected_result_tables("cumulative"):
-                message = "This sample group has not been calculated. Choose Recalculate."
+                message = "This sample group has not been calculated. Choose Calculate."
             elif not getattr(self, "visible_points", 0):
                 message = ("No positive concentration values on log scale. Choose Linear concentration scale in Settings → INP toolkit client to see zeros."
                            if self.window.inptk_log_concentration else
@@ -1585,7 +1575,7 @@ class InptkPanel(QDialog):
         return label, key, overlay
 
     def update_legend_geometry(self):
-        self.legend_view.schedule(True)
+        self.legend_view.schedule()
 
     def fit_plot(self):
         if self.plot_limits:
@@ -1781,7 +1771,7 @@ class InptkPanel(QDialog):
             if not result or result.get('saved_result'): continue
             reference = self.result_reference(result)
             if not reference:
-                message = 'The toolkit process no longer holds this unsaved result. The plot and choices are retained; recalculate to export native INP results.'
+                message = 'The toolkit process no longer holds this unsaved result. The plot and choices are retained; calculate to export native INP results.'
                 if require_native: raise ValueError(message)
                 result['native_result_unavailable'] = True
                 self.window.log(message)
@@ -1800,7 +1790,7 @@ class InptkPanel(QDialog):
         if reference: callback(reference); return
         native = result.get('saved_result')
         if not native:
-            self.error('The toolkit process no longer holds this result. Recalculate before exporting.'); return
+            self.error('The toolkit process no longer holds this result. Calculate before exporting.'); return
         # A reopened session already contains its exact native result. Restore it
         # on explicit export, without fitting it again using a different version.
         reference = '@restored-' + uuid.uuid4().hex
@@ -1859,10 +1849,10 @@ class InptkPanel(QDialog):
 
     def update_export_menu(self):
         names = [curve['name'] for curve in (self.result or {}).get('choices', {}).get('curves', [])]
-        self.export_scope_action.setText(f"Last calculation · all {len(names)} {'group' if len(names) == 1 else 'groups'}")
         text = ', '.join(names)
-        self.export_groups_action.setText('Groups: ' + (text if len(text) <= 60 else text[:57] + '…'))
-        self.export_groups_action.setToolTip('\n'.join(names))
+        text = text if len(text) <= 60 else text[:57] + '…'
+        self.export_scope_action.setText(f"All {len(names)} {'group' if len(names) == 1 else 'groups'}: {text}")
+        self.export_scope_action.setToolTip('\n'.join(names))
         unit = self.export_concentration_unit()
         suffix = f" ({unit})" if unit else ''
         self.concentration_export_action.setText(f"Export combined concentration CSV{suffix}…")
@@ -1871,7 +1861,7 @@ class InptkPanel(QDialog):
         available = bool(references.get('by_input'))
         self.individual_export_action.setEnabled(available)
         if not available:
-            self.individual_export_action.setToolTip('Individual sample fits are unavailable. Recalculate to generate them; see Console if that calculation fails.')
+            self.individual_export_action.setToolTip('Individual sample fits are unavailable. Calculate to generate them; see Console if that calculation fails.')
 
     def export_csv(self, kind='cumulative'):
         if not self.result:
@@ -1881,9 +1871,9 @@ class InptkPanel(QDialog):
         if self.current_hash() and not self.source_cache:
             self.refresh_preview(after=lambda: self.export_csv(kind)); return
         if self.current_hash() and self.result['key'] != self.calculation_key():
-            self.error('Analysis inputs or settings changed. Recalculate before exporting CSV results.'); return
+            self.error('Analysis inputs or settings changed. Calculate before exporting CSV results.'); return
         if kind == 'individual' and not self.result.get('references', {}).get('by_input'):
-            self.error('Individual sample fits are unavailable. Recalculate before exporting.'); return
+            self.error('Individual sample fits are unavailable. Calculate before exporting.'); return
         if kind == 'frozen_fraction' and not self.client.capabilities:
             self.ensure_connected(after=lambda: self.export_csv(kind)); return
         labels = {'frozen_fraction': 'frozen fractions', 'cumulative': 'combined concentrations',
@@ -1967,5 +1957,6 @@ class InptkPanel(QDialog):
         self.restore_choices(state.get("choices") or new_settings())
 
     def shutdown(self):
+        self.close()
         self.restore_console()
         self.client.shutdown(); self.cache.cleanup()

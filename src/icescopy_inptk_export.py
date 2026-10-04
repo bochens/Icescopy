@@ -27,7 +27,7 @@ def concentration_csv(tables, curves):
     for label, name in curves:
         table = tables.get(name, {}).get("cumulative")
         if table is None:
-            raise ValueError(f"Concentration for {label} is unavailable. Recalculate before exporting.")
+            raise ValueError(f"Concentration for {label} is unavailable. Calculate before exporting.")
         points = {}
         for row in table["rows"]:
             temperature = number(row.get("temperature_C"))
@@ -35,7 +35,7 @@ def concentration_csv(tables, curves):
                 raise ValueError(f"{label}: cannot export a nonfinite temperature.")
             if temperature in points:
                 # A wide table cannot silently collapse separate observations.
-                raise ValueError(f"{label}: repeated temperature {temperature:g} °C. Enable a temperature grid and recalculate before exporting.")
+                raise ValueError(f"{label}: repeated temperature {temperature:g} °C. Enable a temperature grid and calculate before exporting.")
             value = number(row.get("concentration"))
             points[temperature] = "" if math.isnan(value) else value
             units.add(str(row.get("unit", "")))

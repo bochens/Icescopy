@@ -85,11 +85,11 @@ class InpChoiceTests(unittest.TestCase):
 
     def test_default_grid_endpoints_are_explicit_and_blank_fields_use_them(self):
         state = self.settings()
-        for warm, cold in (('0', '-40'), ('', '')):
+        for warm, cold in (('0', '-35'), ('', '')):
             state.update(grid_start=warm, grid_end=cold)
             args = cli_choices(state)
             self.assertEqual(args[args.index('--temperature-start-C') + 1], '0')
-            self.assertEqual(args[args.index('--temperature-end-C') + 1], '-40')
+            self.assertEqual(args[args.index('--temperature-end-C') + 1], '-35')
         state['grid_step'] = ''
         self.assertNotIn('--temperature-start-C', cli_choices(state))
 
@@ -250,8 +250,9 @@ class InpIntegrationTests(unittest.TestCase):
         p.curves.setCurrentRow(0)
         p.change_option('basis', 'sampled_air')  # Pending edit, not yet calculated.
         p.export.menu().aboutToShow.emit()
-        self.assertEqual(p.export_scope_action.text(), 'Last calculation · all 2 groups')
-        self.assertEqual(p.export_groups_action.text(), 'Groups: Combined, Neat')
+        self.assertEqual(p.export_scope_action.text(), 'All 2 groups: Combined, Neat')
+        self.assertIs(p.export.menu().actions()[0], p.export_scope_action)
+        self.assertEqual(p.export.menu().actions()[1].text(), 'Save .inptk session…')
         self.assertIn('INP/mL suspension', p.concentration_export_action.text())
         self.assertIn('INP/mL suspension', p.individual_export_action.text())
         with patch.object(p, 'export_csv') as export:
@@ -289,7 +290,7 @@ class InpIntegrationTests(unittest.TestCase):
                 suffix = ' fraction_frozen' if kind == 'frozen_fraction' else ' concentration (INP/mL suspension)'
                 self.assertEqual(reader.fieldnames, ['temperature_C'] + [name + suffix for name in names])
                 temperatures = [float(r['temperature_C']) for r in rows]
-                self.assertTrue(all(-40 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
+                self.assertTrue(all(-35 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
                 self.assertEqual(temperatures, sorted(temperatures, reverse=True))
                 self.assertEqual(len(rows), 7)
                 self.assertIn('Exported', p.status.text())
@@ -308,7 +309,7 @@ class InpIntegrationTests(unittest.TestCase):
         with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName') as chooser:
             p.export_csv()
         chooser.assert_not_called()
-        self.assertIn('Recalculate before exporting', p.status.text())
+        self.assertIn('Calculate before exporting', p.status.text())
 
     def test_missing_individual_fits_are_disabled_and_reported(self):
         self.configure(); self.calculate(); p = self.panel
@@ -424,7 +425,31 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), set(keys[:2]))
 
-    def test_dialog_history_is_independent_and_survives_close(self):
+    def test_enter_commits_field_without_triggering_window_buttons(self):
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QPushButton
+        self.configure()
+        p = self.panel
+        p.change_option('grid_step', '0.5')
+        p.show(); p.tabs.setCurrentIndex(2)
+        QTest.qWait(50)
+        clicked = []
+        for button in p.findChildren(QPushButton):
+            button.clicked.connect(lambda checked=False, b=button: clicked.append(b.text()))
+            self.assertFalse(button.isDefault())
+            self.assertFalse(button.autoDefault())
+        for key, value in ((Qt.Key_Return, '-33'), (Qt.Key_Enter, '-34')):
+            p.grid_end.setFocus()
+            p.grid_end.selectAll()
+            QTest.keyClicks(p.grid_end, value)
+            QTest.keyClick(p.grid_end, key)
+            self.assertEqual(p.settings['grid_end'], value)
+            self.assertTrue(p.isVisible())
+        self.assertEqual(clicked, [])
+        self.assertTrue(p.isWindow())
+        self.assertEqual(p.windowModality(), Qt.NonModal)
+
+    def test_window_history_is_independent_and_survives_close(self):
         self.configure(); self.calculate()
         original = self.panel.result
         self.panel.undo_stack.clear()
@@ -432,7 +457,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.window.undo_stack.undo()
         main_index = self.window.undo_stack.index()
         self.panel.show_analysis()
-        self.assertEqual(self.panel.windowModality(), Qt.ApplicationModal)
+        self.assertEqual(self.panel.windowModality(), Qt.NonModal)
         self.assertTrue(self.panel.windowFlags() & Qt.WindowTitleHint)
         self.assertFalse(self.panel.windowFlags() & Qt.FramelessWindowHint)
         self.assertFalse(self.panel.undo_action.isEnabled())
@@ -443,7 +468,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.undo_action.trigger()
         self.assertEqual(self.panel.settings["method"], "average")
         self.assertFalse(self.panel.undo_action.isEnabled())
-        self.panel.reject()
+        self.panel.close()
         self.assertIs(self.panel.result, original)
         self.panel.show_analysis()
         self.assertTrue(self.panel.redo_action.isEnabled())
@@ -451,7 +476,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(self.panel.settings["method"], "mle")
         self.assertEqual(self.window.undo_stack.index(), main_index)
         self.assertTrue(self.window.undo_stack.canRedo())
-        self.panel.reject()
+        self.panel.close()
         saved = self.panel.session_state()
         self.panel.restore_session(saved)
         self.assertEqual(self.panel.settings["method"], "mle")
@@ -497,7 +522,7 @@ class InpIntegrationTests(unittest.TestCase):
         original = self.panel.result
         self.panel.change_option("method", "average")
         self.panel.recalculate()
-        self.panel.reject()
+        self.panel.close()
         self.assertFalse(self.panel.client.busy)
         self.assertIs(self.panel.result, original)
 
@@ -801,6 +826,30 @@ class InpIntegrationTests(unittest.TestCase):
         p.restore_session(saved)
         self.assertEqual(p.settings['grid_step'], '')  # Explicit saved settings survive the new default.
 
+    def test_grid_endpoint_fields_show_values_after_reopening_and_clearing(self):
+        p = self.panel
+        saved = p.session_state()
+        saved['choices'].update(grid_start='', grid_end='')
+        p.restore_session(saved)
+        self.assertEqual((p.grid_start.text(), p.grid_end.text()), ('0', '-35'))
+        self.assertEqual((p.settings['grid_start'], p.settings['grid_end']), ('0', '-35'))
+        for key, default in (('grid_start', '0'), ('grid_end', '-35')):
+            widget = getattr(p, key)
+            widget.clear(); widget.editingFinished.emit()
+            self.assertEqual(widget.text(), default)
+            self.assertEqual(p.settings[key], default)
+        p.change_option('grid_start', '-5')
+        p.grid_start.clear(); p.grid_start.editingFinished.emit()
+        self.assertEqual(p.grid_start.text(), '0')
+        p.undo_stack.undo()
+        self.assertEqual(p.grid_start.text(), '-5')
+        p.undo_stack.redo()
+        self.assertEqual(p.grid_start.text(), '0')
+        saved = p.session_state()
+        saved['choices'].update(grid_start='-2', grid_end='-35')
+        p.restore_session(saved)
+        self.assertEqual((p.grid_start.text(), p.grid_end.text()), ('-2', '-35'))
+
     def test_uncertainty_toggle_changes_only_display(self):
         import pyqtgraph as pg
         self.configure(); self.calculate()
@@ -861,9 +910,14 @@ class InpIntegrationTests(unittest.TestCase):
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
             self.calculate()
             self.assertEqual([c.args[0][0] for c in requests.call_args_list if c.args[0][0] == 'analyze'], ['analyze', 'analyze'])
-            count = requests.call_count
-            p.recalculate()
-            self.assertEqual(requests.call_count, count)  # No work when nothing changed.
+            old_reference = p.result['reference']
+            self.assertEqual(p.calculate.text(), 'Calculate')
+            p.calculate.click()
+            self.wait(lambda:not p.operation and not p.client.busy)
+            self.assertEqual([c.args[0][0] for c in requests.call_args_list if c.args[0][0] == 'analyze'],
+                             ['analyze', 'analyze', 'analyze'])
+            self.assertNotEqual(p.result['reference'], old_reference)
+            self.assertEqual(p.calculate.text(), 'Calculate')
         tables = dict(p.concentration_tables('cumulative'))
         self.assertEqual(set(tables), {'Combined', ('individual', keys[0]), ('individual', keys[1])})
         for name in ('Combined', 'Neat'):
@@ -1148,23 +1202,13 @@ class InpLegendTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_line_crossing_without_an_endpoint_is_detected_and_gaps_stay_clear(self):
-        from PySide6.QtCore import QRectF
-        from icescopy_inptk_plot import curve_intersects_rect
-        box = QRectF(0, 0, 1, 1)
-        self.assertTrue(curve_intersects_rect([-1, 2], [.5, .5], box))
-        self.assertTrue(curve_intersects_rect([.5, .5], [-1, 2], box))
-        self.assertFalse(curve_intersects_rect([-1, 2], [2, 2], box))
-        self.assertFalse(curve_intersects_rect([-1, float('nan'), 2], [.5, .5, .5], box))
-
     def make_plot(self):
         import pyqtgraph as pg
-        from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+        from PySide6.QtWidgets import QWidget, QVBoxLayout
         from icescopy_inptk_plot import PlotLegend
         widget = QWidget(); layout = QVBoxLayout(widget)
         plot = pg.PlotWidget(); layout.addWidget(plot, 1)
-        footer = QWidget(); QHBoxLayout(footer); layout.addWidget(footer); footer.hide()
-        legend = PlotLegend(plot, footer, '10pt')
+        legend = PlotLegend(plot, '10pt')
         plot.getPlotItem().legend = legend.legend
         widget.resize(800, 500); widget.show()
         self.addCleanup(widget.close)
@@ -1172,40 +1216,33 @@ class InpLegendTests(unittest.TestCase):
 
     def settle(self, legend):
         from PySide6.QtTest import QTest
-        legend.schedule(True); QTest.qWait(160)
+        legend.schedule(); QTest.qWait(160)
 
-    def test_legend_avoids_curves_after_log_transform_and_zoom(self):
-        from PySide6.QtCore import QRectF
-        plot, legend = self.make_plot()
-        plot.plot([-10, 10], [1, 100], name='Concentration')
-        plot.setLogMode(y=True)
-        plot.setRange(xRange=(-10, 10), yRange=(0, 2), padding=0)
-        self.settle(legend)
-        self.assertFalse(legend.in_footer)
-        self.assertTrue(legend.clear_position(QRectF(legend.geometry()).adjusted(-6, -6, 6, 6)))
-        plot.setRange(xRange=(-2, 2), yRange=(1.7, 2), padding=0)
-        self.settle(legend)
-        self.assertFalse(legend.in_footer)
-        self.assertTrue(legend.clear_position(QRectF(legend.geometry()).adjusted(-6, -6, 6, 6)))
+    def assert_top_right(self, plot, legend):
+        area = plot.mapFromScene(plot.getViewBox().sceneBoundingRect()).boundingRect()
+        self.assertAlmostEqual(legend.x() + legend.width(), area.right() - 9, delta=2)
+        self.assertAlmostEqual(legend.y(), area.top() + 10, delta=1)
+        self.assertIs(legend.parentWidget(), plot.viewport())
+        self.assertTrue(legend.isVisible())
 
-    def test_full_uncertainty_band_uses_footer_and_releases_it_after_pan(self):
+    def test_legend_stays_top_right_through_zoom_resize_and_uncertainty(self):
         import pyqtgraph as pg
         plot, legend = self.make_plot()
-        lo = plot.plot([-10, 10], [0, 0], name='Combined')
-        hi = plot.plot([-10, 10], [1, 1])
+        lo = plot.plot([-10, 10], [1, 1], name='Combined')
+        hi = plot.plot([-10, 10], [100, 100])
         plot.addItem(pg.FillBetweenItem(lo, hi, brush=(0, 0, 0, 30)))
-        plot.setRange(xRange=(-10, 10), yRange=(0, 1), padding=0)
-        self.settle(legend)
-        self.assertTrue(legend.in_footer)
-        self.assertTrue(legend.footer.isVisible())
-        self.assertLessEqual(legend.height(), 110)
-        plot.setRange(xRange=(20, 40), yRange=(0, 1), padding=0)
-        self.settle(legend)
-        self.assertFalse(legend.in_footer)
-        self.assertTrue(legend.footer.isHidden())
+        plot.setLogMode(y=True)
+        plot.setRange(xRange=(-10, 10), yRange=(0, 2), padding=0)
+        self.settle(legend); self.assert_top_right(plot, legend)
+        plot.setRange(xRange=(20, 40), yRange=(1, 2), padding=0)
+        self.settle(legend); self.assert_top_right(plot, legend)
+        plot.window().resize(600, 400)
+        self.settle(legend); self.assert_top_right(plot, legend)
+        for i in range(30): plot.plot([0, 1], [i, i], name=f'Sample {i}')
+        self.settle(legend); self.assert_top_right(plot, legend)
+        self.assertLess(legend.height(), plot.height())
         plot.clear(); self.settle(legend)
         self.assertTrue(legend.isHidden())
-        self.assertTrue(legend.footer.isHidden())
 
 
 class InpAxisTests(unittest.TestCase):

@@ -6,7 +6,7 @@ Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolk
 
 In **Settings → INP toolkit client**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
 
-After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. Other Icescopy windows are blocked while it is open. Closing it retains your analysis choices and results.
+After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. It is a normal Qt window: other Icescopy windows remain accessible, and Enter commits the field being edited without activating an unrelated button. Closing it retains your analysis choices and results.
 
 ## Group samples and assign blanks
 
@@ -40,9 +40,9 @@ The limits table displays two decimal places. Dragging, calculations, and saved 
 
 For **Average**, choose **Auto range** to suggest limits for the selected group. The minimum frozen and unfrozen counts control the suggestion. A complete suggestion fills the editable limits. An incomplete suggestion leaves your limits unchanged and explains which inputs need attention in Icescopy's console. Repeating Auto range with unchanged inputs and settings reuses the summary from the current toolkit connection. MLE ranges are set manually.
 
-Choose **Calculate** to generate concentrations, or **Recalculate** after changing inputs or settings. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
+Choose **Calculate** to generate concentrations. Every click runs the group calculations, including when the result is already up to date. Errors remain visible. The last successful result is retained and identified as out of date until a new calculation succeeds.
 
-The status shows elapsed calculation time. The console reports toolkit and display time separately. Recalculate reuses the current result when the inputs and settings are unchanged in the same toolkit connection.
+The status shows elapsed calculation time. The console reports toolkit and display time separately. Uploaded counts and unchanged full-range individual comparisons are reused to keep group calculations responsive.
 
 Counts are transferred from Icescopy's memory to one persistent toolkit process. Each calculation sends the requested groups' samples and their assigned blanks; Auto range sends only the selected group's inputs. The complete count table remains available for raw plots. Changing limits, method, or grid reuses uploaded counts; changing the source data, requested samples, metadata, or blank assignments transfers a new input. Calculating does not create temporary CSVs or save result folders. Superseded toolkit results are released after the replacement succeeds.
 
@@ -56,11 +56,11 @@ Use the quantity control above the plot to switch between:
 
 Every sample marked **Blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, even before you assign it for correction or while correction is switched off. Assigned blanks follow the selected samples' cycles; unassigned blanks use their own cycle choice. These plots show measured values before correction. Displaying a blank does not assign it to a sample.
 
-Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates still require **Calculate** or **Recalculate**.
+Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates require **Calculate**.
 
-Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. The legend uses clear space inside the plot. If it cannot fit without covering a curve or uncertainty band, it moves into a compact strip below the plot. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
+Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. The legend stays inside the top-right corner of the plot when switching views, panning, or zooming. Changing limits updates the muting immediately; choose Calculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
 
-If a full-range comparison fails, the successful calculation within your selected limits remains visible and exportable. The status and console explain the comparison failure. Choose **Recalculate** to retry it.
+If a full-range comparison fails, the successful calculation within your selected limits remains visible and exportable. The status and console explain the comparison failure. Choose **Calculate** to retry it.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the cold extent through **0 °C**. Warmer original-count readings remain accessible by panning. Temperature increases from left to right.
 
@@ -75,7 +75,7 @@ These controls change the INP display only. Number and fraction frozen always us
 
 ## Advanced settings, undo, and export
 
-The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. The default grid runs from **0 to −40 °C in 0.5 °C steps**. The warm and cold endpoint fields are directly below the step field; clearing either restores its default. Explicit saved endpoints are preserved. The toolkit uses available measurements at these grid temperatures; it does not invent measurements beyond the recording. Turn **Use a temperature grid** off to use measured temperatures. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
+The **Advanced** tab contains count selection on a temperature grid, handling of decreases, and the uncertainty setting. The default grid runs from **0 to −35 °C in 0.5 °C steps**. The warm and cold endpoint fields are directly below the step field; clearing either restores its default. Explicit saved endpoints are preserved. The toolkit uses available measurements at these grid temperatures; it does not invent measurements beyond the recording. Turn **Use a temperature grid** off to use measured temperatures. Count-selection spacing and MLE fit spacing are separate controls; changing either requires recalculation.
 
 **Undo/Redo** and Ctrl/Cmd+Z use a separate history for INP analysis. Moving a temperature tag creates one undo entry. Closing and reopening preserves this history; starting or loading a session clears it. Main-window undo affects image, cell, and sample edits without reverting INP choices. **Show console** opens Icescopy's existing read-only console while the rest of the main window remains locked. The console returns to its previous position when analysis closes.
 
@@ -88,9 +88,9 @@ Save the `.icescopy` session to retain choices, suggestion summaries, and the la
 
 Concentration headers state the saved units: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. Both concentration files contain only temperatures and concentrations. The `.inptk` session retains the full result, including uncertainty. Rows run from warm to cold on the calculation grid; empty cells mean there is no calculated value at that temperature. A zero is an actual toolkit estimate. When the grid is explicitly disabled, exports use native calculation temperatures; measured frozen fractions use a compact sample/cycle layout.
 
-Recalculate after changing analysis inputs or settings before exporting CSVs. A stored result remains exportable when the current count table is unavailable; the file chooser identifies it as a saved calculation. CSVs are written only when Export is chosen. Choose a new destination; existing files are preserved and an incomplete new output is removed if writing fails.
+Calculate after changing analysis inputs or settings before exporting CSVs. A stored result remains exportable when the current count table is unavailable; the file chooser identifies it as a saved calculation. CSVs are written only when Export is chosen. Choose a new destination; existing files are preserved and an incomplete new output is removed if writing fails.
 
-Selecting a group changes the plot, not the export scope. The **Export results** menu names the calculated groups; combined CSVs cover all of them, while individual CSVs cover their member samples. Recalculate to export a different normalization.
+Selecting a group changes the plot, not the export scope. The **Export results** menu names the calculated groups; combined CSVs cover all of them, while individual CSVs cover their member samples. Calculate to export a different normalization.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
 
