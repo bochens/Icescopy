@@ -19,6 +19,7 @@ The Mac archive includes [automatic blank assignment and sample-type concentrati
 - Marking **Blank** applies that control to all non-blank analysis samples when **Apply blank correction** is enabled; no second dropdown assignment is needed.
 - Air samples offer **Suspension** and **Sampled air**. Soil samples offer **Suspension** and **Dry soil**. Calculations containing different sample types offer suspension concentration.
 - **Show combined curve** and **Uncertainty** remain visible and are disabled when they do not apply, keeping the layout stable.
+- MLE automatically fits on the starting temperature grid, or the observation temperatures when the grid is off.
 
 - Decorative middle-dot separators have been removed from interface headings, legends, event selectors, status messages, and documentation links.
 
