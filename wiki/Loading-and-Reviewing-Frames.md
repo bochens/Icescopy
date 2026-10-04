@@ -1,6 +1,6 @@
 # Loading and Reviewing Frames
 
-[User guide](Home.md) · [Quick start](Quick-Start.md) · [Interface and shortcuts](Interface-and-Shortcuts.md)
+[User guide](Home.md) | [Quick start](Quick-Start.md) | [Interface and shortcuts](Interface-and-Shortcuts.md)
 
 Use this page to load a recording, establish its order, and navigate it without changing the measurements. A **frame** is one image, whether it came from a separate file or a video. Frame numbers start at **0** and refer to the current source order.
 

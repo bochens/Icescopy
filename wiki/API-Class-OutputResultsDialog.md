@@ -3,7 +3,7 @@
 
 Lets the user choose among the result exports currently available.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L1211) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L1211) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

@@ -3,7 +3,7 @@
 
 A shared frame interface for images, video, and ordered video clips.
 
-[Source](../src/icescopy_frame_source.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_frame_source.py) | [API index](API-Reference.md)
 
 Display, analysis, and navigation ask a `FrameSource` for frame names, keys, pixels, and timing. Video uses PyAV and can retain a decoder plus a temporary PNG preview cache. Source payloads reference original media; session files do not embed it. A video sequence maps a global frame index to a clip and local index.
 

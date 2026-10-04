@@ -3,7 +3,7 @@
 
 Resolved image times, a successful-parse count, and names that could not be parsed.
 
-[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L256) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L256) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

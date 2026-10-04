@@ -3,7 +3,7 @@
 
 Undo/redo commands and the frame-list model.
 
-[Source](../src/icescopy_session.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_session.py) | [API index](API-Reference.md)
 
 Commands delegate restoration to the main window; they do not own a second independent session. Capture the smallest relevant before-state, apply the change, then use its matching push-history method. Keep the first-redo convention intact.
 

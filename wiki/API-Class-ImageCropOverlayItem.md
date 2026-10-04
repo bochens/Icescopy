@@ -3,7 +3,7 @@
 
 Interactive rotated crop outline with move, size, and angle handles.
 
-[Module](API-Module-icescopy-image-edit.md) · [Source](../src/icescopy_image_edit.py#L656) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L656) | [API index](API-Reference.md)
 
 **Bases:** `QGraphicsObject`.
 

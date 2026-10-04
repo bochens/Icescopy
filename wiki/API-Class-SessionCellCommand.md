@@ -3,7 +3,7 @@
 
 Undo/redo command for cell geometry and associated captured state.
 
-[Module](API-Module-icescopy-session.md) · [Source](../src/icescopy_session.py#L23) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-session.md) | [Source](../src/icescopy_session.py#L23) | [API index](API-Reference.md)
 
 **Bases:** `QUndoCommand`.
 

@@ -3,7 +3,7 @@
 
 Render selected-cell grayscale curves, filtered curves, events, and the current frame.
 
-[Source](../src/icescopy_plot.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_plot.py) | [API index](API-Reference.md)
 
 The plot caches prepared series and limits displayed points while retaining peaks. The current-frame indicator is a widget overlay whose position is recomputed from the plot view mapping; it must remain aligned after resize, axis changes, or data refresh. These display optimizations do not replace stored measurements.
 

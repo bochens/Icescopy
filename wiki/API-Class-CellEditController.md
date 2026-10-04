@@ -3,7 +3,7 @@
 
 Coordinates selection, single/group edits, preview placement, and committed cell geometry.
 
-[Module](API-Module-icescopy-cell-controller.md) · [Source](../src/icescopy_cell_controller.py#L42) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-cell-controller.md) | [Source](../src/icescopy_cell_controller.py#L42) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

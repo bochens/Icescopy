@@ -3,7 +3,7 @@
 
 Collects project, user, institution, and date metadata for a session.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L79) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L79) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

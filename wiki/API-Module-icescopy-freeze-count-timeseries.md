@@ -3,7 +3,7 @@
 
 Build sample-group freeze counts matched to temperature records.
 
-[Source](../src/icescopy_freeze_count_timeseries.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_freeze_count_timeseries.py) | [API index](API-Reference.md)
 
 The mixin joins the window’s cell events and sample catalog with parsed temperature data. Import-specific builders share grouping, cycle, and temperature-calibration helpers. Counts are exported without blank correction, including each blank sample as an ordinary output group. Group identity is the sample ID, not the editable sample name. These builders are coupled to window state; the parsing module contains the independent file parsers.
 

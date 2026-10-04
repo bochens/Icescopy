@@ -3,7 +3,7 @@
 
 Keeps cell IDs, saved records, keyframes, and result-table labels consistent.
 
-[Module](API-Module-icescopy-cell.md) · [Source](../src/icescopy_cell.py#L50) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-cell.md) | [Source](../src/icescopy_cell.py#L50) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

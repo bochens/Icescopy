@@ -3,7 +3,7 @@
 
 Adds temperature/count result construction methods to the main window.
 
-[Module](API-Module-icescopy-freeze-count-timeseries.md) · [Source](../src/icescopy_freeze_count_timeseries.py#L31) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-freeze-count-timeseries.md) | [Source](../src/icescopy_freeze_count_timeseries.py#L31) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

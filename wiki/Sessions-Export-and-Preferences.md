@@ -126,4 +126,4 @@ For maintainers, a `.icescopy` file is a ZIP-format bundle with `session.json` a
 
 Treat these members as implementation details. Use **Output Results** for external tables: the public freeze-count CSV adds metadata rows that the internal table does not contain. See [Architecture Overview](Architecture-Overview.md) before changing serialization code.
 
-Related: [Output Reference](Output-Reference.md) · [Sample Metadata](Sample-Metadata.md) · [Troubleshooting](Troubleshooting.md)
+Related: [Output Reference](Output-Reference.md) | [Sample Metadata](Sample-Metadata.md) | [Troubleshooting](Troubleshooting.md)

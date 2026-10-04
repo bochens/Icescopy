@@ -3,7 +3,7 @@
 
 Displays application information.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L821) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L821) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

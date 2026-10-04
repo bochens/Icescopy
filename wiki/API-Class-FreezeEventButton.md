@@ -3,7 +3,7 @@
 
 Render the existing timeline arrowhead with a freeze-event dot in a shared button style.
 
-[Module](API-Module-icescopy-event-navigation.md) · [Source](../src/icescopy_event_navigation.py#L10) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-event-navigation.md) | [Source](../src/icescopy_event_navigation.py#L10) | [API index](API-Reference.md)
 
 **Bases:** `QPushButton`.
 

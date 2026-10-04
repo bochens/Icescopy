@@ -3,7 +3,7 @@
 
 Maps sample IDs and schema fields into an editable two-column Qt model.
 
-[Module](API-Module-icescopy-sample-catalog.md) · [Source](../src/icescopy_sample_catalog.py#L67) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L67) | [API index](API-Reference.md)
 
 **Bases:** `QAbstractItemModel`.
 

@@ -3,7 +3,7 @@
 
 Owns the active desktop session and coordinates helper modules.
 
-[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L239) · [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) | [Source](../src/Icescopy.py#L239) | [API index](API-Reference.md)
 
 **Bases:** `QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin`.
 

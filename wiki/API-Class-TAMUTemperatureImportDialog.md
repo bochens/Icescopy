@@ -3,7 +3,7 @@
 
 Collects TAMU Linkam temperature and optional calibration inputs.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L460) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L460) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

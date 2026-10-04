@@ -112,4 +112,4 @@ Build on the target operating system. Follow [Windows packaging](../packaging/wi
 
 Set `ICESCOPY_CONFIG_DIR` to a separate directory for a test run. This directs the app to test Preferences instead of your normal saved configuration. [Developer Guide](Developer-Guide.md) provides commands.
 
-Related: [Quick Start](Quick-Start.md) · [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md) · [Troubleshooting](Troubleshooting.md)
+Related: [Quick Start](Quick-Start.md) | [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md) | [Troubleshooting](Troubleshooting.md)

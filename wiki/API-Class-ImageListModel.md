@@ -3,7 +3,7 @@
 
 Exposes frame names and tooltips to the image list without eagerly formatting every video frame.
 
-[Module](API-Module-icescopy-session.md) · [Source](../src/icescopy_session.py#L197) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-session.md) | [Source](../src/icescopy_session.py#L197) | [API index](API-Reference.md)
 
 **Bases:** `QAbstractListModel`.
 

@@ -3,7 +3,7 @@
 
 Serializable per-cell identity, sample assignment, grayscale measurements, and freeze events.
 
-[Module](API-Module-icescopy-cell.md) · [Source](../src/icescopy_cell.py#L12) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-cell.md) | [Source](../src/icescopy_cell.py#L12) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

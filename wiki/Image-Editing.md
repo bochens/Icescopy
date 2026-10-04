@@ -1,6 +1,6 @@
 # Image Editing
 
-[User guide](Home.md) · [Quick start](Quick-Start.md) · [Annotation workflow](Annotation-Workflow.md)
+[User guide](Home.md) | [Quick start](Quick-Start.md) | [Annotation workflow](Annotation-Workflow.md)
 
 Use **Edit → Image Edit** to adjust exposure, contrast, cropping, or frame-to-frame brightness. The controls appear in **Tool Options**, with a histogram showing the image's brightness distribution.
 

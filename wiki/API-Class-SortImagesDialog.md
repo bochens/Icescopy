@@ -3,7 +3,7 @@
 
 Presents supported frame or video-clip ordering choices and returns the selected sort mode.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L2010) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L2010) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

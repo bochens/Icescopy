@@ -3,7 +3,7 @@
 
 Collects a CSU Ice Spectrometer input file and import options.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L148) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L148) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

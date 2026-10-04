@@ -3,7 +3,7 @@
 
 Separate previous, current, and next frame panes with synchronized pan and zoom.
 
-[Source](../src/icescopy_viewer.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_viewer.py) | [API index](API-Reference.md)
 
 The current pane retains the application's annotation scene. Neighboring panes own separate scenes for rendered frame images, read-only cells at each frame's stored or interpolated positions, and shared image-edit overlays. All panes use image-local coordinates and the same view transform and center. The Cells list also reports completed user selections so optional frame navigation and centering wait until the interaction ends. The window supplies rendered pixmaps and coordinates image edits; this module does not decode frames or own a second session state.
 

@@ -3,7 +3,7 @@
 
 Reusable widgets for tool-option forms and information pages.
 
-[Source](../src/icescopy_tool_options.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_tool_options.py) | [API index](API-Reference.md)
 
 These helpers keep control sizes and layouts consistent across tool panels. Form construction belongs here; cell manipulation, image adjustments, and history remain in their corresponding controllers/window methods.
 

@@ -98,7 +98,7 @@ class InptkPreferencesWidget(QWidget):
             self.status.setText("Not tested. Test connection, then Save.")
 
     def connected(self, reply):
-        self.status.setText(f"Connected: INP toolkit {reply['toolkit_version']} · CLI protocol 2 · saved format 4")
+        self.status.setText(f"Connected: INP toolkit {reply['toolkit_version']} (CLI protocol 2, saved format 4)")
         self.client.stop()
 
 
@@ -336,7 +336,7 @@ class InptkPanel(QWidget):
         form.addRow("Concentration in", self.basis)
         layout.addLayout(form)
         layout.addSpacing(8)
-        layout.addWidget(self.heading("Temperature limits · selected group"))
+        layout.addWidget(self.heading("Temperature limits"))
         label = QLabel("Select a sample row or curve. Drag its tags below the plot, or enter limits here.")
         label.setToolTip("Both endpoints are included. Each sample has its own limits.")
         label.setWordWrap(True)
@@ -1069,7 +1069,7 @@ class InptkPanel(QWidget):
         names = self.selected_curve_names()
         text = names[0] if len(names) == 1 else f"Comparing {len(names)} groups" if names else "Select a sample group"
         count = len(self.selected_input_ids())
-        if names: text += f" · {count} sample{'s' if count != 1 else ''}"
+        if names: text += f" ({count} sample{'s' if count != 1 else ''})"
         self.view_heading.setText(text)
         self.view_heading.setToolTip("\n".join(names))
 
@@ -1541,13 +1541,13 @@ class InptkPanel(QWidget):
         if not self.operation: self.elapsed_timer.stop(); self.operation_started = None
         if self.quantity.currentText() == "Concentration":
             overlays = any(name not in self.selected_curve_names() for name, _ in self.concentration_tables('cumulative'))
-            note = "Solid: combined · Dashed: individual samples" if overlays else "Concentration"
-            if self.show_uncertainty.isChecked(): note += " · Shading: uncertainty"
+            note = "Solid lines: combined. Dashed lines: individual samples" if overlays else "Concentration"
+            if self.show_uncertainty.isChecked(): note += ". Shading: uncertainty"
             if self.result and 'references' not in self.result:
-                note += (" · Full-range comparison failed; Calculate to retry."
+                note += (". Full-range comparison failed; Calculate to retry"
                          if self.result.get('comparison_error') else
-                         " · Calculate for full-range individual samples.")
-            self.plot_note.setText(note + " · Muted: excluded or outside selected limits")
+                         ". Calculate for full-range individual samples")
+            self.plot_note.setText(note + ". Muted: excluded or outside selected limits.")
             self.plot_note.setToolTip("Individual curves are independent full-range calculations using the same method, blanks and units. Excluded points and points outside the current limits are muted; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures, concentrations and lower/upper uncertainty bounds.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
@@ -1653,7 +1653,7 @@ class InptkPanel(QWidget):
             original = references['by_input'][key]
             source = references['reply']['curves'][original]['sources'][0]
             dilution = source.get('dilution')
-            label = f"{key} · {float(dilution):g}×" if dilution is not None else key
+            label = f"{key}, {float(dilution):g}×" if dilution is not None else key
             return label, key, True
         sources = (self.result or {}).get('reply', {}).get('curves', {}).get(name, {}).get('sources', [])
         overlay = name not in self.selected_curve_names()
@@ -1661,7 +1661,7 @@ class InptkPanel(QWidget):
         label = name
         if overlay:
             dilution = sources[0].get('dilution') if sources else None
-            label = f"{key} · {float(dilution):g}×" if dilution is not None else key
+            label = f"{key}, {float(dilution):g}×" if dilution is not None else key
         elif len(sources) > 1:
             label += " (combined)"
             key = None  # Combined curves are black; colors identify physical samples.
@@ -1772,7 +1772,7 @@ class InptkPanel(QWidget):
             for (key, cycle), rows in by_input.items():
                 label = key
                 if self.settings['inputs'].get(key, {}).get('blank'): label += " (water blank)"
-                if key in multiple_cycles: label += f" · cycle {cycle}"
+                if key in multiple_cycles: label += f", cycle {cycle}"
                 groups.append((label, rows, "n_frozen" if quantity == "Number frozen" else "fraction_frozen",
                                key, False))
         xs, ys, totals = [], [], []
@@ -2002,7 +2002,7 @@ class InptkPanel(QWidget):
         self.last_error = ''; self.operation = True; self.update_status()
         def done(row_count):
             self.operation = False; self.update_status()
-            message = f'Exported {label}: {row_count} rows · {Path(path).name}'
+            message = f'Exported {label}: {row_count} rows ({Path(path).name})'
             self.export_notice = (result['key'], message)
             self.update_status()
             self.window.log(message + f' ({path})')

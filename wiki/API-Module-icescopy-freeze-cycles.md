@@ -3,7 +3,7 @@
 
 Preserve and validate imported cooling-cycle assignments for freeze-event review.
 
-[Source](../src/icescopy_freeze_cycles.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_freeze_cycles.py) | [API index](API-Reference.md)
 
 Cycle metadata stores ordered frame identities, zero-based cycle IDs or unknown values, and the configured reset temperature. It records the temperature importer's assignments rather than redetecting cycles from event order. Frame identities must match the current source exactly before assignments are returned. Metadata is separate from frozen counts and annotations so event corrections need not remove known cycle labels. Legacy recovery accepts only explicit cycle columns with a configured reset threshold and unambiguous frame matching; uncertain assignments remain unknown.
 

@@ -3,7 +3,7 @@
 
 Numerical freeze-event detection and a separate CSV-oriented dialog.
 
-[Source](../src/icescopy_freezfinder.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_freezfinder.py) | [API index](API-Reference.md)
 
 Detection filters a grayscale series, searches peaks with the configured width/prominence, and refines event positions against the raw signal. Finite runs are processed separately so missing values do not bridge unmeasured gaps. The main application uses these functions through the analysis worker. The legacy dialog is a separate file-based route, not the current temperature/count import workflow. `compute_freeze_result_rows()` returns event rows and per-cell event-index arrays. Its legacy temperature/correction arguments are not used by the current detection implementation; temperature matching occurs later in the import workflow.
 

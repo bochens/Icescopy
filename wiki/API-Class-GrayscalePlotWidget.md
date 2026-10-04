@@ -3,7 +3,7 @@
 
 Displays selected cell measurements and detected/manual freeze events with frame navigation feedback.
 
-[Module](API-Module-icescopy-plot.md) · [Source](../src/icescopy_plot.py#L72) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-plot.md) | [Source](../src/icescopy_plot.py#L72) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

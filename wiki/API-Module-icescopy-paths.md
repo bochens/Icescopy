@@ -3,7 +3,7 @@
 
 Find and atomically save per-user preference files.
 
-[Source](../src/icescopy_paths.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_paths.py) | [API index](API-Reference.md)
 
 `ICESCOPY_CONFIG_DIR` overrides the configuration directory for isolated runs. Otherwise Qt’s generic configuration location is used, with a home-directory fallback. Reads prefer a user file and fall back to bundled defaults. Writes serialize to a sibling temporary file, parse it, then replace the destination.
 

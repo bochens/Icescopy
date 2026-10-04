@@ -3,7 +3,7 @@
 
 Paints the current-frame line over the plot at a supplied widget coordinate.
 
-[Module](API-Module-icescopy-plot.md) · [Source](../src/icescopy_plot.py#L9) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-plot.md) | [Source](../src/icescopy_plot.py#L9) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

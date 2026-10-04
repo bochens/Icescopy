@@ -3,7 +3,7 @@
 
 Custom title bar for movable and floating dock panels.
 
-[Source](../src/icescopy_dock.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_dock.py) | [API index](API-Reference.md)
 
 This is presentation code for Qt dock widgets. Keep scientific and session state in their owning modules rather than adding it to title-bar events.
 

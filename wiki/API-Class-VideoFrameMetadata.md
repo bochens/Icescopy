@@ -3,7 +3,7 @@
 
 A video frame’s index, presentation timestamp, and time in seconds.
 
-[Module](API-Module-icescopy-frame-source.md) · [Source](../src/icescopy_frame_source.py#L76) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L76) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

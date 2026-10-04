@@ -3,7 +3,7 @@
 
 Viewer input handling, analysis worker, and preference dialogs.
 
-[Source](../src/icescopy_aux.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_aux.py) | [API index](API-Reference.md)
 
 `Image_analysis_thread` measures circular regions and runs freeze detection. It emits progress and retains completed results for the window to install after the thread finishes. `PreferencesDialog` also edits the default sample-field schema. These responsibilities share a file for historical reasons.
 

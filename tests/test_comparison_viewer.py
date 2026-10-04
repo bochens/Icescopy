@@ -238,7 +238,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.install_freeze_review_cycles()
         self.show_cells_list()
         self.window.reselect_cell_ids([cell_ids[0]])
-        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.choose_freeze_event("Cycle 2, frame 3")
         self.window.cells_auto_center_checkbox.setChecked(True)
         self.window.cells_show_first_freeze_checkbox.setChecked(True)
         self.window.panTool(True)
@@ -257,7 +257,7 @@ class ComparisonViewerTests(unittest.TestCase):
                 QTest.mouseClick(button, Qt.LeftButton)
                 self.assertEqual(self.window.image_index, expected)
                 self.assertEqual(selector.selected_frame(), 3)
-                self.assertEqual(selector.combo.currentText(), "Cycle 2 · Frame 3")
+                self.assertEqual(selector.combo.currentText(), "Cycle 2, frame 3")
                 self.assertEqual(self.selected_cell_ids(), {cell_ids[0]})
                 self.assertEqual(self.window.tool_mode, "pan")
                 self.assert_linked(expected_scale=1.4, expected_center=original_center)
@@ -328,7 +328,7 @@ class ComparisonViewerTests(unittest.TestCase):
         selector = self.window.cells_freeze_event_selector
         selector.refresh()
         self.assertEqual([selector.combo.itemText(index) for index in range(selector.combo.count())], [
-            "Event 1 · Frame 0", "Event 2 · Frame 2", "Event 3 · Frame 4",
+            "Event 1, frame 0", "Event 2, frame 2", "Event 3, frame 4",
         ])
         self.assertFalse(self.window.cells_show_first_freeze_checkbox.isChecked())
         self.assertFalse(selector.previous_button.isEnabled())
@@ -341,7 +341,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.assertFalse(selector.next_button.isEnabled())
         QTest.mouseClick(selector.previous_button, Qt.LeftButton)
         self.assertEqual(self.window.image_index, 2)
-        self.choose_freeze_event("Event 1 · Frame 0")
+        self.choose_freeze_event("Event 1, frame 0")
         self.assertEqual(self.window.image_index, 0)
         self.assertFalse(selector.previous_button.isEnabled())
         history_count = self.window.undo_stack.count()
@@ -384,26 +384,26 @@ class ComparisonViewerTests(unittest.TestCase):
         self.window.cells_show_first_freeze_checkbox.setChecked(True)
         selector = self.window.cells_freeze_event_selector
         selector.refresh()
-        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.choose_freeze_event("Cycle 2, frame 3")
         self.assertEqual(self.window.image_index, 3)
 
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(1)).center())
         self.assertEqual(self.window.image_index, 3)
-        self.assertEqual(selector.combo.currentText(), "Cycle 2 · No event")
+        self.assertEqual(selector.combo.currentText(), "Cycle 2, no event")
         self.assertIsNone(selector.selected_frame())
-        self.assertGreaterEqual(selector.combo.findText("Cycle 1 · Frame 0"), 0)
-        self.assertGreaterEqual(selector.combo.findText("Cycle 3 · Frame 4"), 0)
+        self.assertGreaterEqual(selector.combo.findText("Cycle 1, frame 0"), 0)
+        self.assertGreaterEqual(selector.combo.findText("Cycle 3, frame 4"), 0)
         self.assertTrue(selector.previous_button.isEnabled())
         self.assertTrue(selector.next_button.isEnabled())
 
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(2)).center())
         self.assertEqual(self.window.image_index, 2)
-        self.assertEqual(selector.combo.currentText(), "Cycle 2 · Frame 2")
+        self.assertEqual(selector.combo.currentText(), "Cycle 2, frame 2")
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(1)).center())
         self.assertEqual(self.window.image_index, 2)
         QTest.mouseClick(selector.next_button, Qt.LeftButton)
         self.assertEqual(self.window.image_index, 4)
-        self.assertEqual(selector.combo.currentText(), "Cycle 3 · Frame 4")
+        self.assertEqual(selector.combo.currentText(), "Cycle 3, frame 4")
 
     def test_same_cell_retains_exact_event_within_a_cycle_after_manual_frame_navigation(self):
         cell_ids = self.install_selection_cells()
@@ -412,13 +412,13 @@ class ComparisonViewerTests(unittest.TestCase):
         tree = self.show_cells_list()
         self.window.reselect_cell_ids([cell_ids[0]])
         self.window.cells_show_first_freeze_checkbox.setChecked(True)
-        self.choose_freeze_event("Cycle 1 · Frame 1")
+        self.choose_freeze_event("Cycle 1, frame 1")
         self.window.navigate_to_image(4)
         self.assertEqual(self.window.cells_freeze_event_selector.selected_frame(), 1)
         point = tree.visualItemRect(tree.topLevelItem(0)).center()
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=point)
         self.assertEqual(self.window.image_index, 1)
-        self.assertEqual(self.window.cells_freeze_event_selector.combo.currentText(), "Cycle 1 · Frame 1")
+        self.assertEqual(self.window.cells_freeze_event_selector.combo.currentText(), "Cycle 1, frame 1")
 
     def test_event_selector_is_disabled_without_one_cell_with_valid_events(self):
         cell_ids = self.install_selection_cells()
@@ -464,12 +464,12 @@ class ComparisonViewerTests(unittest.TestCase):
         self.show_cells_list()
         self.window.reselect_cell_ids([cell_ids[0]])
         selector = self.window.cells_freeze_event_selector
-        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.choose_freeze_event("Cycle 2, frame 3")
         self.install_freeze_review_cycles((0, 0, 0, 1, 1))
         selector.refresh()
         self.assertEqual(self.window.image_index, 3)
         self.assertEqual(selector.selected_frame(), 0)
-        self.choose_freeze_event("Cycle 2 · Frame 3")
+        self.choose_freeze_event("Cycle 2, frame 3")
         self.window.set_frame_source(ImageSequenceFrameSource(self.paths))
         self.window.updateImage(2)
         self.window.reselect_cell_ids([cell_ids[0]])
@@ -557,7 +557,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.process_events()
         self.assertEqual(self.window.image_index, 3)
         self.assertEqual(selector.selected_frame(), 0)
-        self.assertEqual(selector.combo.currentText(), "Event 1 · Frame 0")
+        self.assertEqual(selector.combo.currentText(), "Event 1, frame 0")
         QTest.mouseClick(tree.viewport(), Qt.LeftButton, pos=tree.visualItemRect(tree.topLevelItem(0)).center())
         self.assertEqual(self.window.image_index, 0)
 
@@ -566,7 +566,7 @@ class ComparisonViewerTests(unittest.TestCase):
         self.set_freeze_frames(cell_ids, ([0, 4], [], []))
         self.show_cells_list()
         self.window.reselect_cell_ids([cell_ids[0]])
-        self.choose_freeze_event("Event 2 · Frame 4")
+        self.choose_freeze_event("Event 2, frame 4")
         selector = self.window.cells_freeze_event_selector
         combo = selector.combo
         combo.setFocus()
@@ -581,7 +581,7 @@ class ComparisonViewerTests(unittest.TestCase):
                 self.process_events()
                 self.assertEqual(self.window.image_index, expected_frame)
                 self.assertEqual(selector.selected_frame(), expected_frame)
-                self.assertTrue(combo.currentText().endswith(f"Frame {expected_frame}"))
+                self.assertTrue(combo.currentText().endswith(f"frame {expected_frame}"))
 
     def test_first_freeze_and_auto_center_are_independent_and_wait_for_list_release(self):
         cell_ids = self.install_selection_cells()

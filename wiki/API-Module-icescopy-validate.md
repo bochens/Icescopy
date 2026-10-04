@@ -3,7 +3,7 @@
 
 Command-line checks for the installed package, dependencies, and required resources.
 
-[Source](../src/icescopy_validate.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_validate.py) | [API index](API-Reference.md)
 
 `icescopy-validate` calls `main()` and returns a nonzero exit status for missing dependencies, resources, package installation, or source/package version mismatch. It does not perform GUI interaction or validate scientific results.
 

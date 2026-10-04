@@ -3,7 +3,7 @@
 
 Input dialogs for session metadata, temperature import, and export selection.
 
-[Source](../src/icescopy_dialogs.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_dialogs.py) | [API index](API-Reference.md)
 
 Dialogs gather and validate user choices; parsing and count calculations belong to the temperature and freeze-count modules. `get_values()` results are consumed by the matching main-window import action.
 

@@ -3,7 +3,7 @@
 
 Decodes requested preview frames and emits either an image or an error with source identity.
 
-[Module](API-Module-icescopy-video-preview.md) · [Source](../src/icescopy_video_preview.py#L8) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-video-preview.md) | [Source](../src/icescopy_video_preview.py#L8) | [API index](API-Reference.md)
 
 **Bases:** `QObject`.
 

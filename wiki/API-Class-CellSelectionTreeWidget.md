@@ -3,7 +3,7 @@
 
 Reports completed Cells-list mouse and keyboard selections for optional frame navigation and centering.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L27) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) | [Source](../src/icescopy_viewer.py#L27) | [API index](API-Reference.md)
 
 **Bases:** `QTreeWidget`.
 

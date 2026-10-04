@@ -3,7 +3,7 @@
 
 Collects UTK temperature data and video timing options.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L324) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L324) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

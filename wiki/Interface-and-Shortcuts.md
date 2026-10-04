@@ -99,4 +99,4 @@ Deletion depends on focus: image-list removal and cell removal are different ope
 
 Changing the appearance of circles or a plot is different from changing geometry, image adjustments, or detector settings. See [result dependencies](Concepts-and-Data-Flow.md#what-to-repeat-after-an-edit).
 
-Related: [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) · [Annotation Workflow](Annotation-Workflow.md) · [Troubleshooting](Troubleshooting.md)
+Related: [Loading and Reviewing Frames](Loading-and-Reviewing-Frames.md) | [Annotation Workflow](Annotation-Workflow.md) | [Troubleshooting](Troubleshooting.md)

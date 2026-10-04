@@ -3,7 +3,7 @@
 
 Timeline navigation, zoom, and marker drawing.
 
-[Source](../src/icescopy_frameslider.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_frameslider.py) | [API index](API-Reference.md)
 
 The slider distinguishes keyframes, freeze annotations, and analysis start/end markers. Platform-specific hit testing and painting share the same logical frame indexes. A freeze flag reflects selected-cell events, or all cells when none are selected; it is not a general bookmark.
 

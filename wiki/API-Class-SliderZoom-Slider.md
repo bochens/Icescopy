@@ -3,7 +3,7 @@
 
 A slider used to adjust timeline zoom.
 
-[Module](API-Module-icescopy-frameslider.md) · [Source](../src/icescopy_frameslider.py#L639) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frameslider.md) | [Source](../src/icescopy_frameslider.py#L639) | [API index](API-Reference.md)
 
 **Bases:** `QSlider`.
 

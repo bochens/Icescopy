@@ -3,7 +3,7 @@
 
 Customizes the catalog tree’s branch drawing.
 
-[Module](API-Module-icescopy-sample-catalog.md) · [Source](../src/icescopy_sample_catalog.py#L494) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L494) | [API index](API-Reference.md)
 
 **Bases:** `QTreeView`.
 

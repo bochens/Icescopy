@@ -3,7 +3,7 @@
 
 Application startup, main window, and coordination of session state and tools.
 
-[Source](../src/Icescopy.py) · [API index](API-Reference.md)
+[Source](../src/Icescopy.py) | [API index](API-Reference.md)
 
 The `IceScopy` window connects frame sources, cell records, graphics, result tables, history, and import/export actions. Many public-looking methods depend on initialized widgets and window state; they are not independent batch APIs. See [Architecture Overview](Architecture-Overview.md) before changing a workflow.
 

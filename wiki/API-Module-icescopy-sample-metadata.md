@@ -3,7 +3,7 @@
 
 Sample-field definitions, validation, serialization, and schema migration.
 
-[Source](../src/icescopy_sample_metadata.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_sample_metadata.py) | [API index](API-Reference.md)
 
 A schema is an ordered list of field definitions: key, label, type, export choice, shared-value choice, and relevant sample types. Fixed identity fields cannot be removed or have their keys renamed. Custom keys are validated; values are normalized to strings in catalog records. XML stores preference defaults, while session JSON stores the active schema.
 

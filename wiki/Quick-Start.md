@@ -1,6 +1,6 @@
 # Quick Start
 
-[User guide](Home.md) · [Interface and shortcuts](Interface-and-Shortcuts.md)
+[User guide](Home.md) | [Interface and shortcuts](Interface-and-Shortcuts.md)
 
 Follow this tutorial to turn a recording into reviewed freeze events and exported results. A **frame** is one image in the recording. A **cell** is a numbered circle marking the part of a droplet or well whose brightness will be measured.
 

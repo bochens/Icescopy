@@ -20,6 +20,8 @@ The Mac archive includes [automatic blank assignment and sample-type concentrati
 - Air samples offer **Suspension** and **Sampled air**. Soil samples offer **Suspension** and **Dry soil**. Calculations containing different sample types offer suspension concentration.
 - **Show combined curve** and **Uncertainty** remain visible and are disabled when they do not apply, keeping the layout stable.
 
+- Decorative middle-dot separators have been removed from interface headings, legends, event selectors, status messages, and documentation links.
+
 ## Other improvements
 
 - Freeze Count Timeseries updates after freeze-frame and sample-metadata edits, using retained temperature inputs.

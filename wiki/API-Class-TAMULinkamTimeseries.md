@@ -3,7 +3,7 @@
 
 Parsed TAMU relative temperature times, temperatures, and an optional start timestamp.
 
-[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L207) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L207) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

@@ -3,7 +3,7 @@
 
 Reads individual image files and exposes their order as frames.
 
-[Module](API-Module-icescopy-frame-source.md) · [Source](../src/icescopy_frame_source.py#L188) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L188) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 

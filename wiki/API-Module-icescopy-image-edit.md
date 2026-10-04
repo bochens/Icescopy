@@ -3,7 +3,7 @@
 
 Shared image adjustments, rotated-crop geometry, and editing overlays.
 
-[Source](../src/icescopy_image_edit.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_image_edit.py) | [API index](API-Reference.md)
 
 The array adjustment path applies crop, exposure, then contrast. Display and measurement reuse these helpers so committed edits affect both. Transient crop previews and history are coordinated by the window. Original-image cell coordinates must be mapped through the crop transform for display and measurement; preserve the inverse mapping when translating pointer positions back to the source image.
 

@@ -3,7 +3,7 @@
 
 Reports changes to image position and zoom so the other panes can follow them.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L87) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) | [Source](../src/icescopy_viewer.py#L87) | [API index](API-Reference.md)
 
 **Bases:** `QGraphicsView`.
 

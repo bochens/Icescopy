@@ -3,7 +3,7 @@
 
 Serialize session bundles and prepare validated restore state.
 
-[Source](../src/icescopy_session_io.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_session_io.py) | [API index](API-Reference.md)
 
 A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. Imported frame-to-cycle assignments for event review are stored separately from result tables in `freeze_review_cycle_metadata`. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.
 

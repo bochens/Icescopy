@@ -3,7 +3,7 @@
 
 Edits a color preference through a native color picker.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L156) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L156) | [API index](API-Reference.md)
 
 **Bases:** `QPushButton`.
 

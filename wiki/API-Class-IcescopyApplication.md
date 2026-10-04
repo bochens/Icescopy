@@ -3,7 +3,7 @@
 
 Handles operating-system file-open events and defers session opening until the main window is available.
 
-[Module](API-Module-Icescopy.md) · [Source](../src/Icescopy.py#L161) · [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) | [Source](../src/Icescopy.py#L161) | [API index](API-Reference.md)
 
 **Bases:** `QApplication`.
 

@@ -3,7 +3,7 @@
 
 Draws a cell outline and ID, with selection, hover, and edit feedback.
 
-[Module](API-Module-icescopy-cell-items.md) · [Source](../src/icescopy_cell_items.py#L20) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-cell-items.md) | [Source](../src/icescopy_cell_items.py#L20) | [API index](API-Reference.md)
 
 **Bases:** `QGraphicsEllipseItem`.
 

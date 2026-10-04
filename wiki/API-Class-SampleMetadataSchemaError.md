@@ -3,6 +3,6 @@
 
 Reports an invalid sample-field definition or schema.
 
-[Module](API-Module-icescopy-sample-metadata.md) · [Source](../src/icescopy_sample_metadata.py#L152) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-metadata.md) | [Source](../src/icescopy_sample_metadata.py#L152) | [API index](API-Reference.md)
 
 **Bases:** `ValueError`.

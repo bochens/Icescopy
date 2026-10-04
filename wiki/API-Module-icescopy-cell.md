@@ -3,7 +3,7 @@
 
 Cell identity, sample assignment, and analysis-record synchronization.
 
-[Source](../src/icescopy_cell.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_cell.py) | [API index](API-Reference.md)
 
 `CellRecord` contains identity and results, not geometry. Geometry lives in current and keyframe cell snapshots. `CellStateManager` updates the window-owned registry and related table labels. Read [Cell System](Cell-System.md) for the invariants.
 

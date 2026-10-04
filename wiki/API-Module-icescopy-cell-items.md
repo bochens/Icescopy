@@ -3,7 +3,7 @@
 
 Geometry snapshots and interactive graphics items for cell circles.
 
-[Source](../src/icescopy_cell_items.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_cell_items.py) | [API index](API-Reference.md)
 
 `CellSnapshot` is lightweight geometry/state that can be copied without owning a Qt scene object. `CellCircle` paints and handles interaction in the scene. Neither replaces `CellRecord` for sample assignment or analysis values.
 

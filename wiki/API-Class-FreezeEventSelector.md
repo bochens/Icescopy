@@ -3,7 +3,7 @@
 
 Tracks the chosen freeze event and cooling cycle and performs explicit event navigation.
 
-[Module](API-Module-icescopy-event-navigation.md) · [Source](../src/icescopy_event_navigation.py#L78) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-event-navigation.md) | [Source](../src/icescopy_event_navigation.py#L78) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

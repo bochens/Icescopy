@@ -3,6 +3,6 @@
 
 Shared Qt stylesheet strings for the application interface.
 
-[Source](../src/icescopy_stylesheet.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_stylesheet.py) | [API index](API-Reference.md)
 
 This module defines presentation values rather than callable services. Window code chooses the appropriate styles and refreshes affected controls; keep state-changing behavior out of stylesheet definitions.

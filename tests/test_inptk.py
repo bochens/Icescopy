@@ -1181,7 +1181,7 @@ class InpIntegrationTests(unittest.TestCase):
         for quantity in ('Number frozen', 'Fraction frozen'):
             p.quantity.setCurrentText(quantity)
             self.assertTrue(p.input_cycle.isHidden())
-            self.assertTrue(all(' · cycle ' not in label.text for _, label in p.legend.items))
+            self.assertTrue(all(', cycle ' not in label.text for _, label in p.legend.items))
             self.assertTrue(any('(water blank)' in label.text for _, label in p.legend.items))
         # Add a second actual count-table cycle, then reload through the client.
         headers = self.window.freeze_count_timeseries_headers
@@ -1203,8 +1203,8 @@ class InpIntegrationTests(unittest.TestCase):
         for quantity in ('Number frozen', 'Fraction frozen'):
             p.quantity.setCurrentText(quantity)
             names = [label.text for _, label in p.legend.items]
-            self.assertIn(f'{keys[0]} · cycle 1', names)
-            self.assertIn(f'{keys[2]} (water blank) · cycle 1', names)
+            self.assertIn(f'{keys[0]}, cycle 1', names)
+            self.assertIn(f'{keys[2]} (water blank), cycle 1', names)
         args = cli_choices(p.settings)
         curves = json.loads(args[args.index('--curves') + 1])
         self.assertEqual(curves['Combined']['inputs'][0]['cycle_id'], '1')

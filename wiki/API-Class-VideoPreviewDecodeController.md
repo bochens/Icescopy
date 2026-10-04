@@ -3,7 +3,7 @@
 
 Owns the preview worker thread and forwards decode requests/results.
 
-[Module](API-Module-icescopy-video-preview.md) · [Source](../src/icescopy_video_preview.py#L49) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-video-preview.md) | [Source](../src/icescopy_video_preview.py#L49) | [API index](API-Reference.md)
 
 **Bases:** `QObject`.
 

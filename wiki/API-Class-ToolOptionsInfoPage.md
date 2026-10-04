@@ -3,7 +3,7 @@
 
 Displays a short tool-options message.
 
-[Module](API-Module-icescopy-tool-options.md) · [Source](../src/icescopy_tool_options.py#L58) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L58) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

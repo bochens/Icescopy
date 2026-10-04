@@ -3,7 +3,7 @@
 
 Collects standard CSV import choices and previews image timestamp parsing.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L770) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L770) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

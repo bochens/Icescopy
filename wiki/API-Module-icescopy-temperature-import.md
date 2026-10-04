@@ -3,7 +3,7 @@
 
 Parse temperature files and resolve timestamps and cooling cycles.
 
-[Source](../src/icescopy_temperature_import.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_temperature_import.py) | [API index](API-Reference.md)
 
 Independent parsers cover standard CSV, UTK CSV, CSU `.dat`, TAMU Linkam `.xlsx`, and PKU Linksys32 `.iml`, with calibration and timestamp helpers. Result dataclasses carry parsed times and values; the freeze-count mixin joins them to cell events. Format-specific validation raises `TemperatureImportError`.
 

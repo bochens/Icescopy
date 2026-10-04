@@ -3,7 +3,7 @@
 
 Builds tool-option rows, numeric controls, lists, hints, and action buttons.
 
-[Module](API-Module-icescopy-tool-options.md) · [Source](../src/icescopy_tool_options.py#L98) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L98) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

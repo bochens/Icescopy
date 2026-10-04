@@ -3,7 +3,7 @@
 
 Provide shared freeze-event buttons and a Cells selector that retains the chosen cooling cycle.
 
-[Source](../src/icescopy_event_navigation.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_event_navigation.py) | [API index](API-Reference.md)
 
 `FreezeEventButton` gives the Cells selector and timeline matching arrow-and-dot icons and button styling. The selector below the Cells checkboxes provides previous/next arrows and a dropdown. Its explicit actions navigate even when Show freeze frame is off, and Auto-center independently controls centering at the destination. Controls refresh without navigating. Known cooling cycles come from imported frame assignments; unknown cycles use event-order labels without inferring cycle identity. Timeline event targets and camera-preserving navigation are coordinated by the main window.
 

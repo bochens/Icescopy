@@ -3,7 +3,7 @@
 
 The common interface consumed by frame display, navigation, and grayscale analysis.
 
-[Module](API-Module-icescopy-frame-source.md) · [Source](../src/icescopy_frame_source.py#L124) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L124) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

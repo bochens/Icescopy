@@ -3,7 +3,7 @@
 
 Cell drawing and editing, pinned previews, and scene synchronization.
 
-[Source](../src/icescopy_cell_controller.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_cell_controller.py) | [API index](API-Reference.md)
 
 The controller works with the main window’s geometry and graphics scene. Single-cell and grid previews are transient until Apply commits them. Selection identifies cells by ID; rendering can replace scene items. See [Cell System](Cell-System.md).
 

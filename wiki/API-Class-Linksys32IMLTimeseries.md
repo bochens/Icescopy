@@ -3,7 +3,7 @@
 
 Parsed Linksys32 temperature samples plus image-record associations.
 
-[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L230) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L230) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

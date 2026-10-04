@@ -100,4 +100,4 @@ Save versions before changing the analysis method, after freeze review, and afte
 | `nan` | Missing value; interpret it according to its column |
 | Session | Saved working state in a `.icescopy` file |
 
-Related: [Quick Start](Quick-Start.md) · [Analysis and Results](Analysis-and-Results.md) · [Output Reference](Output-Reference.md)
+Related: [Quick Start](Quick-Start.md) | [Analysis and Results](Analysis-and-Results.md) | [Output Reference](Output-Reference.md)

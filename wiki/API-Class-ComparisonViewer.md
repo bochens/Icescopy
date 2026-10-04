@@ -3,7 +3,7 @@
 
 Arranges one, two, or three panes and keeps their image position and zoom synchronized.
 
-[Module](API-Module-icescopy-viewer.md) · [Source](../src/icescopy_viewer.py#L388) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-viewer.md) | [Source](../src/icescopy_viewer.py#L388) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

@@ -3,7 +3,7 @@
 
 Decodes a single video, exposes frame metadata, and manages video preview caching.
 
-[Module](API-Module-icescopy-frame-source.md) · [Source](../src/icescopy_frame_source.py#L250) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L250) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 

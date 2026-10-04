@@ -3,7 +3,7 @@
 
 Undo/redo command for timeline marker lists.
 
-[Module](API-Module-icescopy-session.md) · [Source](../src/icescopy_session.py#L41) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-session.md) | [Source](../src/icescopy_session.py#L41) | [API index](API-Reference.md)
 
 **Bases:** `QUndoCommand`.
 

@@ -3,7 +3,7 @@
 
 A compact geometry snapshot used by history, interpolation, and analysis.
 
-[Module](API-Module-icescopy-cell-items.md) · [Source](../src/icescopy_cell_items.py#L10) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-cell-items.md) | [Source](../src/icescopy_cell_items.py#L10) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

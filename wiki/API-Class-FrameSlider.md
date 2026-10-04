@@ -3,7 +3,7 @@
 
 Paints frame positions and markers and sends timeline navigation actions to the main window.
 
-[Module](API-Module-icescopy-frameslider.md) · [Source](../src/icescopy_frameslider.py#L40) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frameslider.md) | [Source](../src/icescopy_frameslider.py#L40) | [API index](API-Reference.md)
 
 **Bases:** `QSlider`.
 

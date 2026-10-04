@@ -3,7 +3,7 @@
 
 Convert start/end markers into inclusive frame ranges.
 
-[Source](../src/icescopy_analysis_windows.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_analysis_windows.py) | [API index](API-Reference.md)
 
 Indexes are zero-based. With no markers, analysis covers the source. A leading end uses the first frame, a trailing start uses the last, consecutive starts keep the latest, and extra ends after a closed range are ignored. These ranges control both frame measurement and separate freeze searches.
 

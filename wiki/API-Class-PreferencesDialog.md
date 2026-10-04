@@ -3,7 +3,7 @@
 
 Edits application preferences and the default sample metadata schema.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L898) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L898) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

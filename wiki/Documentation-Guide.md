@@ -101,4 +101,4 @@ The command does not publish, modify the source pages, overwrite an existing sta
 
 Preserve dated investigation notes when they explain a fix or limitation. Mark their scope and point readers to current instructions. Avoid placing old test-build status alongside installation steps as if it described the current release.
 
-Related: [Developer Guide](Developer-Guide.md) · [Architecture Overview](Architecture-Overview.md) · [API Reference](API-Reference.md)
+Related: [Developer Guide](Developer-Guide.md) | [Architecture Overview](Architecture-Overview.md) | [API Reference](API-Reference.md)

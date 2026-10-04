@@ -3,7 +3,7 @@
 
 Provides dock title-bar controls and drag behavior.
 
-[Module](API-Module-icescopy-dock.md) · [Source](../src/icescopy_dock.py#L17) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dock.md) | [Source](../src/icescopy_dock.py#L17) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 

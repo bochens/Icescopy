@@ -3,7 +3,7 @@
 
 Decode video previews outside the GUI thread.
 
-[Source](../src/icescopy_video_preview.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_video_preview.py) | [API index](API-Reference.md)
 
 The controller owns a Qt thread; the worker creates its own frame source from a preview payload. Decode results include frame identity and a source token so the window can reject stale results. Call the controller’s `close()` before replacing its source or disposing the window. Blocking shutdown is not a hard one-second guarantee: its queued close must wait for an in-progress decode.
 

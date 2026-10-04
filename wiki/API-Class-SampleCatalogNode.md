@@ -3,7 +3,7 @@
 
 Internal tree node for a sample or one of its metadata fields.
 
-[Module](API-Module-icescopy-sample-catalog.md) · [Source](../src/icescopy_sample_catalog.py#L53) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L53) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

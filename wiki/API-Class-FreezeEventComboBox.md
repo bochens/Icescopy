@@ -3,7 +3,7 @@
 
 Captures the selection context when an event dropdown or keyboard action begins.
 
-[Module](API-Module-icescopy-event-navigation.md) · [Source](../src/icescopy_event_navigation.py#L52) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-event-navigation.md) | [Source](../src/icescopy_event_navigation.py#L52) | [API index](API-Reference.md)
 
 **Bases:** `QComboBox`.
 

@@ -177,6 +177,10 @@ class TemperatureTags(QWidget):
 class ConcentrationAxis(pg.AxisItem):
     """Use readable decade ticks; add 2 and 5 only when there is room."""
 
+    def logTickStrings(self, values, scale, spacing):
+        return [label.replace("\N{MIDDLE DOT}", "×")
+                for label in super().logTickStrings(values, scale, spacing)]
+
     def logTickValues(self, minVal, maxVal, size, stdTicks):
         span = maxVal - minVal
         if span < .5:

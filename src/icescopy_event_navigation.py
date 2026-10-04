@@ -169,13 +169,13 @@ class FreezeEventSelector(QWidget):
             entries.append(("Select one cell", None))
         elif self._target is None:
             text = "No freeze events" if self._preferred_cycle is None else (
-                f"Cycle {self._preferred_cycle + 1} · No event"
+                f"Cycle {self._preferred_cycle + 1}, no event"
             )
             entries.append((text, None))
         for index, frame in enumerate(self._frames):
             cycle = self.cycle_at(frame)
             label = f"Event {index + 1}" if cycle is None else f"Cycle {cycle + 1}"
-            entries.append((f"{label} · Frame {frame}", frame))
+            entries.append((f"{label}, frame {frame}", frame))
 
         snapshot = (tuple(entries), self._target)
         if snapshot != self._display_snapshot:

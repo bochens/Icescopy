@@ -3,7 +3,7 @@
 
 Measures per-frame circular regions and builds grayscale and freeze-event tables in a Qt worker thread.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L416) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L416) | [API index](API-Reference.md)
 
 **Bases:** `QThread`.
 

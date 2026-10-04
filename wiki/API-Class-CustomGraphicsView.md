@@ -3,7 +3,7 @@
 
 Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.
 
-[Module](API-Module-icescopy-aux.md) · [Source](../src/icescopy_aux.py#L211) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L211) | [API index](API-Reference.md)
 
 **Bases:** `LinkedGraphicsView`.
 

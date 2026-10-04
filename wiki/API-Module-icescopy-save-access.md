@@ -3,7 +3,7 @@
 
 Recognize save-access failures and present retry/save-copy recovery choices.
 
-[Source](../src/icescopy_save_access.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_save_access.py) | [API index](API-Reference.md)
 
 The helper reports relevant operating-system errors to the caller; the caller still owns serialization, retry logic, and destination selection. Platform recovery text is tested separately from window-title rendering.
 

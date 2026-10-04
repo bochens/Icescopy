@@ -3,7 +3,7 @@
 
 A legacy dialog that reads grayscale CSV input and writes freeze-event CSV output.
 
-[Module](API-Module-icescopy-freezfinder.md) · [Source](../src/icescopy_freezfinder.py#L384) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-freezfinder.md) | [Source](../src/icescopy_freezfinder.py#L384) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

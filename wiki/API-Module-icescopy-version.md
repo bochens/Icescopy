@@ -3,6 +3,6 @@
 
 The version value used by the application and Python package.
 
-[Source](../src/icescopy_version.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_version.py) | [API index](API-Reference.md)
 
 `__version__` supplies Python package metadata and macOS bundle metadata. The Windows installer receives its version as a separate build parameter. Keep those values aligned deliberately when preparing a release.

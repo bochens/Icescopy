@@ -2,7 +2,7 @@
 
 Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, compare neighboring frames, and match events to temperature records. Experimental droplet selection can find similar cells from a few marked examples.
 
-[Quick start](wiki/Quick-Start.md) · [User guide](wiki/Home.md) · [Releases](https://github.com/bochens/Icescopy/releases)
+[Quick start](wiki/Quick-Start.md) | [User guide](wiki/Home.md) | [Releases](https://github.com/bochens/Icescopy/releases)
 
 ## Install
 

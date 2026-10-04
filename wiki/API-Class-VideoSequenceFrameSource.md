@@ -3,7 +3,7 @@
 
 Presents several ordered video clips as one frame sequence.
 
-[Module](API-Module-icescopy-frame-source.md) · [Source](../src/icescopy_frame_source.py#L780) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L780) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 

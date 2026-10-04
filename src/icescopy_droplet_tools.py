@@ -232,7 +232,7 @@ class DropletDetectionTools(QObject):
             )
             if count != len(results):
                 self.completion_message += "\n\nOnly new cells fully inside the current crop are added."
-            self.window.log(self.completion_message.replace("\n", " · "))
+            self.window.log(self.completion_message.replace("\n", "; "))
 
     def _failed(self, message):
         self.window.log(f"Droplet detection failed: {message}")

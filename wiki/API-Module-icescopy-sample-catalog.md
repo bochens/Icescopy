@@ -3,7 +3,7 @@
 
 Qt model, delegates, and panel actions for editing sample metadata.
 
-[Source](../src/icescopy_sample_catalog.py) · [API index](API-Reference.md)
+[Source](../src/icescopy_sample_catalog.py) | [API index](API-Reference.md)
 
 The tree model presents sample rows and field rows using the active schema. Edits validate field types and propagate fields marked “same for all” across the catalog. The panel mixin coordinates selection and persistent editors.
 

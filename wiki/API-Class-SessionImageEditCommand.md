@@ -3,7 +3,7 @@
 
 Undo/redo command for image-edit settings and captured geometry/results.
 
-[Module](API-Module-icescopy-session.md) · [Source](../src/icescopy_session.py#L161) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-session.md) | [Source](../src/icescopy_session.py#L161) | [API index](API-Reference.md)
 
 **Bases:** `QUndoCommand`.
 

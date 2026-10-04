@@ -3,7 +3,7 @@
 
 Collects a Linksys32 IML file and PKU import options.
 
-[Module](API-Module-icescopy-dialogs.md) · [Source](../src/icescopy_dialogs.py#L638) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L638) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 

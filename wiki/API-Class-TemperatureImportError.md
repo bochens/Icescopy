@@ -3,6 +3,6 @@
 
 Reports a temperature-file or timestamp validation failure.
 
-[Module](API-Module-icescopy-temperature-import.md) · [Source](../src/icescopy_temperature_import.py#L192) · [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L192) | [API index](API-Reference.md)
 
 **Bases:** `ValueError`.

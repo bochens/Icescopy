@@ -73,7 +73,7 @@ def generate():
         if set(classes) != set(spec.get("classes", {})):
             raise ValueError(f"Class inventory differs in {module}; update api_reference.json.")
         index += [f"| [`{module}`]({module_page(module)}) | {spec['summary']} |"]
-        body = [NOTICE, f"# Module: `{module}`", "", spec["summary"], "", f"[Source]({source_link(module)}) · [API index](API-Reference.md)", "", spec["details"], ""]
+        body = [NOTICE, f"# Module: `{module}`", "", spec["summary"], "", f"[Source]({source_link(module)}) | [API index](API-Reference.md)", "", spec["details"], ""]
         if classes:
             body += ["## Classes", "", "| Class | Role |", "| --- | --- |"]
             for name, node in classes.items():
@@ -82,7 +82,7 @@ def generate():
                 class_locations[name] = module
                 cls_spec = spec["classes"][name]
                 body += [f"| [`{name}`]({class_page(name)}) | {cls_spec['summary']} |"]
-                cls_body = [NOTICE, f"# Class: `{name}`", "", cls_spec["summary"], "", f"[Module]({module_page(module)}) · [Source]({source_link(module, node)}) · [API index](API-Reference.md)", ""]
+                cls_body = [NOTICE, f"# Class: `{name}`", "", cls_spec["summary"], "", f"[Module]({module_page(module)}) | [Source]({source_link(module, node)}) | [API index](API-Reference.md)", ""]
                 bases = ", ".join(ast.unparse(base) for base in node.bases) or "object"
                 cls_body += [f"**Bases:** `{bases}`.", ""]
                 if cls_spec.get("details"):

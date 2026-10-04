@@ -114,4 +114,4 @@ Select its catalog entry and click **Delete**. A sample assigned to cells cannot
 | Change exported fields | Check exported metadata and any downstream reader |
 | Change geometry or freeze events | Follow the [result dependency guide](Concepts-and-Data-Flow.md#what-to-repeat-after-an-edit) |
 
-Related: [Annotation Workflow](Annotation-Workflow.md) · [Temperature Import](Temperature-Import.md) · [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md)
+Related: [Annotation Workflow](Annotation-Workflow.md) | [Temperature Import](Temperature-Import.md) | [Sessions, Export, and Preferences](Sessions-Export-and-Preferences.md)
