@@ -11,12 +11,12 @@ import uuid
 import numpy as np
 import pyqtgraph as pg
 from shiboken6 import isValid
-from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette, QUndoCommand, QUndoStack
+from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel, QSize
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
-    QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
+    QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QGraphicsView, QSizePolicy,
     QToolButton, QVBoxLayout, QWidget, QFrame, QGroupBox, QStyledItemDelegate,
 )
 
@@ -86,6 +86,13 @@ class RangeLimitDelegate(QStyledItemDelegate):
         if isinstance(editor, QLineEdit):
             editor.setPlaceholderText(index.data(Qt.UserRole) or "Full range")
         return editor
+
+
+class FixedLegend(pg.LegendItem):
+    """A scrollable legend stays in its own column rather than being dragged."""
+
+    def mouseDragEvent(self, event):
+        event.ignore()
 
 
 class InptkPreferencesWidget(QWidget):
@@ -391,19 +398,40 @@ class InptkPanel(QDialog):
         layout.addLayout(range_actions)
         self.suggestion_status = QLabel("Automatic limits are available for Average; MLE limits are manual.")
         self.suggestion_status.setWordWrap(True)
+        help_font = QFont(self.font())
+        if help_font.pointSizeF() > 0:
+            help_font.setPointSizeF(max(10, help_font.pointSizeF() - 1))
+        self.suggestion_status.setFont(help_font)
         layout.addWidget(self.suggestion_status)
+        layout.addSpacing(6)
         self.method_help = QLabel()
+        self.method_help.setFont(help_font)
         self.method_help.setWordWrap(True)
         self.method_help.setTextFormat(Qt.RichText)
+        self.method_help.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.method_help)
         self.method_details_button = QToolButton()
+        self.method_details_button.setFont(help_font)
         self.method_details_button.setAutoRaise(True)
         self.method_details_button.setText("Equations and uncertainty")
         self.method_details_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.method_details_button.setIconSize(QSize(10, 10))
         self.method_details_button.setArrowType(Qt.RightArrow)
         self.method_details_button.setCheckable(True)
+        self.method_details_button.setAccessibleName("Equations and uncertainty")
+        self.method_details_button.setToolTip("Show equations and confidence-limit details")
+        # macOS ignores autoRaise outside a toolbar. Remove just this control's
+        # button chrome while retaining Qt's keyboard and checked-state behavior.
+        self.method_details_button.setStyleSheet("""
+            QToolButton { background: transparent; border: none;
+                          border-bottom: 1px solid transparent; padding: 4px 0; }
+            QToolButton:hover { color: palette(link); }
+            QToolButton:focus { color: palette(link);
+                                border-bottom: 1px dotted palette(link); }
+        """)
         layout.addWidget(self.method_details_button, alignment=Qt.AlignLeft)
         self.method_details = QLabel()
+        self.method_details.setFont(help_font)
         self.method_details.setTextFormat(Qt.RichText)
         self.method_details.setWordWrap(True)
         self.method_details.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -495,17 +523,35 @@ class InptkPanel(QDialog):
             self.plot.getAxis(side).setStyle(maxTickLevel=1)
             self.plot.getAxis(side).setTickDensity(.6)
         self.plot.setLabel("bottom", "Temperature", units="°C")
-        self.plot.addLegend(offset=(8, 8))
+        # Keep the normal plot/legend entries, but give the legend its own
+        # scrollable area so it never covers curves or temperature handles.
+        self.legend = FixedLegend(frame=False, labelTextSize=f"{max(10, help_font.pointSizeF()):g}pt", verSpacing=4)
+        legend_scene = pg.GraphicsScene(parent=self)
+        legend_scene.addItem(self.legend)
+        self.legend_view = QGraphicsView(legend_scene)
+        self.legend_view.setFrameShape(QFrame.NoFrame)
+        self.legend_view.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.legend_view.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.legend_view.setAccessibleName("Plot legend")
+        self.legend_view.setMinimumWidth(120)
+        self.plot.getPlotItem().legend = self.legend
         self.empty_plot = QLabel()
         self.empty_plot.setWordWrap(True)
         self.empty_plot.setAlignment(Qt.AlignCenter)
         self.empty_plot.setMargin(20)
         plot_layout.addWidget(self.empty_plot)
-        plot_layout.addWidget(self.plot, 1)
+        chart_row = QHBoxLayout()
+        chart_row.setSpacing(12)
+        chart_column = QVBoxLayout()
+        chart_column.setSpacing(0)
+        chart_column.addWidget(self.plot, 1)
         self.range_tags = TemperatureTags(self.plot)
         self.range_tags.activated.connect(self.activate_range)
         self.range_tags.moved.connect(self.tag_moved)
-        plot_layout.addWidget(self.range_tags)
+        chart_column.addWidget(self.range_tags)
+        chart_row.addLayout(chart_column, 1)
+        chart_row.addWidget(self.legend_view)
+        plot_layout.addLayout(chart_row, 1)
         self.plot_note = QLabel()
         self.plot_note.setWordWrap(True)
         plot_layout.addWidget(self.plot_note)
@@ -596,47 +642,78 @@ class InptkPanel(QDialog):
     def toggle_method_details(self, visible):
         self.method_details.setVisible(visible)
         self.method_details_button.setArrowType(Qt.DownArrow if visible else Qt.RightArrow)
+        self.method_details_button.setToolTip(
+            "Hide equations and confidence-limit details" if visible else
+            "Show equations and confidence-limit details")
 
     def update_method_help(self):
+        text_size = self.method_details.font().pointSizeF()
+        if text_size <= 0: text_size = 12
+        paragraph = 'margin-top:0; margin-bottom:8px; line-height:130%;'
+        def prose(text):
+            return f'<p style="{paragraph}">{text}</p>'
+        def section(title, formula):
+            return (f'<p style="margin-top:12px; margin-bottom:4px;"><b>{title}</b></p>'
+                    f'<p align="center" style="margin-top:6px; margin-bottom:10px; '
+                    f'font-size:{text_size + 1.5:g}pt;">{formula}</p>')
         common = (
-            "<p><b>Freezing model</b><br>S = exp[−v(K/D + B)]<br>"
-            "S is the liquid fraction, v the well volume in mL, D the dilution factor, "
-            "K the original suspension concentration in INP/mL, and B the assigned water-background concentration. "
-            "A blank uses S = exp(−vB); without correction, B = 0.</p>"
+            section('Freezing model', '<i>S</i> = e<sup>−<i>v</i>(<i>K</i>/<i>D</i> + <i>B</i>)</sup>') +
+            '<table width="100%" cellspacing="0" cellpadding="2">' +
+            ''.join(f'<tr><td width="24" valign="top"><i>{symbol}</i></td><td>{meaning}</td></tr>'
+                    for symbol, meaning in (
+                        ('S', 'Fraction of droplets still liquid'),
+                        ('v', 'Well volume (mL)'),
+                        ('D', 'Dilution factor'),
+                        ('K', 'Original suspension concentration <nobr>(INP/mL)</nobr>'),
+                        ('B', 'Assigned blank concentration <nobr>(INP/mL)</nobr>'))) +
+            '</table>' +
+            prose('A water blank uses <i>S</i> = e<sup>−<i>vB</i></sup>. '
+                  'Without blank correction, <i>B</i> = 0.')
         )
         if self.settings['method'] == 'mle':
             self.method_help.setText(
-                "<b>MLE</b> fits one concentration curve to the eligible dilutions and their assigned blanks together. "
-                "It uses when droplets first freeze and how many remain liquid; repeated frames are not new droplets. "
-                "Confidence limits allow other fitted values, including the blank, to vary.")
+                prose('<b>Maximum likelihood (MLE)</b>') +
+                prose('Fits the eligible samples and their assigned blanks together, using when droplets '
+                      'first freeze and how many remain liquid.'))
             detail = (
-                "<p><b>Maximum likelihood</b><br>"
-                "P(freeze between a and b) = S(a) − S(b). "
-                "The fit maximizes the joint probability of the observed first-freezing intervals and surviving droplets. "
-                "K and B cannot decrease during cooling, and each shared blank set enters once.</p>"
-                "<p><b>Confidence limits</b><br>ℓ<sub>max</sub> − ℓ<sub>profile</sub>(K) = z²/2.<br>"
-                "ℓ is log likelihood. To test a value of K at one temperature, the toolkit refits the other curve and background values. "
-                "The allowable drop is 1.92 for z = 1.96 (nominal 95%).</p>"
+                section('First-freezing intervals', '<i>P</i>(<i>a</i> → <i>b</i>) '
+                        '= <i>S</i>(<i>a</i>) − <i>S</i>(<i>b</i>)') +
+                prose('<i>a</i> and <i>b</i> are successive observations during cooling. The fit maximizes '
+                      'the joint probability of the observed first-freezing intervals and '
+                      'surviving droplets. Repeated frames are not new droplets. '
+                      '<i>K</i> and <i>B</i> cannot decrease during cooling; each shared blank set enters once.') +
+                section('Confidence limits', 'ℓ<sub>max</sub> − ℓ<sub>profile</sub>(<i>K</i>) '
+                        '= <i>z</i><sup>2</sup>/2') +
+                prose('ℓ is log likelihood. To test <i>K</i> at one temperature, the toolkit refits the '
+                      'other curve values and blank background. The allowable drop is 1.92 when '
+                      '<i>z</i> = 1.96, giving nominal 95% limits.')
             )
         else:
             self.method_help.setText(
-                "<b>Average</b> fits each eligible sample separately with its assigned blanks, then takes an equal-weight mean "
-                "where ranges overlap. A single eligible dilution contributes its own estimate. "
-                "Its conservative uncertainty allows for shared blanks; adding samples may not narrow the limits.")
+                prose('<b>Average</b>') +
+                prose('Fits each sample with its assigned blanks, then takes an equal-weight mean where '
+                      'ranges overlap. A single eligible sample contributes its own estimate.'))
             detail = (
-                "<p><b>Equal-weight mean</b><br>K̄ = (K₁ + … + Kₘ)/m.<br>"
-                "m is the number of eligible samples at that temperature. Each Kᵢ is fitted from its frozen and total counts, "
-                "well volume, dilution and assigned blanks. Without blanks and away from 100% frozen, "
-                "Kᵢ = −Dᵢ ln(1 − fᵢ)/vᵢ, where fᵢ is fraction frozen.</p>"
-                "<p><b>Confidence limits</b><br>α = 2[1 − Φ(z)]; αᵢ = α/m.<br>"
-                "Φ is the standard normal cumulative probability. The toolkit widens each sample's likelihood interval "
-                "using this divided error probability (the Bonferroni adjustment), then averages its endpoints:<br>"
-                "L = (L₁ + … + Lₘ)/m;<br>U = (U₁ + … + Uₘ)/m.</p>"
+                section('Equal-weight mean', '<i>K</i><sub>mean</sub> = (<i>K</i><sub>1</sub> + … + '
+                        '<i>K</i><sub>m</sub>)/<i>m</i>') +
+                prose('<i>m</i> is the number of eligible samples at that temperature. Each estimate uses '
+                      'the sample’s frozen and total counts, well volume, dilution and assigned blanks.') +
+                section('Individual estimate without blanks',
+                        '<i>K</i><sub>i</sub> = −<i>D</i><sub>i</sub> ln(1 − <i>f</i><sub>i</sub>)/<i>v</i><sub>i</sub>') +
+                prose('<i>f</i> is fraction frozen. This expression applies below 100% frozen.') +
+                section('Confidence limits', 'α = 2[1 − Φ(<i>z</i>)]; &nbsp; α<sub>i</sub> = α/<i>m</i>') +
+                prose('Φ is the standard normal cumulative probability. Dividing the error probability '
+                      'α among the samples widens their likelihood intervals (the Bonferroni adjustment). '
+                      'The toolkit then averages the lower and upper endpoints:') +
+                section('Combined interval', '<i>L</i> = (<i>L</i><sub>1</sub> + … + <i>L</i><sub>m</sub>)/<i>m</i>'
+                        '<br><i>U</i> = (<i>U</i><sub>1</sub> + … + <i>U</i><sub>m</sub>)/<i>m</i>') +
+                prose('These conservative limits allow for shared blanks. Adding samples may not narrow them.')
             )
         self.method_details.setText(common + detail +
-            "<p>These are approximate limits for each temperature, not a confidence band for the whole curve. "
-            "They are conditional on the chosen ranges and do not include uncertainty from automatic range selection. "
-            "Air or soil conversion scales concentrations and both limits using the sample metadata.</p>")
+            f'<p style="{paragraph} font-size:{max(10, text_size - 1):g}pt;">'
+            'Limits are approximate and apply at each temperature. They depend on the chosen ranges '
+            'and do not include uncertainty from automatic range selection. Air or soil conversion '
+            'scales concentrations and both limits using the sample metadata.</p>')
 
     def color(self, key):
         # Match the exact exported input to its Icescopy sample ID, including
@@ -1463,6 +1540,21 @@ class InptkPanel(QDialog):
             key = None  # Combined curves are black; colors identify physical samples.
         return label, key, overlay
 
+    def update_legend_geometry(self):
+        for _sample, label in self.legend.items:
+            label.item.setTextWidth(min(180, label.item.boundingRect().width()))
+            label.updateMin()
+            label.setToolTip(label.text)
+        self.legend.layout.activate()
+        self.legend.updateSize()
+        rect = self.legend.boundingRect()
+        self.legend_view.setSceneRect(rect.adjusted(-4, -4, 4, 4))
+        # Wrap long names and scroll tall legends instead of squeezing the
+        # chart. An empty legend returns its width to the plot.
+        self.legend_view.setFixedWidth(min(240, max(120, math.ceil(rect.width()) + 24)))
+        self.legend_view.setVisible(bool(self.legend.items))
+        self.legend_view.setBackgroundBrush(self.palette().color(QPalette.Window))
+
     def fit_plot(self):
         if self.plot_limits:
             xlim, ylim = self.plot_limits
@@ -1621,6 +1713,7 @@ class InptkPanel(QDialog):
                         band_hi = self.plot.plot(x[indices], upper[indices], pen=boundary)
                         self.plot.addItem(pg.FillBetweenItem(band_lo, band_hi, brush=fill), ignoreBounds=True)
         self.plot_limits = axis_limits(quantity, xs, ys, totals, logarithmic=logarithmic)
+        self.update_legend_geometry()
         if refit: self.fit_plot()
         self.draw_ranges(); self.update_status()
 

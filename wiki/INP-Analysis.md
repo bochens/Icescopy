@@ -56,7 +56,7 @@ Every sample marked **Blank** appears in the counts and fraction plots as a dott
 
 Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates still require **Calculate** or **Recalculate**.
 
-Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
+Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. The legend sits to the right of the plot; long names wrap, and a long list can scroll. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
 
 If a full-range comparison fails, the successful calculation within your selected limits remains visible and exportable. The status and console explain the comparison failure. Choose **Recalculate** to retry it.
 
