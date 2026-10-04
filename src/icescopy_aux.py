@@ -117,6 +117,7 @@ DEFAULT_PREFERENCE_VALUES = {
     "InptkGridOpacity": 12.0,
     "InptkLegendFontSize": 10.0,
     "InptkSampleColumns": "dilution",
+    "InptkRangeColumns": "dilution",
     "DropletModelPath": "",
     "DefaultCircleRadius": 22.0,
     "PenWidth": 1.0,
@@ -1343,11 +1344,15 @@ class PreferencesDialog(QDialog):
         self.inptk_scale_field.setToolTip('Concentration only. Number and fraction frozen always use linear axes.')
         self.inptk_style_fields = {}
         self.inptk_columns = QListWidget()
-        self.inptk_columns.setAccessibleName("Visible sample catalog fields in INP analysis")
-        self.inptk_columns.setMaximumHeight(170)
-        self.inptk_columns.setToolTip("Choose sample-catalog fields to show. The table scrolls horizontally; calculation settings and exports are unchanged.")
+        self.inptk_range_columns = QListWidget()
+        for title, widget in (("Samples table", self.inptk_columns),
+                              ("Temperature limits table", self.inptk_range_columns)):
+            widget.setAccessibleName(title + " visible catalog fields")
+            widget.setMaximumHeight(140)
+            widget.setToolTip("Choose catalog columns for this table. Horizontal scrolling keeps columns readable. Calculation controls remain visible.")
         self.refresh_inptk_columns(8)
-        groups = [("Sample tables", [("Visible fields", self.inptk_columns)])]
+        groups = [("Table columns", [("Samples tab", self.inptk_columns),
+                                    ("Combine tab · temperature limits", self.inptk_range_columns)])]
         for title, specs in (
             ('All INP plots', (
                 ('InptkGridOpacity', 'Grid opacity (%)', 0, 40,
@@ -1384,25 +1389,26 @@ class PreferencesDialog(QDialog):
 
     def refresh_inptk_columns(self, index):
         if index != 8 or not hasattr(self, 'inptk_columns'): return
-        selected = ({self.inptk_columns.item(i).data(Qt.UserRole)
-                     for i in range(self.inptk_columns.count())
-                     if self.inptk_columns.item(i).checkState() == Qt.Checked}
-                    if self.inptk_columns.count() else set(str(self.pref_value('InptkSampleColumns')).split(',')))
         try:
             schema, renames = self.collect_sample_metadata_schema()
-            selected = {renames.get(key, key) for key in selected}
         except (ValueError, SampleMetadataSchemaError):
-            return  # Keep the current list while a catalog field is incomplete.
-        self.inptk_columns.clear()
-        for field in schema:
-            item = QListWidgetItem(field['label'])
-            item.setData(Qt.UserRole, field['key'])
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if field['key'] in selected or field['key'] == 'sample_name' else Qt.Unchecked)
-            if field['key'] == 'sample_name':
-                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                item.setToolTip("The sample identifier is always shown.")
-            self.inptk_columns.addItem(item)
+            return  # Keep both lists while a catalog field is incomplete.
+        for widget, preference in ((self.inptk_columns, 'InptkSampleColumns'),
+                                   (self.inptk_range_columns, 'InptkRangeColumns')):
+            selected = ({widget.item(i).data(Qt.UserRole) for i in range(widget.count())
+                         if widget.item(i).checkState() == Qt.Checked} if widget.count()
+                        else set(str(self.pref_value(preference)).split(',')))
+            selected = {renames.get(key, key) for key in selected}
+            widget.clear()
+            for field in schema:
+                item = QListWidgetItem(field['label'])
+                item.setData(Qt.UserRole, field['key'])
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked if field['key'] in selected or field['key'] == 'sample_name' else Qt.Unchecked)
+                if field['key'] == 'sample_name':
+                    item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                    item.setToolTip("The sample identifier is always shown.")
+                widget.addItem(item)
 
     def build_ml_page(self):
         path = str(self.pref_value("DropletModelPath") or "")
@@ -2082,13 +2088,14 @@ class PreferencesDialog(QDialog):
 
         SubElement(root, "DropletModelPath").text = droplet_model_path
         SubElement(root, "InptkExecutablePath").text = self.inptk_settings.path.text().strip()
-        selected_columns = {self.inptk_columns.item(i).data(Qt.UserRole)
-                            for i in range(self.inptk_columns.count())
-                            if self.inptk_columns.item(i).checkState() == Qt.Checked}
-        selected_columns = {sample_metadata_rename_map.get(key, key) for key in selected_columns}
-        SubElement(root, "InptkSampleColumns").text = ','.join(
-            field['key'] for field in new_sample_metadata_schema
-            if field['key'] in selected_columns and field['key'] != 'sample_name')
+        for widget, preference in ((self.inptk_columns, 'InptkSampleColumns'),
+                                   (self.inptk_range_columns, 'InptkRangeColumns')):
+            selected_columns = {widget.item(i).data(Qt.UserRole) for i in range(widget.count())
+                                if widget.item(i).checkState() == Qt.Checked}
+            selected_columns = {sample_metadata_rename_map.get(key, key) for key in selected_columns}
+            SubElement(root, preference).text = ','.join(
+                field['key'] for field in new_sample_metadata_schema
+                if field['key'] in selected_columns and field['key'] != 'sample_name')
         SubElement(root, "InptkLogConcentration").text = str(self.inptk_scale_field.currentData()).lower()
         for key, field in self.inptk_style_fields.items():
             SubElement(root, key).text = str(field.value())

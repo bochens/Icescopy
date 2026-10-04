@@ -100,10 +100,17 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.assertEqual(items['dilution'].checkState(), Qt.Checked)
         for key, item in items.items():
             if key != 'sample_name': item.setCheckState(Qt.Checked if key in {'sampling_site', 'instrument'} else Qt.Unchecked)
+        range_items = {dialog.inptk_range_columns.item(i).data(Qt.UserRole): dialog.inptk_range_columns.item(i)
+                       for i in range(dialog.inptk_range_columns.count())}
+        self.assertIn('instrument', range_items)
+        for key, item in range_items.items():
+            if key != 'sample_name': item.setCheckState(Qt.Checked if key == 'instrument' else Qt.Unchecked)
         self.save(dialog)
+        self.assertEqual(self.window.inptk_range_columns, ['instrument'])
         self.assertEqual(set(self.window.inptk_sample_columns), {'sampling_site', 'instrument'})
         reopened = IceScopy(); self.addCleanup(reopened.deleteLater)
         self.assertEqual(set(reopened.inptk_sample_columns), {'sampling_site', 'instrument'})
+        self.assertEqual(reopened.inptk_range_columns, ['instrument'])
         dialog = self.dialog()
         for i in range(dialog.inptk_columns.count()):
             item = dialog.inptk_columns.item(i)
@@ -111,6 +118,14 @@ class PreferencesApplicationTests(unittest.TestCase):
         self.save(dialog)
         reopened = IceScopy(); self.addCleanup(reopened.deleteLater)
         self.assertEqual(reopened.inptk_sample_columns, [])
+        self.assertEqual(reopened.inptk_range_columns, ['instrument'])
+        dialog = self.dialog()
+        for i in range(dialog.inptk_range_columns.count()):
+            item = dialog.inptk_range_columns.item(i)
+            if item.data(Qt.UserRole) != 'sample_name': item.setCheckState(Qt.Unchecked)
+        self.save(dialog)
+        reopened = IceScopy(); self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.inptk_range_columns, [])
 
     def test_inp_plot_style_persists_without_changing_the_session(self):
         self.window.session_active = True

@@ -912,6 +912,7 @@ class InpIntegrationTests(unittest.TestCase):
         w.sample_catalog[0]['instrument'] = 'Cold stage A'
         w.sample_catalog[0]['sampling_site'] = 'Lab'
         w.inptk_sample_columns = [f['key'] for f in w.active_sample_metadata_schema() if f['key'] != 'sample_name']
+        w.inptk_range_columns = ['instrument']
         p.refresh_sample_table_columns()
         p.show(); p.tabs.setCurrentIndex(0); QTest.qWait(100)
         headers = [p.inputs.horizontalHeaderItem(i).text() for i in range(p.inputs.columnCount())]
@@ -926,6 +927,10 @@ class InpIntegrationTests(unittest.TestCase):
         p.refresh_sample_table_columns()
         self.assertTrue(p.inputs.isColumnHidden(2))
         self.assertEqual(p.inputs.columnCount(), 5)
+        self.assertEqual(p.ranges.columnCount(), 4)
+        self.assertEqual(p.ranges.horizontalHeaderItem(3).text(), 'Instrument')
+        w.inptk_range_columns = []; p.refresh_sample_table_columns()
+        self.assertEqual(p.ranges.columnCount(), 3)
         self.assertEqual(p.settings, before)
 
     def test_sample_visibility_changes_only_plot_and_survives_session_restore(self):

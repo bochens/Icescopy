@@ -737,20 +737,43 @@ class InptkPanel(QWidget):
                 prose('Fits each sample with its assigned blanks, then takes an equal-weight mean where '
                       'ranges overlap. A single eligible sample contributes its own estimate.'))
             detail = (
-                section('Equal-weight mean', '<i>K</i><sub>mean</sub> = (<i>K</i><sub>1</sub> + … + '
-                        '<i>K</i><sub>m</sub>)/<i>m</i>') +
-                prose('<i>m</i> is the number of eligible samples at that temperature. Each estimate uses '
-                      'the sample’s frozen and total counts, well volume, dilution and assigned blanks.') +
-                section('Individual estimate without blanks',
-                        '<i>K</i><sub>i</sub> = −<i>D</i><sub>i</sub> ln(1 − <i>f</i><sub>i</sub>)/<i>v</i><sub>i</sub>') +
-                prose('<i>f</i> is fraction frozen. This expression applies below 100% frozen.') +
-                section('Confidence limits', 'α = 2[1 − Φ(<i>z</i>)]; &nbsp; α<sub>i</sub> = α/<i>m</i>') +
-                prose('Φ is the standard normal cumulative probability. Dividing the error probability '
-                      'α among the samples widens their likelihood intervals (the Bonferroni adjustment). '
-                      'The toolkit then averages the lower and upper endpoints:') +
-                section('Combined interval', '<i>L</i> = (<i>L</i><sub>1</sub> + … + <i>L</i><sub>m</sub>)/<i>m</i>'
-                        '<br><i>U</i> = (<i>U</i><sub>1</sub> + … + <i>U</i><sub>m</sub>)/<i>m</i>') +
-                prose('These conservative limits allow for shared blanks. Adding samples may not narrow them.')
+                section('Water-blank correction',
+                        '<i>p</i><sub>sample</sub> = 1 − e<sup>−<i>v</i>(<i>K</i>/<i>D</i> + <i>B</i>)</sup>'
+                        '<br><i>p</i><sub>blank</sub> = 1 − e<sup>−<i>v</i><sub>blank</sub><i>B</i></sup>') +
+                prose('<i>p</i> is the predicted fraction frozen. The sample contains both the diluted '
+                      'sample contribution <i>K</i>/<i>D</i> and water background <i>B</i>. '
+                      'The blank contains only <i>B</i>; its own well volume is used. At each temperature, '
+                      'the toolkit fits a sample and its assigned blanks together, requiring '
+                      '<i>K</i> ≥ 0 and <i>B</i> ≥ 0. It does not subtract frozen counts.') +
+                section('Fit the sample and its blanks',
+                        'ℓ = Σ[<i>F</i> ln(<i>p</i>) + (<i>N</i> − <i>F</i>) ln(1 − <i>p</i>)]') +
+                prose('The sum includes the sample and each assigned blank once. <i>F</i> is the '
+                      'number frozen and <i>N</i> is the total; ln is the natural logarithm. '
+                      'The fitted concentrations maximize ℓ, the log probability of these counts. '
+                      'Each eligible sample is fitted this way before the estimates are averaged.') +
+                section('Carry blank uncertainty into each interval',
+                        'ℓ<sub>profile</sub>(<i>K</i>) = max<sub><i>B</i> ≥ 0</sub> ℓ(<i>K</i>, <i>B</i>)'
+                        '<br>ℓ<sub>best</sub> − ℓ<sub>profile</sub>(<i>K</i>) ≤ <i>z</i><sub>adjusted</sub><sup>2</sup>/2') +
+                prose('For every tested sample concentration, the blank background is fitted again. '
+                      'This is a profile-likelihood interval: it includes the counting uncertainty of '
+                      'both the sample and its blanks instead of treating the blank estimate as exact. '
+                      'The smallest and largest accepted concentrations give the lower and upper limits.') +
+                section('Carry those intervals into the average',
+                        'α = 2[1 − Φ(<i>z</i>)]; &nbsp; '
+                        '<i>z</i><sub>adjusted</sub> = Φ<sup>−1</sup>(1 − α/(2<i>m</i>))'
+                        '<br><i>L</i><sub>mean</sub> = Σ<i>L</i><sub>i</sub>/<i>m</i>; &nbsp; '
+                        '<i>U</i><sub>mean</sub> = Σ<i>U</i><sub>i</sub>/<i>m</i>') +
+                prose('<i>m</i> is the number of eligible samples at this temperature. '
+                      'α is the requested error probability (about 0.05 for <i>z</i> = 1.96). '
+                      'Φ converts a normal-distribution threshold to a probability; Φ<sup>−1</sup> '
+                      'converts back. Dividing α among the <i>m</i> samples widens each interval '
+                      '(the Bonferroni adjustment). <i>L</i><sub>i</sub> and <i>U</i><sub>i</sub> '
+                      'are these adjusted lower and upper limits; their averages bound the mean.') +
+                prose('Shared water blanks make sample errors dependent. This construction does not '
+                      'assume independent errors or divide uncertainty by √<i>m</i>. '
+                      'Intervals can stay wide or widen as samples are added. With one eligible sample, '
+                      'its ordinary sample-plus-blank interval is used without this adjustment.')
+
             )
         self.method_details.setText(common + detail +
             f'<p style="{paragraph} font-size:{max(10, text_size - 1):g}pt;">'
@@ -914,9 +937,9 @@ class InptkPanel(QWidget):
                        if name.endswith(' number total')]
         metadata = dict(zip(identifiers, records))
         self.inputs.setColumnHidden(2, 'dilution' not in selected)
-        for table, keys, first_column, fixed_fields in (
-            (self.inputs, self.input_ids, 5, {'sample_name', 'dilution'}),
-            (self.ranges, self.range_ids, 3, {'sample_name'}),
+        for table, keys, first_column, fixed_fields, selected in (
+            (self.inputs, self.input_ids, 5, {'sample_name', 'dilution'}, selected),
+            (self.ranges, self.range_ids, 3, {'sample_name'}, set(self.window.inptk_range_columns)),
         ):
             extra = [field for field in schema if field['key'] in selected and field['key'] not in fixed_fields]
             blocked = table.blockSignals(True)
