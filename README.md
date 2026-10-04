@@ -113,6 +113,6 @@ Compare **number frozen**, **fraction frozen**, and **concentration** in the int
 
 ![MLE air-concentration result for the untreated M1 sample](resources/readme/2026-10-04-inp/m1-mle-air-concentration.png)
 
-*Untreated M1 air-sample recording supplied by Carson. MLE combines five dilutions (1× to 28,561×) with water-blank correction. Black: combined INP concentration per litre of sampled air. Colored curves: individual dilutions. Shading shows approximate 95% uncertainty bounds at each temperature.*
+*Example of MLE analysis with the INP toolkit client.*
 
 Save the `.icescopy` session to retain analysis choices and results. Export combined groups and individual sample concentrations as separate CSVs, each with temperature rows and concentration, lower-bound, and upper-bound columns; the default calculation grid is 0 to −35 °C in 0.5 °C steps. Save a native `.inptk` session to retain the full toolkit result and uncertainty. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and the [INP toolkit repository](https://github.com/bochens/inptk) for installation and calculation details.
