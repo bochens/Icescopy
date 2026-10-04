@@ -107,7 +107,7 @@ Use **Save Session As...** and a new export folder to preserve earlier work. See
 
 The **INP toolkit client** sends Icescopy's Freeze Count Timeseries to [INP toolkit (`inptk`)](https://github.com/bochens/inptk) to calculate temperature-dependent **ice-nucleating particle (INP) concentrations** and uncertainty. Install the toolkit separately; Icescopy runs its command-line executable as a separate process.
 
-Choose the executable in **Preferences → INP toolkit client**, test the connection, and save. Then open **Analysis → INP Analysis…** to load the current counts automatically. Group samples or dilutions, mark water blanks, and assign blanks to the samples they correct. Choose **MLE (maximum likelihood estimation)** or **Average**, and select concentration in suspension, sampled air, or dry soil using the corresponding sample metadata.
+Choose the executable in **Preferences → INP toolkit client**, test the connection, and save. Then open **Analysis → INP Analysis…** to load the current counts automatically. Group samples or dilutions, mark water blanks, and enable blank correction to apply them to the analysis samples. Choose **MLE (maximum likelihood estimation)** or **Average**, and select concentration in suspension, sampled air, or dry soil using the corresponding sample metadata.
 
 Compare **number frozen**, **fraction frozen**, and **concentration** in the interactive plot. Concentration shows the combined group in black alongside each dilution in its sample color, with uncertainty visible by default. Set each dilution's temperature limits by dragging its tags below the plot or typing values; **Calculate** applies changes. **Auto range** can suggest limits for Average.
 

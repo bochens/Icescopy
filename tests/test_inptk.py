@@ -618,7 +618,7 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertEqual(p.visible_points, 8)
             request.assert_not_called()
 
-    def test_marked_unassigned_blank_is_drawn_in_both_raw_plots(self):
+    def test_marked_blank_is_assigned_and_drawn_in_both_raw_plots(self):
         p = self.panel
         blank = p.input_ids[2]
         p.quantity.setCurrentText('Number frozen')
@@ -631,7 +631,8 @@ class InpIntegrationTests(unittest.TestCase):
                 self.assertTrue(any(blank + ' (water blank)' in name for name in names))
                 self.assertEqual(p.visible_points, 8)
             self.assertEqual(p.settings, original)
-            self.assertFalse(any(value['blanks'] for value in p.settings['inputs'].values()))
+            self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
+            self.assertEqual(p.settings['inputs'][p.input_ids[1]]['blanks'], [blank])
             p.change_option('blank_correction', False)
             self.assertEqual(p.visible_points, 8)
             p.inputs.item(p.input_ids.index(blank), 3).setCheckState(Qt.Unchecked)
@@ -797,26 +798,66 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.settings['ranges'], before)
         self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
 
-    def test_blank_role_assignment_and_removal_are_visible_and_undoable(self):
+    def test_blank_checkboxes_assign_all_samples_and_removal_is_undoable(self):
         p = self.panel
-        self.assertTrue(p.blank_choice.isHidden())
-        self.assertIn('Mark a water control', p.blank_help.text())
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
-        p.inputs.selectRow(0)
-        self.assertFalse(p.blank_choice.isHidden())
-        self.assertIn('leave all assignments empty', p.blank_help.text())
         blank = p.input_ids[2]
-        p.change_blanks([blank])
-        self.assertTrue(p.blank_help.isHidden())
+        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        for key in p.input_ids[:2]:
+            self.assertEqual(p.settings['inputs'][key]['blanks'], [blank])
+        self.assertEqual(p.settings['inputs'][blank]['blanks'], [])
+        payload = upload_choices(p.source_cache, p.settings)
+        self.assertEqual(payload['water_blank_map'], {key: [blank] for key in p.input_ids[:2]})
         p.blank_enabled.setChecked(False)
-        self.assertFalse(p.blank_choice.isEnabled())
+        self.assertIn('--no-water-blank-correction', cli_choices(p.settings))
         self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
         p.blank_enabled.setChecked(True)
         p.inputs.item(2, 3).setCheckState(Qt.Unchecked)
-        self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [])
+        self.assertTrue(all(not value['blanks'] for value in p.settings['inputs'].values()))
         p.undo_stack.undo()
         self.assertTrue(p.settings['inputs'][blank]['blank'])
         self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
+        p.undo_stack.redo()
+        self.assertTrue(all(not value['blanks'] for value in p.settings['inputs'].values()))
+
+    def test_multiple_marked_blanks_are_sent_together_without_self_assignment(self):
+        p = self.panel
+        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        p.inputs.item(1, 3).setCheckState(Qt.Checked)
+        sample, blank1, blank2 = p.input_ids
+        self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank1, blank2])
+        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [])
+        self.assertEqual(p.settings['inputs'][blank2]['blanks'], [])
+        args = cli_choices(p.settings)
+        self.assertEqual(json.loads(args[args.index('--water-blank-map') + 1]), {sample: [blank1, blank2]})
+        p.inputs.item(1, 3).setCheckState(Qt.Unchecked)
+        self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank2])
+        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [blank2])
+
+    def test_concentration_basis_follows_included_sample_types_and_ignores_blanks(self):
+        keys = self.configure(); p = self.panel
+        def bases(): return [p.basis.itemData(i) for i in range(p.basis.count())]
+        self.assertEqual(bases(), ['suspension', 'sampled_air'])
+        self.assertEqual(p.basis.findData('dry_soil'), -1)
+        p.change_option('basis', 'sampled_air')
+        metadata = {row['measurement_id']: row for row in p.preview['measurement_metadata']}
+        metadata[keys[2]]['sample_type'] = 'other'
+        p.restore_choices(p.settings)
+        self.assertEqual(p.settings['basis'], 'sampled_air')
+        for key in keys[:2]: metadata[key]['sample_type'] = 'soil'
+        p.restore_choices(p.settings)
+        self.assertEqual(bases(), ['suspension', 'dry_soil'])
+        self.assertEqual(p.settings['basis'], 'suspension')
+        p.change_option('basis', 'dry_soil')
+        metadata[keys[1]]['sample_type'] = 'air'
+        p.restore_choices(p.settings)
+        self.assertEqual(bases(), ['suspension'])
+        self.assertEqual(p.settings['basis'], 'suspension')
+        state = copy.deepcopy(p.settings)
+        state['curves'] = [{'name': 'Soil only', 'inputs': [keys[0]]}]
+        p.commit(state, 'Use only soil sample')
+        self.assertEqual(bases(), ['suspension', 'dry_soil'])
+        p.undo_stack.undo()
+        self.assertEqual(bases(), ['suspension'])
 
     def test_range_placeholders_follow_selected_cycle_without_changing_settings(self):
         p = self.panel
@@ -1191,9 +1232,8 @@ class InpIntegrationTests(unittest.TestCase):
             p.commit(state, 'Restrict sample'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 1)
             state = copy.deepcopy(p.settings)
-            for key in keys[:2]:
-                state['inputs'][key]['blanks'] = []
-            p.commit(state, 'Change blank mapping'); self.calculate()
+            state['inputs'][keys[2]]['blank'] = False
+            p.commit(state, 'Unmark water blank'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 2)
             self.assertNotIn(first_reference, p.live_refs)
             self.assertLessEqual(len(p.live_refs), 3)
@@ -1273,7 +1313,7 @@ class InpIntegrationTests(unittest.TestCase):
         state['inputs'][keys[1]].update(group='Other', blanks=[])
         p.commit(state, 'Separate groups')
         with patch.object(p.client, 'request_body', wraps=p.client.request_body) as requests:
-            for row, expected in ((0, {keys[0], keys[2]}), (1, {keys[1]})):
+            for row, expected in ((0, {keys[0], keys[2]}), (1, {keys[1], keys[2]})):
                 p.curves.setCurrentRow(row, QItemSelectionModel.ClearAndSelect)
                 p.suggest_ranges()
                 self.wait(lambda:not p.operation and not p.client.busy)

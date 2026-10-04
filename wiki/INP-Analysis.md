@@ -14,7 +14,7 @@ A **sample group** contains the independent samples or dilutions you want to com
 
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
-3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Blank roles are never inferred from names. When a blank map is supplied, every sample included in the calculation needs an assignment; leave all assignments empty for analysis without blanks. Samples outside the requested groups and unassigned blanks do not enter the calculation.
+3. Mark water controls in the **Blank** column. Every marked blank is automatically assigned to all non-blank analysis samples. **Apply blank correction** turns their correction on or off. Several marked blanks are supplied together to the toolkit.
 4. If a sample has several freezing cycles, select its row and choose **Cycle for [sample]** below the table. The selector and legend cycle suffix are hidden for samples with only one cycle. Repeated cycles are not pooled as independent droplets.
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
@@ -24,11 +24,11 @@ Dilution factors are shown beside sample names (for example, **10×**). The **Sh
 In **Settings → INP toolkit client → Table columns**, choose fields separately for **Samples tab** and **Combine tab · temperature limits**, including custom catalog fields. Each table keeps its own selection. Dilution is shown by default. Sample identity and the Use, Blank, and Show controls stay visible. Additional columns scroll horizontally inside the table; they do not widen the analysis window. These preferences affect display only.
 
 
-Turning **Apply blank correction** off retains the blank assignments. Unchecking a sample's **Blank** role removes its assignments to other samples; Undo restores both the role and assignments.
+Turning **Apply blank correction** off retains the marked blanks. Unchecking **Blank** removes that control from correction for every sample; Undo restores both its role and the assignments.
 
 ## Combine dilutions and set ranges
 
-In **Combine**, choose the calculation method and concentration basis: suspension, sampled air, or dry soil. These calculation settings apply to all groups; each basis needs its corresponding physical metadata.
+In **Combine**, choose the calculation method and concentration basis. Suspension is always available. Air samples also offer **Sampled air**; soil samples also offer **Dry soil**. The choices follow all samples included in the calculation, excluding water blanks. If included samples have different types, use suspension concentration. Each normalization needs its corresponding physical metadata.
 
 - **MLE**, maximum likelihood estimation, finds the concentration curve that maximizes the probability of the measured freezing counts across samples and assigned water blanks. It uses the additional droplets frozen between consecutive temperature observations and the number still liquid at the end. Each droplet contributes once; repeated frames do not add droplets. Optional fit spacing controls the fitted curve shape. Confidence limits are found by testing each concentration while refitting the other concentrations and blank background.
 - **Average** directly converts frozen fractions to concentrations, subtracts the assigned water background, corrects for dilution, and averages eligible concentrations at each temperature. Where only one dilution is eligible, it contributes its own estimate. Wilson binomial bounds describe uncertainty in the sample and blank frozen fractions. The toolkit transforms those bounds into concentration error widths and propagates them by squaring, adding, and taking the square root. Blank subtraction reverses the direction of the blank errors. A shared blank contributes once with the combined weights of the samples using it.
@@ -57,7 +57,7 @@ Use the quantity control above the plot to switch between:
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
 - **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
 
-Every sample marked **Blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, even before you assign it for correction or while correction is switched off. Assigned blanks follow the selected samples' cycles; unassigned blanks use their own cycle choice. These plots show measured values before correction. Displaying a blank does not assign it to a sample.
+Every sample marked **Blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, including while correction is switched off. Blanks follow the included samples' cycles; when no sample uses a blank, its own cycle choice is shown. These plots show measured values before correction. The Show checkbox changes visibility only; the Blank checkbox determines correction.
 
 Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates require **Calculate**.
 

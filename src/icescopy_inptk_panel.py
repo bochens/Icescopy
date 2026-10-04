@@ -11,7 +11,7 @@ import uuid
 import numpy as np
 import pyqtgraph as pg
 from shiboken6 import isValid
-from PySide6.QtCore import Qt, Signal, QTimer, QItemSelectionModel, QSize
+from PySide6.QtCore import Qt, QTimer, QItemSelectionModel, QSize
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import ConcentrationAxis, PlotLegend, TemperatureRangeItem, TemperatureTags, axis_limits
-from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
+from icescopy_inptk_state import automatic_blank_assignments, available_concentration_bases, cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
 from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
@@ -31,28 +31,6 @@ from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_
 def concentration_unit(unit):
     return {"INP_per_mL_suspension": "INP/mL suspension", "INP_per_L_air": "INP/L air",
             "INP_per_g_dry_soil": "INP/g dry soil"}.get(unit, unit)
-
-
-class ChoiceMenu(QPushButton):
-    changed = Signal(list)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.choices = QMenu(self)
-        self.setMenu(self.choices)
-
-    def populate(self, names, selected):
-        self.choices.clear()
-        for name in names:
-            action = self.choices.addAction(name)
-            action.setCheckable(True)
-            action.setChecked(name in selected)
-            action.triggered.connect(self._changed)
-        self.setText(selected[0] if len(selected) == 1 else f"{len(selected)} blanks" if selected else "No blank assigned")
-        self.setToolTip(", ".join(selected) or "Choose water blanks for this sample. Leave all assignments empty for an analysis without blanks.")
-
-    def _changed(self):
-        self.changed.emit([a.text() for a in self.choices.actions() if a.isChecked()])
 
 
 class InpSettingsCommand(QUndoCommand):
@@ -297,7 +275,7 @@ class InptkPanel(QWidget):
         self.inputs.setAccessibleName("Sample membership, dilution, blank roles and plot visibility")
         self.inputs.horizontalHeaderItem(4).setToolTip("Show this sample in the plot. Does not change calculation membership or exports.")
         self.inputs.horizontalHeaderItem(0).setToolTip("Check to move a sample into the selected group.")
-        self.inputs.horizontalHeaderItem(3).setToolTip("Mark a water-control sample, then assign it under Blank correction.")
+        self.inputs.horizontalHeaderItem(3).setToolTip("Marked water controls are applied to every non-blank sample when blank correction is on.")
         self.inputs.verticalHeader().hide()
         self.inputs.setShowGrid(False)
         self.inputs.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -325,22 +303,12 @@ class InptkPanel(QWidget):
         cycle_row.addWidget(self.cycle_label)
         cycle_row.addWidget(self.input_cycle, 1)
         layout.addLayout(cycle_row)
-        self.blank_box = QGroupBox("Blank correction")
-        self.blank_box.setFlat(False)
-        blank_layout = QVBoxLayout(self.blank_box)
         self.blank_enabled = QCheckBox("Apply blank correction")
+        self.blank_enabled.setToolTip(
+            "Use every sample marked Blank as a water control for all non-blank samples. "
+            "Uncheck to calculate without blank correction.")
         self.blank_enabled.toggled.connect(lambda value: self.change_option("blank_correction", value))
-        blank_layout.addWidget(self.blank_enabled)
-        self.blank_label = QLabel()
-        self.blank_label.setWordWrap(True)
-        blank_layout.addWidget(self.blank_label)
-        self.blank_choice = ChoiceMenu()
-        self.blank_choice.changed.connect(self.change_blanks)
-        blank_layout.addWidget(self.blank_choice)
-        self.blank_help = QLabel()
-        self.blank_help.setWordWrap(True)
-        blank_layout.addWidget(self.blank_help)
-        layout.addWidget(self.blank_box)
+        layout.addWidget(self.blank_enabled)
         layout.addStretch(1)
         catalog = QPushButton("Edit sample metadata…")
         catalog.setToolTip("Close this window to edit physical metadata. Your INP analysis is retained.")
@@ -813,11 +781,14 @@ class InptkPanel(QWidget):
         return QColor(*colors[index % len(colors)])
 
     def commit(self, choices, label):
-        if self.loading or choices == self.settings:
+        if self.loading:
+            return
+        choices = automatic_blank_assignments(choices)
+        if choices == self.settings:
             return
         before = copy_choices(self.settings)
         self.restore_choices(choices)
-        self.undo_stack.push(InpSettingsCommand(self, label, before, copy_choices(choices)))
+        self.undo_stack.push(InpSettingsCommand(self, label, before, copy_choices(self.settings)))
         self.window.log(label)
 
     def change_option(self, key, value):
@@ -835,7 +806,7 @@ class InptkPanel(QWidget):
 
     def restore_choices(self, choices):
         self.loading = True
-        choices = dict(choices)
+        choices = automatic_blank_assignments(choices)
         for key, default in (('grid_start', '0'), ('grid_end', '-35')):
             if not choices.get(key, '').strip(): choices[key] = default
         # Renaming does not change any measured counts. Avoid rebuilding their
@@ -861,6 +832,7 @@ class InptkPanel(QWidget):
             self.update_status()
             return
         self.settings = copy_choices(choices)
+        self.refresh_concentration_bases()
         self.update_method_help()
         old_input = self.current_input()
         old_curve = self.curves.currentRow()
@@ -986,17 +958,31 @@ class InptkPanel(QWidget):
         row = self.inputs.currentRow()
         return self.input_ids[row] if 0 <= row < len(self.input_ids) else None
 
+    def refresh_concentration_bases(self):
+        # The normalization applies to every calculated group, so restrict it
+        # using all included samples rather than whichever plot is selected.
+        allowed = (available_concentration_bases(self.settings, self.preview.get("measurement_metadata", []))
+                   if self.preview is not None else ("suspension", "sampled_air", "dry_soil"))
+        self.basis.blockSignals(True)
+        self.basis.clear()
+        labels = {"suspension": "Suspension", "sampled_air": "Sampled air", "dry_soil": "Dry soil"}
+        for key in allowed:
+            self.basis.addItem(labels[key], key)
+        if self.settings["basis"] not in allowed:
+            self.settings["basis"] = "suspension"
+        self.basis.setCurrentIndex(self.basis.findData(self.settings["basis"]))
+        self.basis.setToolTip(
+            "Choose suspension concentration, or the normalization matching the included samples' type. "
+            "Groups with different sample types use suspension concentration.")
+        self.basis.blockSignals(False)
+
     def select_input(self, *, sync_range=True):
         if self.loading: return
         key = self.current_input()
         if not key:
-            self.blank_label.hide(); self.blank_choice.hide()
             self.cycle_label.hide(); self.input_cycle.hide()
-            self.blank_help.setText("Select a sample row to assign its water blanks.")
-            self.blank_help.show()
             return
         value = self.settings["inputs"][key]
-        self.blank_label.setText(f"Water blanks for {key}")
         measurements = {r["measurement_id"]: r for r in (self.preview or {}).get("measurements", [])}
         cycles = measurements.get(key, {}).get("cycle_ids", [value["cycle"]])
         self.input_cycle.blockSignals(True)
@@ -1008,25 +994,6 @@ class InptkPanel(QWidget):
         self.cycle_label.setText(f"Cycle for {key}")
         self.cycle_label.setVisible(len(cycles) > 1)
         self.input_cycle.setVisible(len(cycles) > 1)
-        blanks = [k for k, v in self.settings["inputs"].items() if v["blank"] and k != key]
-        self.blank_choice.populate(blanks, value["blanks"])
-        available = not value["blank"] and bool(blanks)
-        self.blank_label.setVisible(available)
-        self.blank_choice.setVisible(available)
-        self.blank_choice.setEnabled(self.settings["blank_correction"])
-        self.blank_label.setEnabled(self.settings["blank_correction"])
-        if value["blank"]:
-            message = "This is a water blank. Select a sample row to assign it."
-        elif not blanks:
-            message = "Mark a water control in the Blank column, then select a sample to assign it."
-        elif not self.settings["blank_correction"]:
-            message = "Correction is off. Assignments are retained."
-        elif not value["blanks"]:
-            message = "Choose a blank for this sample, or leave all assignments empty for analysis without blanks."
-        else:
-            message = ""
-        self.blank_help.setText(message)
-        self.blank_help.setVisible(bool(message))
         if sync_range and key in self.range_ids: self.ranges.selectRow(self.range_ids.index(key))
 
     def input_changed(self, item):
@@ -1054,23 +1021,12 @@ class InptkPanel(QWidget):
         if state["inputs"][key]["blank"]:
             for curve in state["curves"]: curve["inputs"] = [k for k in curve["inputs"] if k != key]
             state["curves"] = [c for c in state["curves"] if c["inputs"]]
-        else:
-            # Removing the blank role also removes its assignments. Undo restores
-            # both together, so no hidden invalid blank map reaches the toolkit.
-            for value in state["inputs"].values():
-                value["blanks"] = [blank for blank in value["blanks"] if blank != key]
         self.commit(state, f"INP analysis: update blank role for {key}")
 
     def change_input_cycle(self, key, cycle):
         if self.loading or key is None: return
         state = copy_choices(self.settings); state["inputs"][key]["cycle"] = cycle
         self.commit(state, f"INP analysis: select cycle {cycle} for {key}")
-
-    def change_blanks(self, values):
-        key = self.current_input()
-        if not key: return
-        state = copy_choices(self.settings); state["inputs"][key]["blanks"] = values
-        self.commit(state, f"INP analysis: assign blanks for {key}")
 
     def selected_curve_names(self):
         return [item.text() for item in self.curves.selectedItems()]

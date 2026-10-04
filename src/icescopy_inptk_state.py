@@ -49,6 +49,30 @@ def number(value):
         return float("nan")
 
 
+def automatic_blank_assignments(settings):
+    """Apply every explicitly marked water blank to each non-blank sample."""
+    state = copy_choices(settings)
+    blanks = [key for key, value in state["inputs"].items() if value["blank"]]
+    for value in state["inputs"].values():
+        value["blanks"] = [] if value["blank"] else list(blanks)
+    return state
+
+
+def available_concentration_bases(settings, metadata):
+    """Offer normalization shared by all samples included in calculation."""
+    used = {key for curve in settings["curves"] for key in curve["inputs"]
+            if key in settings["inputs"] and not settings["inputs"][key]["blank"]}
+    if not used:
+        used = {key for key, value in settings["inputs"].items() if not value["blank"]}
+    catalog = {row["measurement_id"]: row for row in metadata}
+    types = {catalog.get(key, {}).get("sample_type", "other") for key in used}
+    if types == {"air"}:
+        return ("suspension", "sampled_air")
+    if types == {"soil"}:
+        return ("suspension", "dry_soil")
+    return ("suspension",)
+
+
 def reconcile_inputs(settings, preview):
     """Keep explicit choices only for exact known input identities; never infer blanks."""
     result = copy.deepcopy(settings)
