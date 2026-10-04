@@ -447,7 +447,30 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertTrue(p.isVisible())
         self.assertEqual(clicked, [])
         self.assertTrue(p.isWindow())
-        self.assertEqual(p.windowModality(), Qt.NonModal)
+        self.assertEqual(p.windowModality(), Qt.ApplicationModal)
+
+    def test_analysis_blocks_main_window_and_restores_input_on_close(self):
+        from PySide6.QtCore import QObject, QEvent
+        from PySide6.QtTest import QTest
+        events = []
+        class Watcher(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() in (QEvent.WindowBlocked, QEvent.WindowUnblocked):
+                    events.append(event.type())
+                return False
+        watcher = Watcher(self.window)
+        self.window.installEventFilter(watcher)
+        self.window.show()
+        self.panel.show_analysis()
+        QTest.qWait(50)
+        self.assertIn(QEvent.WindowBlocked, events)
+        self.assertIs(QApplication.activeModalWidget(), self.panel)
+        self.assertTrue(self.panel.isEnabled())
+        self.panel.close()
+        QTest.qWait(50)
+        self.assertIn(QEvent.WindowUnblocked, events)
+        self.assertIsNone(QApplication.activeModalWidget())
+        self.window.hide()
 
     def test_window_history_is_independent_and_survives_close(self):
         self.configure(); self.calculate()
@@ -457,7 +480,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.window.undo_stack.undo()
         main_index = self.window.undo_stack.index()
         self.panel.show_analysis()
-        self.assertEqual(self.panel.windowModality(), Qt.NonModal)
+        self.assertEqual(self.panel.windowModality(), Qt.ApplicationModal)
         self.assertTrue(self.panel.windowFlags() & Qt.WindowTitleHint)
         self.assertFalse(self.panel.windowFlags() & Qt.FramelessWindowHint)
         self.assertFalse(self.panel.undo_action.isEnabled())

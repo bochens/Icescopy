@@ -6,7 +6,7 @@ Icescopy sends its Freeze Count Timeseries to a separately installed **INP toolk
 
 In **Settings → INP toolkit client**, browse to the executable, choose **Test connection**, then save. The client requires CLI protocol **2**, saved format **4**, and support for in-memory import and result references. Update INP toolkit if the connection test reports missing capabilities.
 
-After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. It is a normal Qt window: other Icescopy windows remain accessible, and Enter commits the field being edited without activating an unrelated button. Closing it retains your analysis choices and results.
+After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. It has a normal window title bar, while editing in other Icescopy windows is blocked until analysis closes. Enter commits the field being edited without activating an unrelated button. Closing it retains your analysis choices and results.
 
 ## Group samples and assign blanks
 

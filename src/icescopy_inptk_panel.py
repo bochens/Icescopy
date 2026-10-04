@@ -128,6 +128,9 @@ class InptkPanel(QWidget):
     def __init__(self, window):
         super().__init__(window, Qt.Window)
         self.setWindowTitle("INP Analysis")
+        # Block source edits while retaining a regular, movable QWidget window.
+        # QDialog is deliberately avoided so Enter never activates a default button.
+        self.setWindowModality(Qt.ApplicationModal)
         self.resize(1080, 740)
         self.window = window
         self.undo_stack = QUndoStack(self)
