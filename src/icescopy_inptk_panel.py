@@ -16,12 +16,12 @@ from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QUndoC
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout, QLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
-    QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QGraphicsView, QSizePolicy,
+    QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
     QToolButton, QVBoxLayout, QWidget, QFrame, QGroupBox, QStyledItemDelegate,
 )
 
 from icescopy_inptk_client import InptkClient
-from icescopy_inptk_plot import ConcentrationAxis, TemperatureRangeItem, TemperatureTags, axis_limits
+from icescopy_inptk_plot import ConcentrationAxis, PlotLegend, TemperatureRangeItem, TemperatureTags, axis_limits
 from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
@@ -88,13 +88,6 @@ class RangeLimitDelegate(QStyledItemDelegate):
         return editor
 
 
-class FixedLegend(pg.LegendItem):
-    """A scrollable legend stays in its own column rather than being dragged."""
-
-    def mouseDragEvent(self, event):
-        event.ignore()
-
-
 class InptkPreferencesWidget(QWidget):
     def __init__(self, path="", parent=None):
         super().__init__(parent)
@@ -136,7 +129,7 @@ class InptkPanel(QDialog):
         self.setWindowTitle("INP Analysis")
         self.setWindowModality(Qt.WindowModal)
         self.setSizeGripEnabled(True)
-        self.resize(1150, 760)
+        self.resize(1080, 740)
         self.window = window
         self.undo_stack = QUndoStack(self)
         self.undo_stack.setUndoLimit(window.undo_limit)
@@ -250,14 +243,18 @@ class InptkPanel(QDialog):
 
     def make_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 12, 14, 12)
-        outer.setSpacing(12)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(8)
         self.connection = QLabel()
         self.splitter = splitter = QSplitter(Qt.Horizontal)
         sidebar = QWidget()
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(8)
+        group_card = self.section()
+        group_layout = QVBoxLayout(group_card)
+        group_layout.setContentsMargins(10, 8, 10, 8)
+        group_layout.setSpacing(6)
         row = QHBoxLayout()
         row.addWidget(self.heading("Sample groups"), 1)
         self.add_curve_button = QPushButton("New…")
@@ -269,17 +266,23 @@ class InptkPanel(QDialog):
         for button in (self.add_curve_button, self.remove_curve_button):
             button.setAttribute(Qt.WA_MacSmallSize)
             row.addWidget(button)
-        side.addLayout(row)
+        group_layout.addLayout(row)
         self.curves = QListWidget()
         self.curves.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.curves.setAccessibleName("Sample groups to edit and display")
         self.curves.setToolTip("Select a group to edit and plot it. Select several to compare. Double-click to rename.")
         self.curves.itemSelectionChanged.connect(self.select_curve)
         self.curves.itemChanged.connect(self.rename_curve)
-        side.addWidget(self.curves)
+        group_layout.addWidget(self.curves)
+        side.addWidget(group_card)
         self.tabs = QTabWidget()
         self.tabs.setMinimumWidth(300)
-        side.addWidget(self.tabs, 1)
+        controls_card = self.section()
+        controls_layout = QVBoxLayout(controls_card)
+        controls_layout.setContentsMargins(6, 8, 6, 6)
+        controls_layout.addWidget(self.tabs)
+        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
+        side.addWidget(controls_card, 1)
         splitter.addWidget(sidebar)
         splitter.setChildrenCollapsible(False)
         samples = QWidget()
@@ -311,7 +314,7 @@ class InptkPanel(QDialog):
         cycle_row.addWidget(self.input_cycle, 1)
         layout.addLayout(cycle_row)
         self.blank_box = QGroupBox("Blank correction")
-        self.blank_box.setFlat(True)
+        self.blank_box.setFlat(False)
         blank_layout = QVBoxLayout(self.blank_box)
         self.blank_enabled = QCheckBox("Apply blank correction")
         self.blank_enabled.toggled.connect(lambda value: self.change_option("blank_correction", value))
@@ -339,7 +342,7 @@ class InptkPanel(QDialog):
         form = QFormLayout()
         self.method = QComboBox()
         self.method.addItem("MLE", "mle")
-        self.method.setToolTip("Maximum likelihood estimation: jointly fit the sample and blank freezing counts.")
+        self.method.setToolTip("MLE maximizes the likelihood of the measured freezing counts, fitting samples and assigned water blanks together.")
         self.method.addItem("Average", "average")
         self.method.currentIndexChanged.connect(lambda: self.change_option("method", self.method.currentData()))
         form.addRow("Method", self.method)
@@ -486,15 +489,17 @@ class InptkPanel(QDialog):
         layout.addStretch(1)
         self.add_control_tab(advanced, "Advanced")
 
-        view = QWidget()
+        view = self.section()
         layout = QVBoxLayout(view)
-        layout.setContentsMargins(8, 0, 0, 0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
         self.view_heading = self.heading("")
         self.view_heading.setWordWrap(True)
         layout.addWidget(self.view_heading)
         plot_page = QWidget()
         plot_layout = QVBoxLayout(plot_page)
-        plot_layout.setContentsMargins(8, 8, 8, 8)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.setSpacing(6)
         controls = QHBoxLayout()
         self.quantity = QComboBox()
         self.quantity.addItems(["Number frozen", "Fraction frozen", "Concentration"])
@@ -505,7 +510,7 @@ class InptkPanel(QDialog):
         self.log_y.setChecked(True)
         self.log_y.toggled.connect(self.draw)
         self.show_uncertainty = QCheckBox("Uncertainty")
-        self.show_uncertainty.setToolTip("Show the group's full confidence limits and fit the axes to them. Values in Table and exports are unchanged.")
+        self.show_uncertainty.setToolTip("Show the group's full confidence limits and fit the axes to them. Exported values are unchanged.")
         self.show_uncertainty.toggled.connect(self.draw)
         self.fit_button = QPushButton("Fit axes")
         self.fit_button.clicked.connect(self.fit_plot)
@@ -523,25 +528,19 @@ class InptkPanel(QDialog):
             self.plot.getAxis(side).setStyle(maxTickLevel=1)
             self.plot.getAxis(side).setTickDensity(.6)
         self.plot.setLabel("bottom", "Temperature", units="°C")
-        # Keep the normal plot/legend entries, but give the legend its own
-        # scrollable area so it never covers curves or temperature handles.
-        self.legend = FixedLegend(frame=False, labelTextSize=f"{max(10, help_font.pointSizeF()):g}pt", verSpacing=4)
-        legend_scene = pg.GraphicsScene(parent=self)
-        legend_scene.addItem(self.legend)
-        self.legend_view = QGraphicsView(legend_scene)
-        self.legend_view.setFrameShape(QFrame.NoFrame)
-        self.legend_view.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.legend_view.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.legend_view.setAccessibleName("Plot legend")
-        self.legend_view.setMinimumWidth(120)
+        self.legend_footer = QWidget()
+        footer_layout = QHBoxLayout(self.legend_footer)
+        footer_layout.setContentsMargins(0, 2, 0, 0)
+        footer_layout.setAlignment(Qt.AlignLeft)
+        self.legend_footer.hide()
+        self.legend_view = PlotLegend(self.plot, self.legend_footer, f"{max(10, help_font.pointSizeF()):g}pt")
+        self.legend = self.legend_view.legend
         self.plot.getPlotItem().legend = self.legend
         self.empty_plot = QLabel()
         self.empty_plot.setWordWrap(True)
         self.empty_plot.setAlignment(Qt.AlignCenter)
         self.empty_plot.setMargin(20)
         plot_layout.addWidget(self.empty_plot)
-        chart_row = QHBoxLayout()
-        chart_row.setSpacing(12)
         chart_column = QVBoxLayout()
         chart_column.setSpacing(0)
         chart_column.addWidget(self.plot, 1)
@@ -549,16 +548,15 @@ class InptkPanel(QDialog):
         self.range_tags.activated.connect(self.activate_range)
         self.range_tags.moved.connect(self.tag_moved)
         chart_column.addWidget(self.range_tags)
-        chart_row.addLayout(chart_column, 1)
-        chart_row.addWidget(self.legend_view)
-        plot_layout.addLayout(chart_row, 1)
+        plot_layout.addLayout(chart_column, 1)
+        plot_layout.addWidget(self.legend_footer)
         self.plot_note = QLabel()
         self.plot_note.setWordWrap(True)
         plot_layout.addWidget(self.plot_note)
         layout.addWidget(plot_page, 1)
         splitter.addWidget(view)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([320, 800])
+        splitter.setSizes([340, 720])
         outer.addWidget(splitter, 1)
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -609,6 +607,17 @@ class InptkPanel(QDialog):
             combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(9)
         self.restore_choices(self.settings)
+
+    @staticmethod
+    def section():
+        card = QFrame()
+        card.setObjectName("inpSection")
+        palette = card.palette()
+        palette.setColor(QPalette.Window, palette.color(QPalette.Base))
+        card.setPalette(palette)
+        card.setAutoFillBackground(True)
+        card.setStyleSheet("QFrame#inpSection { background: palette(base); border: 1px solid palette(midlight); border-radius: 6px; }")
+        return card
 
     @staticmethod
     def heading(text):
@@ -673,20 +682,35 @@ class InptkPanel(QDialog):
         if self.settings['method'] == 'mle':
             self.method_help.setText(
                 prose('<b>Maximum likelihood (MLE)</b>') +
-                prose('Fits the eligible samples and their assigned blanks together, using when droplets '
-                      'first freeze and how many remain liquid.'))
+                prose('Maximizes the probability of the measured freezing counts, fitting samples and '
+                      'assigned water blanks together. Uses additional droplets frozen between '
+                      'temperature readings and the final liquid count.'))
             detail = (
-                section('First-freezing intervals', '<i>P</i>(<i>a</i> → <i>b</i>) '
-                        '= <i>S</i>(<i>a</i>) − <i>S</i>(<i>b</i>)') +
-                prose('<i>a</i> and <i>b</i> are successive observations during cooling. The fit maximizes '
-                      'the joint probability of the observed first-freezing intervals and '
-                      'surviving droplets. Repeated frames are not new droplets. '
-                      '<i>K</i> and <i>B</i> cannot decrease during cooling; each shared blank set enters once.') +
-                section('Confidence limits', 'ℓ<sub>max</sub> − ℓ<sub>profile</sub>(<i>K</i>) '
+                section('Additional frozen droplets at each step',
+                        '<i>n</i><sub>new</sub> = <i>F</i><sub>now</sub> − <i>F</i><sub>previous</sub>'
+                        '<br><i>p</i><sub>new</sub> = <i>S</i><sub>previous</sub> − <i>S</i><sub>now</sub>') +
+                prose('<i>F</i> is the measured number already frozen. <i>S</i> is the predicted liquid '
+                      'fraction. <i>n</i><sub>new</sub> counts the additional frozen droplets; '
+                      '<i>p</i><sub>new</sub> is the model probability of freezing in that interval.') +
+                section('What MLE maximizes',
+                        'ℓ = Σ[<i>n</i><sub>new</sub> ln(<i>p</i><sub>new</sub>)]'
+                        '<br>+ Σ[<i>n</i><sub>liquid</sub> ln(<i>S</i><sub>end</sub>)]') +
+                prose('ℓ is the log likelihood; ln is the natural logarithm. The first sum covers all '
+                      'temperature intervals. The second uses the number still liquid at the end of '
+                      'each sample or blank. Counts that are zero contribute zero. Terms constant '
+                      'during fitting are omitted.') +
+                prose('For the first reading, <i>F</i><sub>previous</sub> = 0 and '
+                      '<i>S</i><sub>previous</sub> = 1, so droplets already frozen are included. '
+                      'Within each cycle, each droplet contributes once: to one freezing interval or '
+                      'to the final liquid count. <i>K</i> and <i>B</i> cannot decrease during cooling; '
+                      'each shared blank history is counted once.') +
+                section('Confidence limits', 'ℓ<sub>best</sub> − ℓ<sub>test</sub> '
                         '= <i>z</i><sup>2</sup>/2') +
-                prose('ℓ is log likelihood. To test <i>K</i> at one temperature, the toolkit refits the '
-                      'other curve values and blank background. The allowable drop is 1.92 when '
-                      '<i>z</i> = 1.96, giving nominal 95% limits.')
+                prose('ℓ<sub>best</sub> is the best-fit log likelihood. To test a concentration '
+                      '<i>K</i> at one temperature, the toolkit refits all other curve values and '
+                      'blank background to obtain ℓ<sub>test</sub>. The confidence boundaries are where '
+                      'the log likelihood drops by 1.92 with the default <i>z</i> = 1.96 '
+                      '(approximate 95% limits).')
             )
         else:
             self.method_help.setText(
@@ -812,7 +836,7 @@ class InptkPanel(QDialog):
             item.setToolTip("\n".join(curve["inputs"]) or "No samples yet. Check samples below to add them.")
             self.curves.addItem(item)
         row_height = self.curves.sizeHintForRow(0) if self.curves.count() else self.curves.fontMetrics().height() + 4
-        self.curves.setFixedHeight(min(4, max(2, self.curves.count())) * row_height + 2 * self.curves.frameWidth() + 4)
+        self.curves.setFixedHeight(min(4, max(1, self.curves.count())) * row_height + 2 * self.curves.frameWidth() + 4)
         for row in range(self.curves.count()):
             self.curves.item(row).setSelected(self.curves.item(row).text() in selected_names)
         if self.curves.count() and not self.curves.selectedItems():
@@ -1541,19 +1565,7 @@ class InptkPanel(QDialog):
         return label, key, overlay
 
     def update_legend_geometry(self):
-        for _sample, label in self.legend.items:
-            label.item.setTextWidth(min(180, label.item.boundingRect().width()))
-            label.updateMin()
-            label.setToolTip(label.text)
-        self.legend.layout.activate()
-        self.legend.updateSize()
-        rect = self.legend.boundingRect()
-        self.legend_view.setSceneRect(rect.adjusted(-4, -4, 4, 4))
-        # Wrap long names and scroll tall legends instead of squeezing the
-        # chart. An empty legend returns its width to the plot.
-        self.legend_view.setFixedWidth(min(240, max(120, math.ceil(rect.width()) + 24)))
-        self.legend_view.setVisible(bool(self.legend.items))
-        self.legend_view.setBackgroundBrush(self.palette().color(QPalette.Window))
+        self.legend_view.schedule(True)
 
     def fit_plot(self):
         if self.plot_limits:

@@ -1,9 +1,143 @@
 """Display limits for INP plots; calculations remain in the external toolkit."""
 import math
+import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
-from PySide6.QtWidgets import QWidget, QToolTip
+from PySide6.QtWidgets import QWidget, QToolTip, QGraphicsView, QFrame
+
+
+def curve_intersects_rect(x, y, rect):
+    """Include both points and line segments, even when no point is in the box."""
+    x, y = np.asarray(x), np.asarray(y)
+    valid = np.isfinite(x) & np.isfinite(y)
+    left, right, bottom, top = rect.left(), rect.right(), rect.top(), rect.bottom()
+    if np.any(valid & (x >= left) & (x <= right) & (y >= bottom) & (y <= top)):
+        return True
+    pairs = valid[:-1] & valid[1:]
+    if not pairs.any(): return False
+    x0, y0 = x[:-1][pairs], y[:-1][pairs]
+    dx, dy = x[1:][pairs] - x0, y[1:][pairs] - y0
+    # Clip each segment against the four rectangle edges (Liang–Barsky).
+    start, end = np.zeros(len(x0)), np.ones(len(x0))
+    possible = np.ones(len(x0), dtype=bool)
+    for direction, distance in ((-dx, x0-left), (dx, right-x0),
+                                (-dy, y0-bottom), (dy, top-y0)):
+        parallel = direction == 0
+        possible &= ~(parallel & (distance < 0))
+        ratio = np.divide(distance, direction, out=np.zeros_like(distance, dtype=float), where=~parallel)
+        start = np.maximum(start, np.where(direction < 0, ratio, 0))
+        end = np.minimum(end, np.where(direction > 0, ratio, 1))
+    return bool(np.any(possible & (start <= end)))
+
+
+class _FixedLegend(pg.LegendItem):
+    def mouseDragEvent(self, event):
+        event.ignore()
+
+
+class PlotLegend(QGraphicsView):
+    """Place a small legend in clear plot space, or in a compact footer.
+
+    The separate scene allows the same legend to move between an overlay and
+    a layout without changing plotted data, pan/zoom or the legend entries.
+    """
+
+    def __init__(self, plot, footer, text_size):
+        self.legend = _FixedLegend(frame=False, labelTextSize=text_size, verSpacing=2)
+        scene = pg.GraphicsScene()
+        scene.addItem(self.legend)
+        super().__init__(scene, plot.viewport())
+        scene.setParent(self)
+        self.plot, self.footer = plot, footer
+        self.in_footer = False
+        self.setFrameShape(QFrame.NoFrame)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.setAccessibleName("Plot legend")
+        self.setStyleSheet("QGraphicsView { border: 1px solid palette(midlight); border-radius: 4px; }")
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(40)
+        self.timer.timeout.connect(self.place)
+        self.retry_overlay = False
+        plot.getViewBox().sigRangeChanged.connect(lambda *_: self.schedule(True))
+        plot.getViewBox().sigResized.connect(lambda *_: self.schedule(False))
+
+    def schedule(self, retry_overlay):
+        self.retry_overlay |= retry_overlay
+        # While a pan or zoom is in progress, an old overlay position may
+        # cross the moved curves. Show it again only after finding clear space.
+        if retry_overlay and not self.in_footer: self.hide()
+        self.timer.start()
+
+    def size_legend(self, columns=1):
+        self.legend.setColumnCount(columns)
+        for _sample, label in self.legend.items:
+            label.item.setTextWidth(min(170, label.item.boundingRect().width()))
+            label.updateMin()
+            label.setToolTip(label.text)
+        self.legend.layout.activate()
+        self.legend.updateSize()
+        rect = self.legend.boundingRect()
+        self.setSceneRect(rect.adjusted(-2, -2, 2, 2))
+        return math.ceil(rect.width()) + 12, math.ceil(rect.height()) + 12
+
+    def clear_position(self, pixel_rect):
+        view = self.plot.getViewBox()
+        scene_rect = QRectF(self.plot.mapToScene(pixel_rect.toRect()).boundingRect())
+        # Leave extra clearance for line thickness and point symbols.
+        data_rect = view.mapSceneToView(scene_rect.topLeft())
+        opposite = view.mapSceneToView(scene_rect.bottomRight())
+        data_rect = QRectF(data_rect, opposite).normalized()
+        for item in self.plot.listDataItems():
+            x, y = item.getData()  # Includes the actual log display transform.
+            if x is not None and curve_intersects_rect(x, y, data_rect): return False
+        for item in self.plot.getPlotItem().items:
+            if isinstance(item, pg.FillBetweenItem) and item.path().intersects(data_rect): return False
+        return True
+
+    def place(self):
+        retry, self.retry_overlay = self.retry_overlay, False
+        if not self.legend.items:
+            self.hide(); self.footer.hide(); return
+        self.setBackgroundBrush(self.plot.backgroundBrush())
+        width, height = self.size_legend()
+        area = QRectF(self.plot.mapFromScene(self.plot.getViewBox().sceneBoundingRect()).boundingRect())
+        area.adjust(10, 10, -10, -10)
+        position = None
+        if (retry or not self.in_footer) and width <= area.width() and height <= area.height():
+            clearance = 6.
+            for item in self.plot.listDataItems():
+                pen = item.opts.get('pen')
+                stroke = pg.mkPen(pen).widthF() / 2 if pen is not None else 0
+                marker = float(item.opts.get('symbolSize', 0)) / 2 if item.opts.get('symbol') else 0
+                clearance = max(clearance, stroke + 3, marker + 3)
+            # Prefer the upper-right corner; try other corners and then the
+            # interior. Never settle for a position crossing a displayed curve.
+            fractions = [(1, 0), (0, 0), (1, 1), (0, 1)]
+            fractions += [(x, y) for y in (.25, .5, .75) for x in (1, .75, .5, .25, 0)]
+            for fx, fy in fractions:
+                candidate = QRectF(area.left()+fx*(area.width()-width),
+                                   area.top()+fy*(area.height()-height), width, height)
+                if self.clear_position(candidate.adjusted(-clearance, -clearance, clearance, clearance)):
+                    position = candidate.topLeft(); break
+        if position is not None:
+            self.footer.layout().removeWidget(self)
+            self.setParent(self.plot.viewport())
+            self.footer.hide()
+            self.in_footer = False
+            self.setFixedSize(width, height)
+            self.move(position.toPoint())
+        else:
+            available = max(1, self.plot.width()-20)
+            columns = max(1, min(3, available // max(1, width)))
+            width, height = self.size_legend(columns)
+            self.setParent(self.footer)
+            if self.footer.layout().indexOf(self) < 0: self.footer.layout().addWidget(self)
+            self.in_footer = True
+            self.setFixedSize(min(width, available), min(height, 110))
+            self.footer.show()
+        self.show()
 
 
 class TemperatureTags(QWidget):

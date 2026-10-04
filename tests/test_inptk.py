@@ -961,6 +961,71 @@ class InpIntegrationTests(unittest.TestCase):
 
 
 
+class InpLegendTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_line_crossing_without_an_endpoint_is_detected_and_gaps_stay_clear(self):
+        from PySide6.QtCore import QRectF
+        from icescopy_inptk_plot import curve_intersects_rect
+        box = QRectF(0, 0, 1, 1)
+        self.assertTrue(curve_intersects_rect([-1, 2], [.5, .5], box))
+        self.assertTrue(curve_intersects_rect([.5, .5], [-1, 2], box))
+        self.assertFalse(curve_intersects_rect([-1, 2], [2, 2], box))
+        self.assertFalse(curve_intersects_rect([-1, float('nan'), 2], [.5, .5, .5], box))
+
+    def make_plot(self):
+        import pyqtgraph as pg
+        from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+        from icescopy_inptk_plot import PlotLegend
+        widget = QWidget(); layout = QVBoxLayout(widget)
+        plot = pg.PlotWidget(); layout.addWidget(plot, 1)
+        footer = QWidget(); QHBoxLayout(footer); layout.addWidget(footer); footer.hide()
+        legend = PlotLegend(plot, footer, '10pt')
+        plot.getPlotItem().legend = legend.legend
+        widget.resize(800, 500); widget.show()
+        self.addCleanup(widget.close)
+        return plot, legend
+
+    def settle(self, legend):
+        from PySide6.QtTest import QTest
+        legend.schedule(True); QTest.qWait(160)
+
+    def test_legend_avoids_curves_after_log_transform_and_zoom(self):
+        from PySide6.QtCore import QRectF
+        plot, legend = self.make_plot()
+        plot.plot([-10, 10], [1, 100], name='Concentration')
+        plot.setLogMode(y=True)
+        plot.setRange(xRange=(-10, 10), yRange=(0, 2), padding=0)
+        self.settle(legend)
+        self.assertFalse(legend.in_footer)
+        self.assertTrue(legend.clear_position(QRectF(legend.geometry()).adjusted(-6, -6, 6, 6)))
+        plot.setRange(xRange=(-2, 2), yRange=(1.7, 2), padding=0)
+        self.settle(legend)
+        self.assertFalse(legend.in_footer)
+        self.assertTrue(legend.clear_position(QRectF(legend.geometry()).adjusted(-6, -6, 6, 6)))
+
+    def test_full_uncertainty_band_uses_footer_and_releases_it_after_pan(self):
+        import pyqtgraph as pg
+        plot, legend = self.make_plot()
+        lo = plot.plot([-10, 10], [0, 0], name='Combined')
+        hi = plot.plot([-10, 10], [1, 1])
+        plot.addItem(pg.FillBetweenItem(lo, hi, brush=(0, 0, 0, 30)))
+        plot.setRange(xRange=(-10, 10), yRange=(0, 1), padding=0)
+        self.settle(legend)
+        self.assertTrue(legend.in_footer)
+        self.assertTrue(legend.footer.isVisible())
+        self.assertLessEqual(legend.height(), 110)
+        plot.setRange(xRange=(20, 40), yRange=(0, 1), padding=0)
+        self.settle(legend)
+        self.assertFalse(legend.in_footer)
+        self.assertTrue(legend.footer.isHidden())
+        plot.clear(); self.settle(legend)
+        self.assertTrue(legend.isHidden())
+        self.assertTrue(legend.footer.isHidden())
+
+
 class InpAxisTests(unittest.TestCase):
     def test_limits_are_finite_for_zero_single_point_and_unbounded_data(self):
         import math
