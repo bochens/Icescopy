@@ -171,9 +171,19 @@ class InpCsvLayoutTests(unittest.TestCase):
         tables['Group']['excluded'] = {'rows': [dict(temperature_C=20., concentration=999.,
             unit='INP_per_mL_suspension')]}
         headers, rows = concentration_csv(tables, [('Group', 'Group'), ('Other group', 'Other group')])
-        self.assertEqual(headers, ['temperature_C', 'Group concentration (INP/mL suspension)',
-                                   'Other group concentration (INP/mL suspension)'])
-        self.assertEqual(rows, [[0., 0., ''], [-.5, 2., 4.], [-1., '', 5.]])
+        self.assertEqual(headers, ['temperature_C'] + [f'{name} {field} (INP/mL suspension)'
+            for name in ('Group', 'Other group') for field in ('concentration', 'lower bound', 'upper bound')])
+        self.assertEqual(rows, [[0., 0., 0., 9., '', '', ''],
+                               [-.5, 2., 2., 11., 4., 4., 13.],
+                               [-1., '', '', '', 5., 5., 14.]])
+
+    def test_uncertainty_bounds_use_asymmetric_errors_and_preserve_infinity(self):
+        tables = {'A': {'cumulative': {'rows': [
+            dict(temperature_C=-5., concentration=4., lower_error=1.5, upper_error=7., unit='INP_per_L_air'),
+            dict(temperature_C=-6., concentration=0., lower_error=0., upper_error={'$nonfinite': 'inf'}, unit='INP_per_L_air'),
+            dict(temperature_C=-7., concentration=8., unit='INP_per_L_air')]}}}
+        _, rows = concentration_csv(tables, [('A', 'A')])
+        self.assertEqual(rows, [[-5., 4., 2.5, 11.], [-6., 0., 0., float('inf')], [-7., 8., '', '']])
 
     def test_failed_csv_write_does_not_leave_partial_output_or_overwrite_existing_file(self):
         import tempfile
@@ -291,7 +301,21 @@ class InpIntegrationTests(unittest.TestCase):
                 with target.open() as handle:
                     reader = csv.DictReader(handle); rows = list(reader)
                 suffix = ' fraction_frozen' if kind == 'frozen_fraction' else ' concentration (INP/mL suspension)'
-                self.assertEqual(reader.fieldnames, ['temperature_C'] + [name + suffix for name in names])
+                fields = ([name + suffix for name in names] if kind == 'frozen_fraction' else
+                          [f'{name} {field} (INP/mL suspension)' for name in names
+                           for field in ('concentration', 'lower bound', 'upper bound')])
+                self.assertEqual(reader.fieldnames, ['temperature_C'] + fields)
+                if kind != 'frozen_fraction':
+                    tables = p.result['tables'] if kind == 'cumulative' else p.result['references']['tables']
+                    by_temperature = {float(row['temperature_C']): row for row in rows}
+                    for name in names:
+                        curve = name if kind == 'cumulative' else p.result['references']['by_input'][name]
+                        for point in tables[curve]['cumulative']['rows']:
+                            row = by_temperature[point['temperature_C']]
+                            self.assertAlmostEqual(float(row[f'{name} lower bound (INP/mL suspension)']),
+                                                   point['concentration'] - point['lower_error'])
+                            self.assertAlmostEqual(float(row[f'{name} upper bound (INP/mL suspension)']),
+                                                   point['concentration'] + point['upper_error'])
                 temperatures = [float(r['temperature_C']) for r in rows]
                 self.assertTrue(all(-35 <= t <= 0 and t * 2 == round(t * 2) for t in temperatures))
                 self.assertEqual(temperatures, sorted(temperatures, reverse=True))

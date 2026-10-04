@@ -12,11 +12,12 @@ UNITS = {"INP_per_mL_suspension": "INP/mL suspension", "INP_per_L_air": "INP/L a
 
 
 def concentration_csv(tables, curves):
-    """One temperature column, then one concentration column per curve.
+    """One temperature column, then concentration and uncertainty bounds per curve.
 
     Temperatures and estimates come directly from the saved calculation. Missing
     temperatures stay empty; zero estimates remain zero. No rounding,
-    interpolation or extrapolation changes the toolkit values.
+    interpolation or extrapolation changes the toolkit values. Bounds are the
+    concentration minus/plus the toolkit's asymmetric error distances.
     """
     headers = ["temperature_C"]
     series = []
@@ -37,7 +38,9 @@ def concentration_csv(tables, curves):
                 # A wide table cannot silently collapse separate observations.
                 raise ValueError(f"{label}: repeated temperature {temperature:g} °C. Enable a temperature grid and calculate before exporting.")
             value = number(row.get("concentration"))
-            points[temperature] = "" if math.isnan(value) else value
+            lower = value - number(row.get("lower_error"))
+            upper = value + number(row.get("upper_error"))
+            points[temperature] = tuple("" if math.isnan(v) else v for v in (value, lower, upper))
             units.add(str(row.get("unit", "")))
         temperatures.update(points)
         series.append((label, points))
@@ -45,8 +48,9 @@ def concentration_csv(tables, curves):
         raise ValueError("Concentration curves must have one common saved unit.")
     unit = UNITS.get(next(iter(units)), next(iter(units)))
     for label, _ in series:
-        headers.append(f"{label} concentration ({unit})")
-    rows = [[temperature, *(points.get(temperature, "") for _, points in series)]
+        headers.extend(f"{label} {field} ({unit})" for field in
+                       ("concentration", "lower bound", "upper bound"))
+    rows = [[temperature, *(value for _, points in series for value in points.get(temperature, ("", "", "")))]
             for temperature in sorted(temperatures, reverse=True)]
     if not rows:
         raise ValueError("No calculated concentration points are available to export.")
