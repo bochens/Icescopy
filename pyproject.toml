@@ -79,6 +79,7 @@ py-modules = [
   "icescopy_temperature_refresh",
   "icescopy_inptk_client",
   "icescopy_inptk_data",
+  "icescopy_inptk_export",
   "icescopy_inptk_state",
   "icescopy_inptk_panel",
   "icescopy_inptk_plot",
