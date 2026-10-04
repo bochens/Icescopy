@@ -18,7 +18,7 @@ from icescopy_inptk_state import cli_choices, concentration_curves, new_settings
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
-from icescopy_inptk_data import PLOT_COLUMNS
+from icescopy_inptk_data import PLOT_COLUMNS, upload_choices
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 from icescopy_session import SessionSnapshotCommand
 
@@ -89,6 +89,21 @@ class InpChoiceTests(unittest.TestCase):
         args = cli_choices(state, include_individual=True)
         self.assertEqual(json.loads(args[args.index('--curves')+1]), specs)
         self.assertEqual(state, original)
+
+    def test_upload_keeps_counts_metadata_and_blanks_in_the_same_scope(self):
+        state = self.settings()
+        state['curves'] = [{'name': 'Neat', 'inputs': ['A']}, {'name': 'Diluted', 'inputs': ['B']}]
+        state['inputs']['B']['blanks'] = []
+        source = {'counts': {'measurement_id': ['A', 'B', 'water', 'A'],
+                             'temperature_C': [-5, -5, -5, -6]},
+                  'metadata': [{'measurement_id': key} for key in ('A', 'B', 'water')]}
+        before = copy.deepcopy(source)
+        payload = upload_choices(source, state, selected='Neat')
+        self.assertEqual(payload['counts'], {'measurement_id': ['A', 'water', 'A'],
+                                             'temperature_C': [-5, -5, -6]})
+        self.assertEqual([r['measurement_id'] for r in payload['metadata']], ['A', 'water'])
+        self.assertEqual(payload['water_blank_map'], {'A': ['water']})
+        self.assertEqual(source, before)
 
 
 class InpProtocolTests(unittest.TestCase):
@@ -803,6 +818,119 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertFalse(any(call.args[0][0] == 'analyze' for call in requests.call_args_list))
         self.assertIn('concentration', target.read_text())
         self.assertEqual(list(Path(p.cache.name).iterdir()), [])
+
+    def test_unused_sample_does_not_block_calculation_or_reuse_the_wrong_upload(self):
+        keys = self.configure(); p = self.panel
+        state = copy.deepcopy(p.settings)
+        state['curves'] = [{'name': 'Neat', 'inputs': [keys[0]]}]
+        state['inputs'][keys[1]].update(group='Unused', blanks=[])
+        p.commit(state, 'Calculate only the neat sample')
+        with patch.object(p.client, 'request_body', wraps=p.client.request_body) as requests:
+            self.calculate()
+            uploads = [call.args[0]['import'] for call in requests.call_args_list if 'import' in call.args[0]]
+            self.assertEqual(len(uploads), 1)
+            self.assertEqual(set(uploads[0]['counts']['measurement_id']), {keys[0], keys[2]})
+            self.assertEqual({r['measurement_id'] for r in uploads[0]['metadata']}, {keys[0], keys[2]})
+            self.assertEqual(uploads[0]['water_blank_map'], {keys[0]: [keys[2]]})
+            # Raw plots retain the complete source, including unused samples.
+            self.assertEqual({r['measurement_id'] for r in p.preview['table']['rows']}, set(keys))
+            state = copy.deepcopy(p.settings)
+            state['curves'] = [{'name': 'Combined', 'inputs': keys[:2]}]
+            state['inputs'][keys[1]].update(group=state['inputs'][keys[0]]['group'], blanks=[keys[2]])
+            p.commit(state, 'Include the diluted sample'); self.calculate()
+            uploads = [call.args[0]['import'] for call in requests.call_args_list if 'import' in call.args[0]]
+            self.assertEqual(len(uploads), 2)
+            self.assertEqual(set(uploads[1]['counts']['measurement_id']), set(keys))
+
+    def test_auto_range_uploads_only_the_selected_group_and_its_blank(self):
+        keys = self.configure(); p = self.panel
+        state = copy.deepcopy(p.settings)
+        state['curves'] = [{'name': 'Neat', 'inputs': [keys[0]]}, {'name': 'Other', 'inputs': [keys[1]]}]
+        state['inputs'][keys[1]].update(group='Other', blanks=[])
+        p.commit(state, 'Separate groups')
+        with patch.object(p.client, 'request_body', wraps=p.client.request_body) as requests:
+            for row, expected in ((0, {keys[0], keys[2]}), (1, {keys[1]})):
+                p.curves.setCurrentRow(row, QItemSelectionModel.ClearAndSelect)
+                p.suggest_ranges()
+                self.wait(lambda:not p.operation and not p.client.busy)
+                self.assertFalse(p.last_error, p.last_error)
+                uploads = [call.args[0]['import'] for call in requests.call_args_list if 'import' in call.args[0]]
+                self.assertEqual(len(uploads), row+1)
+                self.assertEqual(set(uploads[-1]['counts']['measurement_id']), expected)
+
+    def test_limited_result_survives_failed_full_range_comparison_and_can_retry(self):
+        keys = self.configure(); p = self.panel; w = self.window
+        frozen_col = w.freeze_count_timeseries_headers.index(keys[0] + ' number frozen')
+        for row, frozen in zip(w.freeze_count_timeseries_rows, [0, 3, 2, 1]):
+            row[frozen_col] = frozen
+        p.source_changed()
+        state = copy.deepcopy(p.settings)
+        state['curves'] = [{'name': 'Neat', 'inputs': [keys[0]]}]
+        state['inputs'][keys[0]]['blanks'] = []
+        state['method'] = 'mle'
+        state['ranges'] = {keys[0]: {'min_C': -6, 'max_C': -5}}
+        p.commit(state, 'Use the valid cooling interval')
+        self.calculate()
+        self.assertIn('cumulative first-freezing counts', p.result['comparison_error'])
+        self.assertNotIn('references', p.result)
+        self.assertFalse(p.last_error)
+        self.assertIn('Full-range individual samples unavailable', p.status.text())
+        self.assertEqual({r['temperature_C'] for r in p.result['tables']['Neat']['cumulative']['rows']}, {-5., -6.})
+        p.prepare_session_save(require_native=True)
+        self.assertTrue(p.result['saved_result'])
+        self.assertLessEqual(len(p.live_refs), 2)
+        # Retry after correcting the source also restores comparison overlays.
+        for row, frozen in zip(w.freeze_count_timeseries_rows, [0, 3, 5, 8]):
+            row[frozen_col] = frozen
+        p.source_changed(); self.calculate()
+        self.assertIn('references', p.result)
+        self.assertNotIn('comparison_error', p.result)
+
+    def test_saved_csv_export_reconnects_without_current_counts_or_refitting(self):
+        keys = self.configure(); self.calculate(); p = self.panel; w = self.window
+        p.prepare_session_save(require_native=True)
+        saved = copy.deepcopy(p.session_state())
+        for reference_key in (None, keys[1]):
+            with self.subTest(reference_key=reference_key):
+                p.restore_session(copy.deepcopy(saved))
+                if reference_key is None:
+                    w.freeze_count_timeseries_summary['analysis_required'] = True
+                else:
+                    w.freeze_count_timeseries_headers = []
+                    w.freeze_count_timeseries_rows = []
+                target = self.fixture.root / ('saved-group.csv' if reference_key is None else 'saved-individual.csv')
+                with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+                    with patch.object(p, 'refresh_preview', wraps=p.refresh_preview) as refresh:
+                        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')) as chooser:
+                            p.export_csv(reference_key=reference_key)
+                            self.wait(lambda:not p.operation and not p.client.busy)
+                    self.assertFalse(refresh.called)
+                    chooser.assert_called_once()
+                    self.assertFalse(any(call.args[0][0] == 'analyze' for call in requests.call_args_list))
+                self.assertFalse(p.last_error, p.last_error)
+                self.assertIn('concentration', target.read_text())
+                self.assertEqual(list(Path(p.cache.name).iterdir()), [])
+
+    def test_auto_range_validation_is_reported_without_stopping_the_client(self):
+        keys = self.configure(); p = self.panel
+        good = copy.deepcopy(p.settings)
+        for field, invalid, message in (('cycle', '', 'Select a cycle'),
+                                        ('grid_step', 'abc', 'Enter a valid number for Count step (°C).')):
+            with self.subTest(field=field):
+                state = copy.deepcopy(good)
+                if field == 'cycle': state['inputs'][keys[0]][field] = invalid
+                else: state[field] = invalid
+                p.commit(state, 'Invalid analysis choice')
+                p.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
+                with patch.object(p.client, 'request_body', wraps=p.client.request_body) as requests:
+                    with patch.object(self.window, 'log') as log:
+                        p.suggest_ranges()
+                self.assertIn(message, p.last_error)
+                self.assertIn(message, p.status.text())
+                self.assertTrue(log.called)
+                self.assertFalse(requests.called)
+                self.assertFalse(p.operation)
+                self.assertIsNotNone(p.client.capabilities)
 
     def test_worker_keeps_ui_responsive_and_shutdown_cannot_restart_it(self):
         from PySide6.QtCore import QTimer, QThread

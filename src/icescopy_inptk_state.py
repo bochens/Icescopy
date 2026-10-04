@@ -167,9 +167,13 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
         text = settings[key].strip()
         if not text:
             continue
-        value = float(text)
+        label = {"z": "Uncertainty z", "fit_step": "Fit spacing (°C)",
+                 "grid_step": "Count step (°C)", "grid_start": "Warm end (°C)",
+                 "grid_end": "Cold end (°C)", "grid_window": "Window width (°C)"}[key]
+        try: value = float(text)
+        except (ValueError, TypeError): value = math.nan
         if not math.isfinite(value) or (key in {"z", "fit_step", "grid_step", "grid_window"} and value <= 0):
-            raise ValueError(f"Enter a valid value for {key.replace('_', ' ')}.")
+            raise ValueError(f"Enter a valid number for {label}.")
         args += [flag, text]
     return args
 

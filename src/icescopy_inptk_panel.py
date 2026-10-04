@@ -24,7 +24,7 @@ from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import ConcentrationAxis, TemperatureRangeItem, TemperatureTags, axis_limits
 from icescopy_inptk_state import cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs
 from icescopy_plot import GrayscalePlotWidget
-from icescopy_inptk_data import prepare_source, upload_choices, PLOT_COLUMNS
+from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
 
 
 def concentration_unit(unit):
@@ -1086,7 +1086,10 @@ class InptkPanel(QDialog):
         self.live_refs.clear(); self.restored_refs.clear()
         self.window.log(f"INP toolkit connected: {reply['toolkit_version']} (protocol 2)")
         after, self.after_connect = self.after_connect, None
-        self.refresh_preview(after=after)
+        # Calculation callbacks validate/refresh their own source. A saved
+        # result can be exported even when current counts are missing or stale.
+        if after: after()
+        else: self.refresh_preview()
 
     def refresh_preview(self, _checked=False, after=None):
         if self.operation or self.client.busy: return
@@ -1116,18 +1119,20 @@ class InptkPanel(QDialog):
             if after: after()
         self.client.compute(lambda: prepare_source(headers, rows, metadata), done, self.error)
 
-    def ensure_input(self, settings, callback, failed):
-        mapping = {key: (value['group'], tuple(value['blanks'])) for key, value in settings['inputs'].items()}
+    def ensure_input(self, settings, callback, failed, *, selected=None):
+        mapping = upload_scope(settings, selected=selected)
         key = fingerprint([self.current_hash(), mapping])
         if self.input_key == key and self.input_ref in self.live_refs:
             callback(self.input_ref); return
         reference = '@input-' + uuid.uuid4().hex
-        payload = upload_choices(self.source_cache, settings)
+        source = self.source_cache
         def uploaded(reply):
             self.live_refs.add(reference)
             self.input_ref, self.input_key = reference, key
             callback(reference)
-        self.client.request_body({'import': dict(payload, out=reference)}, uploaded, failed)
+        def prepared(payload):
+            self.client.request_body({'import': dict(payload, out=reference)}, uploaded, failed)
+        self.client.compute(lambda: upload_choices(source, settings, selected=selected), prepared, failed)
 
     def release_unused(self, *, keep=()):
         retained = {self.input_ref, *keep}
@@ -1173,7 +1178,10 @@ class InptkPanel(QDialog):
             self.ensure_connected(after=self.suggest_ranges); return
         if self.preview_hash != self.current_hash() or not self.preview:
             self.refresh_preview(after=self.suggest_ranges); return
-        key = self.range_suggestion_key()
+        try:
+            key = self.range_suggestion_key()
+        except (ValueError, TypeError) as exc:
+            self.error(str(exc)); return
         if self.suggestion_cache and self.suggestion_cache[0] == key:
             report = self.suggestion_cache[1]
             state = copy_choices(self.settings)
@@ -1186,7 +1194,8 @@ class InptkPanel(QDialog):
 
     def range_suggestion_key(self):
         row = self.single_curve_row()
-        selected = self.settings['curves'][row]['name'] if row >= 0 else None
+        if row < 0: raise ValueError('Select one sample group for Auto range.')
+        selected = self.settings['curves'][row]['name']
         return fingerprint([self.current_hash(), cli_choices(self.settings, suggest=True, selected=selected)])
 
     def run_calculation(self, suggest):
@@ -1202,26 +1211,30 @@ class InptkPanel(QDialog):
             reference_choices = individual_choices(choices) if not suggest else None
             reference_key = (fingerprint([self.current_hash(), cli_choices(reference_choices)])
                              if reference_choices else None)
+            request_key = self.range_suggestion_key if suggest else self.calculation_key
+            key, generation = request_key(), self.generation
         except (ValueError, TypeError) as exc: self.error(str(exc)); return
-        request_key = self.range_suggestion_key if suggest else self.calculation_key
-        key, generation = request_key(), self.generation
         source_hash = self.current_hash()
         self.last_error = ''; self.operation = True
         self.operation_started = time.perf_counter()
         self.operation_phase = 'Suggesting ranges' if suggest else f'Calculating {self.method.currentText()} concentrations'
         self.elapsed_timer.start(); self.update_status()
         self.window.log('INP toolkit: suggesting Average limits…' if suggest else 'INP toolkit: calculating concentrations…')
-        def fresh(): return generation == self.generation and key == request_key()
+        def fresh():
+            try: return generation == self.generation and key == request_key()
+            except (ValueError, TypeError): return False
         def failed(message): self.release_unused(); self.error(message)
         def stale():
             self.operation = False; self.release_unused(); self.update_status()
             self.window.log('INP toolkit: inputs changed; the previous result is retained.')
-        def finish(pending, references):
+        def finish(pending, references, comparison_error=None):
             if not fresh(): stale(); return
             toolkit_seconds = time.perf_counter() - self.operation_started
             started = time.perf_counter()
-            pending['references'] = references
-            pending['individual_curves'] = {name: key for key, name in references['by_input'].items()}
+            if references:
+                pending['references'] = references
+                pending['individual_curves'] = {name: key for key, name in references['by_input'].items()}
+            if comparison_error: pending['comparison_error'] = comparison_error
             self.reference_cache = references
             self.reference_plot_tables.clear()
             self.result = pending; self.operation = False
@@ -1230,19 +1243,23 @@ class InptkPanel(QDialog):
             self.draw()
             pending['timings'] = dict(toolkit_seconds=toolkit_seconds, display_seconds=time.perf_counter()-started)
             self.window.log(f"INP analysis updated. Toolkit and transport: {toolkit_seconds:.2f} s; display: {pending['timings']['display_seconds']:.2f} s.")
+            if comparison_error:
+                self.window.log('INP analysis: the selected-limit result is retained. '
+                    f'Full-range individual samples could not be calculated: {comparison_error} '
+                    'Recalculate to retry the comparison.')
             self.release_unused()
         def references_from(result):
             return dict(result, key=reference_key, by_input={info['sources'][0]['measurement_id']: name
                 for name, info in result['reply']['curves'].items() if len(info['sources']) == 1})
-        def analyze(reference, options, received):
+        def analyze(reference, options, received, on_error=failed):
             output = '@result-' + uuid.uuid4().hex
             def done(reply):
                 self.live_refs.add(output)
                 if not fresh(): stale(); return
                 def tables_done(tables):
                     received(dict(reference=output, reply=reply, tables=tables))
-                self.read_plot_tables(output, reply, tables_done, failed)
-            self.client.request(['analyze', reference, '--format', 'saved', *options, '--out', output], done, failed)
+                self.read_plot_tables(output, reply, tables_done, on_error)
+            self.client.request(['analyze', reference, '--format', 'saved', *options, '--out', output], done, on_error)
         def uploaded(reference):
             if not fresh(): stale(); return
             if suggest:
@@ -1266,9 +1283,10 @@ class InptkPanel(QDialog):
                 else:
                     self.operation_phase = 'Calculating full-range individual samples'; self.show_elapsed()
                     analyze(reference, cli_choices(reference_choices, saved=True),
-                            lambda result: finish(pending, references_from(result)))
+                            lambda result: finish(pending, references_from(result)),
+                            lambda message: finish(pending, None, comparison_error=message))
             analyze(reference, args, main_done)
-        self.ensure_input(choices, uploaded, failed)
+        self.ensure_input(choices, uploaded, failed, selected=selected)
 
     def show_elapsed(self):
         if not self.operation:
@@ -1307,7 +1325,10 @@ class InptkPanel(QDialog):
         missing = (self.preview or {}).get("suspension_metadata", {}).get("error")
         if busy: message = "Calculating…" if self.operation and self.preview else "Loading counts…"
         elif self.last_error: message = self.last_error
-        elif self.result and self.result["key"] == self.calculation_key(): message = "Result is up to date."
+        elif self.result and self.result["key"] == self.calculation_key():
+            message = "Result is up to date."
+            if self.result.get('comparison_error'):
+                message += " Full-range individual samples unavailable; see Console."
         elif self.result:
             message = ("Counts are current. Recalculate to update concentration."
                        if self.quantity.currentText() != 'Concentration' and self.preview_hash == self.current_hash()
@@ -1323,7 +1344,9 @@ class InptkPanel(QDialog):
             note = "Solid: combined · Dashed: individual samples" if overlays else "Concentration"
             if self.show_uncertainty.isChecked(): note += " · Shading: uncertainty"
             if self.result and 'references' not in self.result:
-                note += " · Recalculate for full-range individual samples."
+                note += (" · Full-range comparison failed; Recalculate to retry."
+                         if self.result.get('comparison_error') else
+                         " · Recalculate for full-range individual samples.")
             self.plot_note.setText(note + " · Muted: outside selected limits")
             self.plot_note.setToolTip("Individual curves are independent full-range fits using the same method, blanks and units. Muting follows the current limits; the combined curve changes after Calculate. Log scale omits zeros. Export retains confidence values.")
         else:

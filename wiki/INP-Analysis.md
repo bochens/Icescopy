@@ -14,7 +14,7 @@ A **sample group** contains the independent samples or dilutions you want to com
 
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
-3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Blank roles are never inferred from names. The toolkit requires a blank assignment for every nonblank input when a blank map is supplied; leave all assignments empty for analysis without blanks.
+3. Check **Blank** beside water-control samples. These cannot also be group members. Select a sample row, then choose its controls under **Blank correction → Water blanks for…**. Blank roles are never inferred from names. When a blank map is supplied, every sample included in the calculation needs an assignment; leave all assignments empty for analysis without blanks. Samples outside the requested groups and unassigned blanks do not enter the calculation.
 4. If a sample has several freezing cycles, choose its cycle below the table. Repeated cycles are not pooled as independent droplets.
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
@@ -42,7 +42,7 @@ Choose **Calculate** to generate concentrations, or **Recalculate** after changi
 
 The status shows elapsed calculation time. The console reports toolkit and display time separately. Recalculate reuses the current result when the inputs and settings are unchanged in the same toolkit connection.
 
-Counts are transferred from Icescopy's memory to one persistent toolkit process. Changing limits, method, or grid reuses those counts; changing the source data, metadata, or blank assignments transfers a new input. Calculating does not create temporary CSVs or save result folders. Superseded toolkit results are released after the replacement succeeds.
+Counts are transferred from Icescopy's memory to one persistent toolkit process. Each calculation sends the requested groups' samples and their assigned blanks; Auto range sends only the selected group's inputs. The complete count table remains available for raw plots. Changing limits, method, or grid reuses uploaded counts; changing the source data, requested samples, metadata, or blank assignments transfers a new input. Calculating does not create temporary CSVs or save result folders. Superseded toolkit results are released after the replacement succeeds.
 
 ## Read the plots
 
@@ -57,6 +57,8 @@ Every sample marked **Blank** appears in the counts and fraction plots as a dott
 Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates still require **Calculate** or **Recalculate**.
 
 Individual concentration curves are independent **full-range fits**, using the same method, blank assignments, grid, and units as the group. They remain visible outside the selected limits, with those portions muted. Selecting a group shows its samples automatically. Changing limits updates the muting immediately; choose Recalculate to update the combined result. Full-range fits are reused when only limits change. These comparison curves do not add droplets to the combined fit.
+
+If a full-range comparison fails, the successful calculation within your selected limits remains visible and exportable. The status and console explain the comparison failure. Choose **Recalculate** to retry it.
 
 Switching quantity, selecting groups, or receiving a new result fits the axes to that view. Pan and zoom to inspect details; **Fit axes** restores the appropriate extent. Temperature increases from left to right.
 
@@ -78,7 +80,7 @@ Save the `.icescopy` session to retain choices, suggestion summaries, and the la
 
 The toolkit's excluded-points export contains estimates omitted from its final concentration curve, for example by its decrease policy. This differs from the muted portions outside the user-selected ranges. Original-count exports can contain the original recording temperatures rather than the calculation grid.
 
-Calculation exports use the last successful result, even if newer edits have not been calculated. Choose a new destination; existing exports are preserved.
+Calculation exports use the last successful result, even if newer edits have not been calculated. A result saved in the session can be exported after reconnecting to the toolkit, even when the current count table is missing or needs updating. Choose a new destination; existing exports are preserved.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
 

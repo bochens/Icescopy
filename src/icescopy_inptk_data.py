@@ -9,6 +9,7 @@ import math
 from collections import defaultdict
 
 import pandas as pd
+from icescopy_inptk_state import curve_specs
 
 
 NORMALIZATION_FIELDS = ('air_volume_L', 'suspension_volume_mL', 'filter_fraction_used', 'dry_mass_g')
@@ -88,13 +89,31 @@ def prepare_source(headers, rows, metadata):
     return {'counts': columns, 'metadata': records, 'hash': digest, 'preview': preview}
 
 
-def upload_choices(source, settings):
-    """Snapshot the explicit grouping and blank map into a new experiment."""
+def upload_scope(settings, *, selected=None):
+    """Only requested physical samples and their explicitly assigned blanks."""
+    specs = curve_specs(settings, selected=selected)
+    targets = {member['measurement_id'] for spec in specs.values() for member in spec['inputs']}
+    blanks = {blank for key in targets for blank in settings['inputs'][key]['blanks']}
+    return {key: (settings['inputs'][key]['group'],
+                  tuple(settings['inputs'][key]['blanks']) if key in targets else ())
+            for key in sorted(targets | blanks)}
+
+
+def upload_choices(source, settings, *, selected=None):
+    """Snapshot requested counts, grouping and blanks into a new experiment.
+
+    Keep the complete source for raw plots; unrelated inputs must not become
+    analysis samples or impose metadata/blank requirements on this experiment.
+    """
+    scope = upload_scope(settings, selected=selected)
     records = []
     for original in source['metadata']:
         record = dict(original)
         key = record['measurement_id']
-        record['sample_id'] = settings['inputs'][key]['group']
+        if key not in scope: continue
+        record['sample_id'] = scope[key][0]
         records.append({key: value for key, value in record.items() if value is not None})
-    blank_map = {key: list(value['blanks']) for key, value in settings['inputs'].items() if value['blanks']}
-    return {'counts': source['counts'], 'metadata': records, 'water_blank_map': blank_map, 'run_id': '1'}
+    blank_map = {key: list(blanks) for key, (_group, blanks) in scope.items() if blanks}
+    indices = [i for i, key in enumerate(source['counts']['measurement_id']) if key in scope]
+    counts = {column: [values[i] for i in indices] for column, values in source['counts'].items()}
+    return {'counts': counts, 'metadata': records, 'water_blank_map': blank_map, 'run_id': '1'}
