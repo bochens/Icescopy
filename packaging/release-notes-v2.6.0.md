@@ -12,6 +12,14 @@ Analyze Freeze Count Timeseries directly in **Analysis → INP Analysis…**. Gr
 
 Install [INP-toolkit 0.4.2](https://github.com/bochens/inptk/releases/tag/v0.4.2) separately and select its executable in **Preferences → INP toolkit client**. Icescopy communicates with the toolkit as a separate process; the toolkit executable and calculation code are not bundled. This release was checked against 0.4.2, including its corrected Average blank subtraction, uncertainty, and handling of unavailable values outside each spectrum’s freezing interval.
 
+## Updated Mac download
+
+The Mac archive includes [automatic blank assignment and sample-type concentration choices](https://github.com/bochens/Icescopy/commit/5c73f4b) and [fixed-position display controls](https://github.com/bochens/Icescopy/commit/2890b83), in addition to the original 2.6.0 source:
+
+- Marking **Blank** applies that control to all non-blank analysis samples when **Apply blank correction** is enabled; no second dropdown assignment is needed.
+- Air samples offer **Suspension** and **Sampled air**. Soil samples offer **Suspension** and **Dry soil**. Calculations containing different sample types offer suspension concentration.
+- **Show combined curve** and **Uncertainty** remain visible and are disabled when they do not apply, keeping the layout stable.
+
 ## Other improvements
 
 - Freeze Count Timeseries updates after freeze-frame and sample-metadata edits, using retained temperature inputs.
