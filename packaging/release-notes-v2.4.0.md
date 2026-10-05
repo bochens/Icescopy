@@ -1,31 +1,21 @@
 # Icescopy 2.4.0
 
-This release adds synchronized image comparison, faster cell and freeze-event review, and support for newer CSU cold-stage records.
+## Image comparison and freeze-event review
 
-## Compare and review
+- Compare Previous, Current, and Next frames with linked pan and zoom.
+- Use **Auto-center** and **Show freeze frame** in the Cells list to navigate to a selected cell.
+- Move between freezing events and cooling cycles using the Cells list or timeline arrows.
+- Retain imported cycle information after manual corrections and session restoration.
 
-- Two- and three-image views now have separate Previous, Current, and Next panels with linked pan and zoom. Each panel shows the cell positions and sizes for its own frame, and image adjustments apply across the panels.
-- The Cells list has **Auto-center** and **Show freeze frame** options. Selecting a row, clicking it again, or moving with the arrow keys applies the enabled options. Selecting cells directly in the image does not trigger automatic navigation.
-- Use the Cells event selector to move between a cell's freeze events and cooling cycles. Timeline event arrows move through events for selected cells, or all cells when none are selected.
-- Imported cycle information remains available after manual freeze-event corrections and when restoring sessions or undoing changes.
+## Temperature import
 
-## CSU temperature import
+- Import Colorado State University (CSU) cold-stage records using `Sample_Temp` or `Avg_Temp`, with images matched through the `Picture` column.
+- Choose Icescopy detections, instrument-recorded counts, or both.
+- Report invalid counts and ambiguous image matches.
 
-- The CSU importer accepts either `Sample_Temp` or `Avg_Temp`, in °C. The `Picture` column matches images to their recorded times and temperatures.
-- Choose **Icescopy detections**, **CSU recorded counts**, or **Icescopy + CSU**. Image counts work without instrument count columns. Recorded counts preserve decreases and do not create individual cell freeze events.
-- Invalid counts, ambiguous image matches, and image-order problems produce clear errors or warnings. Recorded counts above the assigned cell total are rejected rather than clipped.
-- The dialog explains sample naming and places the temperature-column information beside those instructions. The user guide covers the count choices and their limits.
+## Downloads
 
-## Download for Mac
+Save your work and close Icescopy before updating.
 
-Download **Icescopy-macos-arm64.zip**, extract it, and copy **Icescopy.app** to **Applications**. This build is for Apple Silicon Macs and includes Python and the required libraries. The matching **Icescopy-macos-arm64.zip.sha256** file provides the download checksum.
-
-Save open work and close the installed app before replacing it. Keep previous sessions and exports under their original names.
-
-The app is signed locally for integrity, without Apple notarization. See the [Mac installation guide](https://github.com/bochens/Icescopy/blob/v2.4.0/wiki/Installation-and-Setup.md#install-on-macos) if macOS asks for approval on first launch.
-
-## Windows
-
-The Windows installer for 2.4.0 will be added separately. The [2.3.8 Windows installer](https://github.com/bochens/Icescopy/releases/download/v2.3.8/Icescopy-windows-installer.exe) remains available in its original release.
-
-Windows maintainers should build from tag `v2.4.0` using [the packaging instructions](https://github.com/bochens/Icescopy/blob/v2.4.0/packaging/windows/README.md) and add the installer and its checksum to this release.
+- **macOS, Apple Silicon:** [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-macos-arm64.zip). Unzip and move **Icescopy.app** to **Applications**. See [macOS opening instructions](https://github.com/bochens/Icescopy/blob/main/wiki/Installation-and-Setup.md#install-on-macos).
+- **Windows 10 (1809 or later) / 11, x64:** [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.4.0/Icescopy-windows-installer.exe). Run the installer.

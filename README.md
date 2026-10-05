@@ -2,7 +2,7 @@
 
 Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, compare neighboring frames, and match events to temperature records. Experimental droplet selection can find similar cells from a few marked examples.
 
-For further ice-nucleating particle (INP) concentration calculations, install [**INP-toolkit 0.4.4**](https://github.com/bochens/inptk/releases/tag/v0.4.4) separately and link its executable in **Preferences → INP toolkit client**. This is the matching toolkit release for **Icescopy 2.6.1**.
+To calculate ice-nucleating particle (INP) concentrations with **Icescopy 2.6.1**, install the matching [**INP-toolkit 0.4.4**](https://github.com/bochens/inptk/releases/tag/v0.4.4) and select its executable in **Preferences → INP toolkit client**.
 
 [Quick start](wiki/Quick-Start.md) | [User guide](wiki/Home.md) | [Releases](https://github.com/bochens/Icescopy/releases)
 
@@ -17,26 +17,6 @@ Download the version listed for your computer below. These downloads include Pyt
 
 The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
 
-## Developer setup
-
-With conda installed, clone this repository and run these commands from its folder:
-
-```bash
-conda env create -f environment.yml
-conda activate icescopy-dev
-icescopy
-```
-
-See [running from source](wiki/Installation-and-Setup.md#run-from-source) for other environments, checks, and packaging.
-
-## Citation
-
-If you use Icescopy in your research, please cite:
-
-Chen, B. (2026). *Icescopy* (Version 2.0.0) [Computer software]. Zenodo. [doi:10.5281/zenodo.19673845](https://doi.org/10.5281/zenodo.19673845)
-
-For help, bug reports, or requests for another temperature-file format, [open a GitHub issue](https://github.com/bochens/Icescopy/issues).
-
 ## From recording to results
 
 Load an image sequence or one or more video clips. Crop the view or adjust exposure and contrast if needed. The [quick start](wiki/Quick-Start.md) walks through the controls for the workflow below.
@@ -45,7 +25,7 @@ Load an image sequence or one or more video clips. Crop the view or adjust expos
 
 A **cell** is the circle whose brightness Icescopy measures. Draw cells with **Add Cell**, or use **Grid Tool** to place a regular array.
 
-![Grid Tool placing cells across PCR wells, with the current toolbar and grid controls](resources/readme/2026-10-01-workflow/grid-annotation.png)
+![Grid Tool placing cells across PCR wells](resources/readme/2026-10-01-workflow/grid-annotation.png)
 
 *Colorado State University (CSU), Ice Spectrometer setup. Red circles are placed cells; the blue grid previews the next group.*
 
@@ -53,7 +33,7 @@ A **cell** is the circle whose brightness Icescopy measures. Draw cells with **A
 
 ![Two selected examples guide droplet detection; the app adds fourteen cells with normal red outlines and reports the model version and counts](resources/readme/2026-10-01-workflow/droplet-selection.png)
 
-*Texas A&M University (TAMU), droplet stage. In this example, the two blue circles are selected guidance examples, and the fourteen red circles were added automatically. (Automatic and manually drawn cells use the same red outlines in the application.) The Console shows the model version and counts.*
+*Texas A&M University (TAMU), droplet stage. Blue circles are guidance examples; red circles are detected droplets. Automatic and manual cells use the same red outlines.*
 
 The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
 
@@ -93,28 +73,48 @@ For missed or incorrect detections, open **Preferences → Analysis → Freeze F
 - Lower **Peak Prominence** to find weaker changes; raise it to reject small false detections.
 - Increase **Peak Width** to reject brief noise; lower it if a real, narrow response is missed.
 
-Prominence and width apply to the dashed line, which highlights changes in brightness. Change one setting at a time, save preferences, and rerun analysis. Check cells with clear, weak, and no freeze events. See the [full tuning guide](wiki/Analysis-and-Results.md#review-and-tune-freeze-detection) for the remaining controls and troubleshooting.
+Save preferences and rerun analysis after changing detection settings. See the [freeze-detection guide](wiki/Analysis-and-Results.md#review-and-tune-freeze-detection) for tuning and troubleshooting.
 
 You can also **modify individual freeze events**. Select a cell and edit **Freeze Frame** in **Tool Options**, or use the timeline flag to add or remove an event at the current frame. Make manual corrections **after tuning**: rerunning analysis replaces them.
 
 ### 5. Add temperature and export
 
-Use **Analysis → Import Temperature Data** to match freeze events with CSV or supported instrument records. Repeated cooling cycles are supported. All samples, including blanks, retain their own total and frozen counts; blank correction belongs in downstream analysis. See [supported temperature imports](wiki/Temperature-Import.md).
+Use **Analysis → Import Temperature Data** to match freeze events with CSV or supported instrument records. Repeated cooling cycles are supported. Counts remain separate for each sample and blank; apply blank correction in INP analysis. See [supported temperature imports](wiki/Temperature-Import.md).
 
 Save a `.icescopy` session to resume later. **File → Output Results** exports brightness measurements, freeze events, or temperature-based counts with sample information. Keep the original images or videos: the session refers to them.
 
-Use **Save Session As...** and a new export folder to preserve earlier work. See [saving and exporting](wiki/Sessions-Export-and-Preferences.md).
+See [saving and exporting](wiki/Sessions-Export-and-Preferences.md) for session files and CSV outputs.
 
 ### 6. Calculate INP concentrations
 
-The **INP toolkit client** sends Icescopy's Freeze Count Timeseries to [INP toolkit (`inptk`)](https://github.com/bochens/inptk) to calculate temperature-dependent **ice-nucleating particle (INP) concentrations** and uncertainty. Install the toolkit separately; Icescopy runs its command-line executable as a separate process.
+Choose the INP-toolkit executable in **Preferences → INP toolkit client**, test the connection, and save. Open **Analysis → INP Analysis…** to use the current Freeze Count Timeseries.
 
-Choose the executable in **Preferences → INP toolkit client**, test the connection, and save. Then open **Analysis → INP Analysis…** to load the current counts automatically. Group samples or dilutions, select water controls marked **water blank** in the catalog, and enable blank correction. Choose **MLE (maximum likelihood estimation)** or **Average**, and select concentration in suspension, sampled air, or dry soil using the corresponding sample metadata.
+Group samples and dilutions, mark water controls as **water blank** in the Sample Catalog, and enable blank correction. Choose **maximum likelihood estimation (MLE)** or **Average** to combine dilutions. Calculate concentrations in suspension, sampled air, or dry soil using the sample metadata.
 
-Compare **number frozen**, **fraction frozen**, and **concentration** in the interactive plot. Concentration shows the combined group in black alongside directly calculated, blank-corrected dilution curves in their sample colors. Individual uncertainty comes from sample and blank binomial counts, regardless of the combination method. Set each dilution's temperature limits by dragging its tags below the plot or typing values; **Calculate** applies changes. **Auto range** can suggest limits for Average.
+Compare freezing counts, frozen fractions, and concentrations in the interactive plot. The combined concentration is black; individual blank-corrected dilutions use their sample colors. Shading shows uncertainty. Adjust each dilution's temperature limits using the plot or table, then choose **Calculate**. **Auto range** can suggest limits for Average.
 
 ![MLE air-concentration result for the untreated M1 sample](resources/readme/2026-10-04-inp/m1-mle-air-concentration.png)
 
 *Example of MLE analysis with the INP toolkit client.*
 
-Save the `.icescopy` session to retain analysis choices and results. Export combined groups and individual sample concentrations as separate CSVs, each with temperature rows and concentration, lower-bound, and upper-bound columns; the default calculation grid is 0 to −35 °C in 0.5 °C steps. Save a native `.inptk` session to retain the full toolkit result and uncertainty. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and the [INP toolkit repository](https://github.com/bochens/inptk) for installation and calculation details.
+Save the `.icescopy` session to retain the analysis. Export combined and individual concentrations as CSVs with uncertainty bounds, export frozen fractions, or save a native `.inptk` session. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and [INP-toolkit](https://github.com/bochens/inptk) for calculation methods.
+
+## Developer setup
+
+With conda installed, clone this repository and run these commands from its folder:
+
+```bash
+conda env create -f environment.yml
+conda activate icescopy-dev
+icescopy
+```
+
+See [running from source](wiki/Installation-and-Setup.md#run-from-source) for other environments, checks, and packaging.
+
+## Citation
+
+If you use Icescopy in your research, please cite:
+
+Chen, B. (2026). *Icescopy* (Version 2.0.0) [Computer software]. Zenodo. [doi:10.5281/zenodo.19673845](https://doi.org/10.5281/zenodo.19673845)
+
+For help, bug reports, or requests for another temperature-file format, [open a GitHub issue](https://github.com/bochens/Icescopy/issues).
