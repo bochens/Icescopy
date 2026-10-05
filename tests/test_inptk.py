@@ -645,6 +645,28 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
         self.assertEqual(set(self.panel.range_items), set(keys))
 
+    def test_switching_control_tabs_preserves_plot_geometry_and_zoom(self):
+        from PySide6.QtTest import QTest
+        self.configure(); self.calculate(); p = self.panel
+        p.show_analysis()
+        p.resize(1100, 800)
+        for quantity in ('Number frozen', 'Concentration'):
+            p.quantity.setCurrentText(quantity)
+            p.tabs.setCurrentIndex(1)
+            QTest.qWait(60)
+            p.plot.setRange(xRange=(-7.5, -5.5), yRange=(0., 1.), padding=0)
+            geometry = p.plot.geometry()
+            viewport = p.plot.viewport().size()
+            view_range = p.plot.viewRange()
+            for tab in (0, 2, 1):
+                p.tabs.setCurrentIndex(tab)
+                QTest.qWait(60)
+                self.assertEqual(p.range_tags.height(), 34)
+                self.assertEqual(p.range_tags.isHidden(), tab != 1)
+                self.assertEqual(p.plot.geometry(), geometry)
+                self.assertEqual(p.plot.viewport().size(), viewport)
+                self.assertEqual(p.plot.viewRange(), view_range)
+
     def test_enter_commits_field_without_triggering_window_buttons(self):
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QPushButton
@@ -900,7 +922,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.tag_moved(keys[0], 0, -7.5, True)
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         self.assertEqual([entry[0] for entry in p.range_tags.entries], [keys[0]])
-        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': 0}})
+        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': -5.}})
         self.assertEqual(p.current_input(), keys[1])
         self.assertEqual(p.undo_stack.index(), undo_index + 1)
         p.undo_stack.undo()

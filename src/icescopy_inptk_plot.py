@@ -82,6 +82,10 @@ class TemperatureTags(QWidget):
         self.targets = []
         self.locked_boundaries = frozenset()
         self.drag = None
+        self.setFixedHeight(self.row_height + 4)
+        policy = self.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
         self.setMouseTracking(True)
         self.setAccessibleName("Sample temperature limits. Drag a colored tag or edit the limits table.")
         plot.getViewBox().sigRangeChanged.connect(self.update)
@@ -90,7 +94,7 @@ class TemperatureTags(QWidget):
     def set_entries(self, entries, *, locked=()):
         self.locked_boundaries = frozenset(locked)
         self.entries = [entry for entry in entries if entry[3]]
-        self.setFixedHeight(self.row_height + 4 if entries else 0)
+        # Hide inactive controls without resizing the plot above this lane.
         self.setVisible(bool(entries))
         self.update()
 
