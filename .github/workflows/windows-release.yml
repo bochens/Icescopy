@@ -1,0 +1,104 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Icescopy release tag
+        required: true
+        type: string
+      toolkit_tag:
+        description: Matching INP-toolkit release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      TOOLKIT_TAG: ${{ inputs.toolkit_tag }}
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      QT_QPA_PLATFORM: offscreen
+      ICESCOPY_CONFIG_DIR: ${{ runner.temp }}/icescopy-preferences
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          python-version: '3.11'
+          activate-environment: icescopy-build
+          channels: conda-forge
+          channel-priority: strict
+      - name: Install build dependencies
+        run: |
+          python -m pip install '.[dev]'
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Check release version and client integration
+        run: |
+          $env:PYTHONPATH = "$PWD/src;$PWD/tests"
+          python -c "import os; from icescopy_version import __version__; assert os.environ['RELEASE_TAG'] == 'v' + __version__"
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag and source version differ' }
+          gh release download $env:TOOLKIT_TAG --repo bochens/inptk --pattern '*windows*x64*unsigned.zip' --dir "$env:RUNNER_TEMP/toolkit-download"
+          if ($LASTEXITCODE -ne 0) { throw 'Matching toolkit download failed' }
+          $zip = Get-ChildItem "$env:RUNNER_TEMP/toolkit-download/*.zip"
+          Expand-Archive -Path $zip.FullName -DestinationPath "$env:RUNNER_TEMP/toolkit"
+          $cli = @(Get-ChildItem "$env:RUNNER_TEMP/toolkit" -Recurse -Filter inptk.exe)
+          if ($cli.Count -ne 1) { throw 'Expected one toolkit CLI executable' }
+          $env:INPTK_TEST_EXECUTABLE = $cli[0].FullName
+          python -m unittest test_inptk.InpChoiceTests test_inptk.InpIntegrationTests.test_warm_tag_matches_numeric_edit_without_cutting_last_freeze test_inptk.InpIntegrationTests.test_native_full_grid_limits_match_explicit_limits_for_both_methods test_inptk.InpIntegrationTests.test_range_controls_use_native_limits_even_when_concentration_is_missing test_inptk.InpIntegrationTests.test_real_cli_plots_history_ranges_export_and_session test_inptk.InpIntegrationTests.test_mle_combination_uses_direct_individual_counts_and_binomial_bounds test_inptk.InpIntegrationTests.test_real_blank_flags_match_shared_limits_and_returned_onset test_inptk.InpIntegrationTests.test_switching_control_tabs_preserves_plot_geometry_and_zoom
+          if ($LASTEXITCODE -ne 0) { throw 'Client integration checks failed' }
+      - name: Build and verify application
+        run: |
+          python -m PyInstaller --clean --noconfirm Icescopy.windows.spec
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          $env:SOURCE_COMMIT = git rev-parse HEAD
+          @'
+          import json, os, pathlib
+          from PyInstaller.archive.readers import CArchiveReader
+          bundle = pathlib.Path('dist/Icescopy-windows')
+          pyz = CArchiveReader(str(bundle/'Icescopy.exe')).open_embedded_archive('PYZ.pyz')
+          scope = {}; exec(pyz.extract('icescopy_version'), scope)
+          assert 'v'+scope['__version__'] == os.environ['RELEASE_TAG']
+          assert not any(n == 'inptk' or n.startswith('inptk.') for n in pyz.toc)
+          info = {'version': scope['__version__'], 'commit': os.environ['SOURCE_COMMIT'], 'kind': 'release', 'matching_inptk': os.environ['TOOLKIT_TAG'].removeprefix('v')}
+          (bundle/'_internal/resources/icescopy-build.json').write_text(json.dumps(info), encoding='utf-8')
+          print(info)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle verification failed' }
+      - name: Compile and check installer
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $compiler)) { throw 'Inno Setup compiler is unavailable' }
+          $version = $env:RELEASE_TAG.Substring(1)
+          $bundle = Join-Path $PWD 'dist/Icescopy-windows'
+          $assets = Join-Path $env:RUNNER_TEMP 'release-assets'
+          & $compiler "/DAppVersion=$version" "/DSourceDir=$bundle" "/DOutputDir=$assets" packaging/windows/Icescopy.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          $install = Join-Path $env:RUNNER_TEMP 'installer-smoke'
+          $setup = Start-Process "$assets/Icescopy-windows-installer.exe" -Wait -PassThru -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/SP-', '/NORESTART', '/NOCLOSEAPPLICATIONS', '/NORESTARTAPPLICATIONS', "/DIR=$install", '/NOICONS', '/TASKS=')
+          if ($setup.ExitCode -ne 0) { throw 'Installer smoke check failed' }
+          $check = Start-Process "$install/Icescopy.exe" -Wait -PassThru -ArgumentList '--check-video-dependencies'
+          if ($check.ExitCode -ne 0) { throw 'Installed video dependency check failed' }
+          Remove-Item Env:QT_QPA_PLATFORM
+          $app = Start-Process "$install/Icescopy.exe" -PassThru
+          Start-Sleep -Seconds 8
+          $app.Refresh()
+          if ($app.HasExited -or $app.MainWindowHandle -eq 0) { throw 'Installed application did not open a window' }
+          Stop-Process -Id $app.Id
+          $uninstall = Start-Process "$install/unins000.exe" -Wait -PassThru -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+          if ($uninstall.ExitCode -ne 0) { throw 'Smoke uninstall failed' }
+          Get-FileHash "$assets/Icescopy-windows-installer.exe" -Algorithm SHA256
+      - name: Upload installer to release
+        run: |
+          gh release upload $env:RELEASE_TAG "$env:RUNNER_TEMP/release-assets/Icescopy-windows-installer.exe" --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

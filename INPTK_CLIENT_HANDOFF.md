@@ -5,7 +5,7 @@ Icescopy release after client verification. Do not edit INP-toolkit here.
 
 ## Verified toolkit contract
 
-- Installed CLI: `/Applications/INP-toolkit/inptk`, source `84ffe3e`, version 0.4.3.
+- Installed CLI: `/Applications/INP-toolkit/inptk`, source `439c7f3`, version 0.4.4.
 - Sample limits select calculation targets after counts have been selected.
 - Original source rows supplying retained grid states remain unchanged.
 - Full and explicitly selecting the full useful grid span are equivalent.
