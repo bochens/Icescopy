@@ -52,7 +52,7 @@ class InpChoiceTests(unittest.TestCase):
         state = self.settings()
         self.assertFalse(state['blank_after_first_freeze'])
         self.assertNotIn(BLANK_ONSET_FLAG, cli_choices(state))
-        state['blank_ranges'] = {'water': {'min_C': -25., 'max_C': -8.}}
+        state['blank_range'] = {'min_C': -25., 'max_C': -8.}
         state['blank_after_first_freeze'] = True
         before = copy.deepcopy(state)
         for method in ('mle', 'average'):
@@ -61,15 +61,15 @@ class InpChoiceTests(unittest.TestCase):
                 args = cli_choices(state, saved=saved)
                 self.assertIn(BLANK_ONSET_FLAG, args)
                 self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]),
-                                 {'water': {'min_C': -25.}})
+                                 {'min_C': -25.})
             direct = cli_choices(individual_choices(state))
             self.assertIn(BLANK_ONSET_FLAG, direct)
             self.assertIn(BLANK_RANGE_FLAG, direct)
             self.assertIn(BLANK_ONSET_FLAG, cli_choices(state, suggest=True))
-        self.assertEqual(state['blank_ranges'], before['blank_ranges'])
+        self.assertEqual(state['blank_range'], before['blank_range'])
         state['blank_after_first_freeze'] = False
         args = cli_choices(state)
-        self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]), state['blank_ranges'])
+        self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]), state['blank_range'])
         state['blank_correction'] = False
         args = cli_choices(state)
         self.assertNotIn(BLANK_RANGE_FLAG, args)
@@ -1027,15 +1027,21 @@ class InpIntegrationTests(unittest.TestCase):
         keys = self.configure(); p = self.panel
         p.tabs.setCurrentIndex(1)
         p.show_analysis()
+        p.client.capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] = [option for option in
+                p.client.capabilities['commands'][command]['options']
+                if not set(option['flags']) & {BLANK_ONSET_FLAG, BLANK_RANGE_FLAG}]
+        p.update_status()
         self.assertFalse(p.blank_first_freeze.isEnabled())
         self.assertFalse(p.blank_onset_status.isHidden())
-        self.assertEqual(p.method_options.title(), 'Average options')
+        self.assertEqual(p.method_options.title(), '')
         self.assertTrue(p.method_options.isAncestorOf(p.suggest))
         self.assertFalse(p.method_options.isAncestorOf(p.full_range))
         self.assertFalse(p.method_options.isAncestorOf(p.ranges))
         full_parent, range_parent = p.full_range.parent(), p.ranges.parent()
         p.change_option('method', 'mle')
-        self.assertEqual(p.method_options.title(), 'MLE options')
+        self.assertEqual(p.method_options.title(), '')
         self.assertFalse(p.suggest.isVisible())
         self.assertTrue(p.method_options.isAncestorOf(p.method_help))
         self.assertIs(p.full_range.parent(), full_parent)
@@ -1058,6 +1064,12 @@ class InpIntegrationTests(unittest.TestCase):
             p.quantity.setCurrentText(quantity)
             self.assertIn(blank, p.visible_range_ids())
             self.assertIn(blank, p.range_items)
+        p.client.capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] = [option for option in
+                p.client.capabilities['commands'][command]['options']
+                if not set(option['flags']) & {BLANK_ONSET_FLAG, BLANK_RANGE_FLAG}]
+        p.update_status(); p.draw_ranges()
         self.assertFalse(p.range_boundary_editable(blank, 0))
         capabilities = copy.deepcopy(p.client.capabilities)
         for command in ('analyze', 'suggest-ranges'):
@@ -1069,7 +1081,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.ranges.selectRow(p.range_ids.index(blank))
         sample_limits = copy.deepcopy(p.settings['ranges'])
         p.ranges.item(p.range_ids.index(blank), 1).setText('-7')
-        self.assertEqual(p.settings['blank_ranges'][blank]['min_C'], -7.)
+        self.assertEqual(p.settings['blank_range']['min_C'], -7.)
         self.assertEqual(p.settings['ranges'], sample_limits)
         with patch.object(p, 'error') as error:
             p.blank_first_freeze.click()
@@ -1101,9 +1113,12 @@ class InpIntegrationTests(unittest.TestCase):
         p.change_option('grid_step', '0.1')
         self.assertEqual(float(p.ranges.item(p.range_ids.index(blank), 2).text()), -8.)
         p.quantity.setCurrentText('Concentration')
-        self.assertNotIn(blank, p.visible_range_ids())
-        self.assertTrue(p.ranges.isRowHidden(p.range_ids.index(blank)))
+        self.assertIn(blank, p.visible_range_ids())
+        self.assertFalse(p.ranges.isRowHidden(p.range_ids.index(blank)))
         self.assertNotIn(blank, p.range_items)
+        for column in (1, 2):
+            self.assertFalse(p.ranges.item(p.range_ids.index(blank), column).flags() & Qt.ItemIsEditable)
+        self.assertFalse(p.range_boundary_editable(blank, 0))
         p.quantity.setCurrentText('Number frozen')
         p.inputs.item(p.input_row(blank), 3).setCheckState(Qt.Unchecked)
         self.assertNotIn(blank, p.visible_range_ids())
@@ -1112,7 +1127,87 @@ class InpIntegrationTests(unittest.TestCase):
         saved = p.session_state()
         p.restore_session(saved)
         self.assertTrue(p.settings['blank_after_first_freeze'])
-        self.assertEqual(p.settings['blank_ranges'], saved['choices']['blank_ranges'])
+        self.assertEqual(p.settings['blank_range'], saved['choices']['blank_range'])
+
+    def test_real_blank_flags_match_shared_limits_and_returned_onset(self):
+        keys = self.configure(); p = self.panel
+        if not p.client.supports_option('analyze', BLANK_RANGE_FLAG):
+            self.skipTest('Requires the new water-blank CLI options')
+        p.tabs.setCurrentIndex(1)
+        raw = copy.deepcopy(p.preview['table'])
+        # Direct concentrations before the first blank freeze must agree with
+        # the uncorrected calculation, including their binomial uncertainty.
+        p.blank_enabled.setChecked(False); self.calculate()
+        baseline = p.result['references']['tables'][p.result['references']['by_input'][keys[0]]]['cumulative']['rows']
+        expected = next(row for row in baseline if row['temperature_C'] == -6.)
+        p.blank_enabled.setChecked(True)
+        p.blank_first_freeze.click()
+        self.assertTrue(p.settings['blank_after_first_freeze'])
+        for method in ('average', 'mle'):
+            p.change_option('method', method); self.calculate()
+            settings = p.result['reply']['settings']
+            self.assertTrue(settings['water_blank_after_first_freeze'])
+            groups = [group for controls in settings['water_blank_controls'].values() for group in controls]
+            self.assertTrue(groups)
+            self.assertTrue(all(group['first_freeze_temperature_C'] == -8. for group in groups))
+            direct = p.result['references']['tables'][p.result['references']['by_input'][keys[0]]]['cumulative']['rows']
+            actual = next(row for row in direct if row['temperature_C'] == -6.)
+            for field in ('concentration', 'lower_error', 'upper_error'):
+                self.assertAlmostEqual(actual[field], expected[field])
+            p.quantity.setCurrentText('Number frozen')
+            self.assertEqual(p.range_items[keys[2]].getRegion()[1], -8.)
+            p.ranges.item(p.range_ids.index(keys[2]), 1).setText('-8')
+            self.calculate()
+            self.assertEqual(p.result['reply']['settings']['water_blank_temperature_range_C']['min_C'], -8.)
+            # Concentration can display blank limits, but cannot edit/reset them.
+            p.quantity.setCurrentText('Concentration')
+            row = p.range_ids.index(keys[2])
+            self.assertFalse(p.ranges.isRowHidden(row))
+            self.assertNotIn(keys[2], p.range_items)
+            self.assertFalse(p.ranges.item(row, 1).flags() & Qt.ItemIsEditable)
+            before = copy.deepcopy(p.settings['blank_range'])
+            p.full_range.click()
+            self.assertEqual(p.settings['blank_range'], before)
+            p.quantity.setCurrentText('Fraction frozen')
+            p.full_range.click()
+        self.assertEqual(p.preview['table'], raw)
+        p.change_option('blank_range', {'min_C': -8.})
+        self.calculate()
+        target = self.fixture.root / 'blank-controls.inptk'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+            p.export_result()
+        self.wait(lambda: not p.operation and not p.client.busy)
+        self.assertTrue(target.exists())
+        self.assertEqual(p.session_state()['choices']['blank_range'], {'min_C': -8.})
+        p.change_option('method', 'average')
+        p.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
+        p.suggest_ranges()
+        self.wait(lambda: not p.operation and not p.client.busy)
+        self.assertFalse(p.last_error, p.last_error)
+        suggested = p.settings['suggestion']['settings']
+        self.assertTrue(suggested['water_blank_after_first_freeze'])
+        self.assertEqual(suggested['water_blank_temperature_range_C']['min_C'], -8.)
+
+    def test_multiple_water_blanks_share_range_edits_and_locked_onset(self):
+        keys = self.configure(); p = self.panel
+        if not p.client.supports_option('analyze', BLANK_RANGE_FLAG):
+            self.skipTest('Requires the new water-blank CLI options')
+        self.mark_catalog_blanks(keys[1])
+        p.tabs.setCurrentIndex(1); p.quantity.setCurrentText('Number frozen')
+        p.ranges.item(p.range_ids.index(keys[2]), 1).setText('-7.5')
+        self.assertEqual(p.settings['blank_range'], {'min_C': -7.5})
+        for key in keys[1:]:
+            self.assertEqual(p.range_items[key].getRegion()[0], -7.5)
+            self.assertEqual(p.ranges.item(p.range_ids.index(key), 1).text(), '-7.50')
+        p.blank_first_freeze.click()
+        for key in keys[1:]:
+            self.assertEqual(p.range_items[key].getRegion()[1], -6.)
+            self.assertFalse(p.range_items[key].lines[1].movable)
+        self.calculate()
+        groups = [group for controls in p.result['reply']['settings']['water_blank_controls'].values() for group in controls]
+        self.assertTrue(all(group['measurement_ids'] == sorted(keys[1:]) for group in groups))
+        self.assertTrue(all(group['first_freeze_temperature_C'] == -6. for group in groups))
+        self.assertFalse(p.method_options.title())
 
     def test_full_range_uses_measured_placeholders_and_undo_restores_limits(self):
         p = self.panel

@@ -26,6 +26,12 @@ In **Settings → INP toolkit client → Table columns**, choose fields separate
 
 Turning **Apply blank correction** off retains the selected blanks. Unchecking **Use** beside a water blank removes it from correction for every sample; Undo restores the selection and assignments. Its catalog type and measured counts remain unchanged.
 
+**Start correction at first blank freeze** is optional and off by default. Before the first observed freeze in the assigned water controls, it fixes water background and its uncertainty contribution at zero. If the controls never freeze, they contribute zero background throughout. INP-toolkit determines this onset separately for each run and cycle using the original observations.
+
+Water-control temperature limits are shared across assigned blanks. Edit them in **Combine** while viewing **Number frozen** or **Fraction frozen**. Concentration keeps the blank rows visible for reference, with their limits read-only; it does not plot blank concentration. When first-freeze correction is enabled, the blank warm limit stays visible but locked. These controls require toolkit support; unavailable controls are grayed out.
+
+Manual blank limits select control observations. They do not assume zero background outside those limits. Latest selection may carry a retained warmer control state to a colder target; a missing required control state leaves the direct concentration unavailable. MLE uses the retained control trajectories.
+
 ## Combine dilutions and set ranges
 
 In **Combine**, choose the calculation method and concentration basis. Suspension is always available. Air samples also offer **Sampled air**; soil samples also offer **Dry soil**. The choices follow all samples included in the calculation, excluding water blanks. If included samples have different types, use suspension concentration. Each normalization needs its corresponding physical metadata.

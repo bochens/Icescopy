@@ -364,7 +364,7 @@ class InptkPanel(QWidget):
         self.ranges.setAlternatingRowColors(True)
         self.ranges.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.ranges.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
-        self.ranges.setColumnWidth(0, 130)
+        self.ranges.setColumnWidth(0, 160)
         self.ranges.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ranges.setSelectionMode(QAbstractItemView.SingleSelection)
         self.ranges.itemChanged.connect(self.range_changed)
@@ -800,9 +800,9 @@ class InptkPanel(QWidget):
             getattr(self, key).setText(value)
         state = copy_choices(self.settings); state[key] = value
         if key == 'blank_after_first_freeze' and value:
-            invalid = [name for name, limits in state['blank_ranges'].items()
-                       if name in state['inputs'] and state['inputs'][name]['blank']
-                       and limits.get('min_C', -math.inf) > self.blank_onset_temperature(name)]
+            invalid = [name for name, item in state['inputs'].items()
+                       if item['blank'] and item.get('use_blank', True)
+                       and state['blank_range'].get('min_C', -math.inf) > self.blank_onset_temperature(name)]
             if invalid:
                 self.restore_choices(self.settings)
                 self.error('Set a colder water-blank limit before enabling first-freeze correction: '
@@ -857,7 +857,6 @@ class InptkPanel(QWidget):
             widget = getattr(self, key); widget.setCurrentIndex(widget.findData(self.settings[key]))
         self.blank_enabled.setChecked(self.settings["blank_correction"])
         self.blank_first_freeze.setChecked(self.settings["blank_after_first_freeze"])
-        self.method_options.setTitle("Average options" if self.settings["method"] == "average" else "MLE options")
         self.min_frozen.setValue(self.settings["min_frozen"])
         self.min_unfrozen.setValue(self.settings["min_unfrozen"])
         self.auto_range_options.setVisible(self.settings["method"] == "average")
@@ -923,8 +922,9 @@ class InptkPanel(QWidget):
             item = QTableWidgetItem(name); item.setFlags(item.flags() & ~Qt.ItemIsEditable); item.setData(Qt.DecorationRole, self.color(key))
             self.ranges.setItem(row, 0, item)
             for col, limit in ((1, "min_C"), (2, "max_C")):
-                collection = "blank_ranges" if self.settings["inputs"][key]["blank"] else "ranges"
-                value = self.settings[collection].get(key, {}).get(limit)
+                manual = (self.settings["blank_range"] if self.settings["inputs"][key]["blank"]
+                          else self.settings["ranges"].get(key, {}))
+                value = manual.get(limit)
                 # Only the display is rounded. Choices and drag positions retain
                 # their original values until the user explicitly edits a limit.
                 item = QTableWidgetItem(f"{number(value):.2f}" if value is not None else "")
@@ -1152,8 +1152,8 @@ class InptkPanel(QWidget):
         if not self.range_boundary_editable(key, item.column() - 1):
             self.restore_choices(self.settings)
             return
-        collection = "blank_ranges" if state["inputs"][key]["blank"] else "ranges"
-        limits = state[collection].setdefault(key, {})
+        limits = (state["blank_range"] if state["inputs"][key]["blank"]
+                  else state["ranges"].setdefault(key, {}))
         boundary = "min_C" if item.column() == 1 else "max_C"
         try:
             if item.text().strip():
@@ -1173,9 +1173,11 @@ class InptkPanel(QWidget):
     def reset_ranges(self):
         state = copy_choices(self.settings)
         for key in self.visible_range_ids():
-            collection = "blank_ranges" if state["inputs"][key]["blank"] else "ranges"
-            if collection == "ranges" or self.client.supports_option('analyze', BLANK_RANGE_FLAG):
-                state[collection].pop(key, None)
+            if not state["inputs"][key]["blank"]:
+                state["ranges"].pop(key, None)
+            elif (self.quantity.currentText() != 'Concentration'
+                    and self.client.supports_option('analyze', BLANK_RANGE_FLAG)):
+                state["blank_range"] = {}
         self.commit(state, "INP analysis: use the full available data range for selected groups")
 
     def full_range_limits(self):
@@ -1221,21 +1223,22 @@ class InptkPanel(QWidget):
 
     def visible_range_ids(self):
         keys = self.selected_input_ids()
-        if self.quantity.currentText() != "Concentration":
-            plotted = self.observation_cycles()
-            keys += [key for key, value in self.settings["inputs"].items()
-                     if value["blank"] and key in plotted and key not in self.hidden_plot_inputs]
+        plotted = self.observation_cycles()
+        keys += [key for key, value in self.settings["inputs"].items()
+                 if value["blank"] and key in plotted
+                 and (self.quantity.currentText() == 'Concentration' or key not in self.hidden_plot_inputs)]
         return list(dict.fromkeys(key for key in keys if key in self.range_ids))
 
     def range_boundary_editable(self, key, boundary):
         if not self.settings['inputs'][key]['blank']: return True
-        return (self.client.supports_option('analyze', BLANK_RANGE_FLAG)
+        return (self.quantity.currentText() != 'Concentration'
+                and self.client.supports_option('analyze', BLANK_RANGE_FLAG)
                 and not (boundary == 1 and self.settings['blank_after_first_freeze']))
 
     def displayed_range(self, key, measured):
         blank = self.settings['inputs'][key]['blank']
-        collection = 'blank_ranges' if blank else 'ranges'
-        limits = {**measured[key], **self.settings[collection].get(key, {})}
+        manual = self.settings['blank_range'] if blank else self.settings['ranges'].get(key, {})
+        limits = {**measured[key], **manual}
         if blank and self.settings['blank_after_first_freeze']:
             limits['max_C'] = self.blank_onset_temperature(key)
         return limits
@@ -1267,8 +1270,11 @@ class InptkPanel(QWidget):
         self.range_items.clear()
         keys = self.visible_range_ids()
         blank_visible = any(self.settings['inputs'][key]['blank'] for key in keys)
-        self.blank_range_status.setVisible(
-            blank_visible and not self.client.supports_option('analyze', BLANK_RANGE_FLAG))
+        self.blank_range_status.setVisible(blank_visible)
+        self.blank_range_status.setText(
+            "Water-blank limits require an INP toolkit update." if not self.client.supports_option('analyze', BLANK_RANGE_FLAG)
+            else "Water-blank limits are shared. Edit them in Number frozen or Fraction frozen." if self.quantity.currentText() == 'Concentration'
+            else "Changing a water-blank limit applies it to all assigned water controls.")
         for row, key in enumerate(self.range_ids): self.ranges.setRowHidden(row, key not in keys)
         self.fit_table_height(self.ranges, len(keys))
         if self.ranges.columnCount() > 3:
@@ -1308,6 +1314,8 @@ class InptkPanel(QWidget):
         locked = []
         for key in keys:
             if key in self.hidden_plot_inputs: continue
+            if self.quantity.currentText() == 'Concentration' and self.settings['inputs'][key]['blank']:
+                continue
             values = measured.get(key)
             if not values: continue
             limits = self.displayed_range(key, measured)
@@ -1374,11 +1382,10 @@ class InptkPanel(QWidget):
         if self.range_items.get(key) is not region: return
         cold, warm = region.getRegion()
         state = copy_choices(self.settings)
-        collection = "blank_ranges" if state['inputs'][key]['blank'] else "ranges"
-        limits = dict(state[collection].get(key, {}))
+        limits = (state['blank_range'] if state['inputs'][key]['blank']
+                  else state['ranges'].setdefault(key, {}))
         if self.range_boundary_editable(key, 0): limits['min_C'] = cold
         if self.range_boundary_editable(key, 1): limits['max_C'] = warm
-        state[collection][key] = limits
         self.commit(state, f"INP analysis: move temperature limits for {key}")
 
     def current_hash(self):
@@ -1570,7 +1577,7 @@ class InptkPanel(QWidget):
                     # One dilution has no combination to fit. Use its observed
                     # sample/blank fractions and binomial counting uncertainty.
                     group_choices['method'] = 'average'
-            if (self.settings['blank_correction'] and any(self.settings['blank_ranges'].values())
+            if (self.settings['blank_correction'] and bool(self.settings['blank_range'])
                     and not self.client.supports_option(command, BLANK_RANGE_FLAG)):
                 raise ValueError('This INP toolkit does not support water-blank temperature limits. '
                                  'Update the toolkit before calculating with those limits.')
