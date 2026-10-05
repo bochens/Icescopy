@@ -28,7 +28,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PYTHONDONTWRITEBYTECODE: '1'
       QT_QPA_PLATFORM: offscreen
-      ICESCOPY_CONFIG_DIR: ${{ runner.temp }}/icescopy-preferences
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +40,7 @@ jobs:
           channel-priority: strict
       - name: Install build dependencies
         run: |
+          "ICESCOPY_CONFIG_DIR=$env:RUNNER_TEMP/icescopy-preferences" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           python -m pip install '.[dev]'
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
       - name: Check release version and client integration
