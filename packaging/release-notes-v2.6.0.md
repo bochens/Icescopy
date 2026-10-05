@@ -2,11 +2,11 @@
 
 ## INP toolkit client
 
-Calculate INP concentrations from Freeze Count Timeseries in **Analysis → INP Analysis…**. Group dilution series, apply water-blank correction, and combine results using **maximum likelihood (MLE)** or **Average**. Calculate concentrations in suspension, sampled air, or dry soil.
+Calculate INP concentrations from Freeze Count Timeseries in **Analysis → INP Analysis…**. Group dilution series, apply water-blank correction, and combine results using **maximum likelihood estimation (MLE)** or **Average**. Calculate concentrations in suspension, sampled air, or dry soil.
 
 - Inspect freezing counts, frozen fractions, and individual and combined concentration curves with uncertainty.
 - Adjust each sample’s temperature limits in the plot or table.
-- Export frozen-fraction and concentration CSVs, including lower and upper uncertainty bounds, or save a native `.inptk` session.
+- Export concentration CSVs with lower and upper uncertainty bounds, frozen-fraction CSVs, and native `.inptk` sessions.
 - Retain analysis settings and results in the `.icescopy` session.
 
 Install [**INP-toolkit 0.4.2**](https://github.com/bochens/inptk/releases/tag/v0.4.2) separately and select its executable in **Preferences → INP toolkit client**.
