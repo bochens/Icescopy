@@ -13,4 +13,4 @@ Use [**INP-toolkit 0.4.4**](https://github.com/bochens/inptk/releases/tag/v0.4.4
 Save your work and close Icescopy before updating.
 
 - **macOS, Apple Silicon:** [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-macos-arm64.zip). Unzip and move **Icescopy.app** to **Applications**. See [macOS opening instructions](https://github.com/bochens/Icescopy/blob/main/wiki/Installation-and-Setup.md#install-on-macos).
-- **Windows:** [Icescopy 2.6.0 installer](https://github.com/bochens/Icescopy/releases/download/v2.6.0/Icescopy-windows-installer.exe) for Windows 10 (1809 or later) / 11, x64.
+- **Windows 10 (1809 or later) / 11, x64:** [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-windows-installer.exe). Run the installer.
