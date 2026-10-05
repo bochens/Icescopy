@@ -75,7 +75,9 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         for key in choices:
             if key in saved:
                 choices[key] = copy.deepcopy(saved[key])
-        choices.update(method='mle', basis='sampled_air', suggestion=None)
+        choices.update(method='mle', basis='sampled_air', suggestion=None, ranges={},
+                       grid_step='0.5', grid_start='0', grid_end='-35', grid_method='latest',
+                       grid_window='', z='1.96')
         group = choices['curves'][0]
         group['name'] = 'M1 untreated'
         for key in group['inputs']:
@@ -90,6 +92,11 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         finite = [row for row in rows if math.isfinite(number(row['concentration']))]
         if not finite:
             raise RuntimeError('The combined concentration has no finite results.')
+        if panel.result['reply']['settings']['estimation_method'] != 'mle':
+            raise RuntimeError('The combined result must use MLE.')
+        references = panel.result['references']
+        if references['reply']['settings']['estimation_method'] != 'average':
+            raise RuntimeError('Individual comparisons must use direct sample/blank calculations.')
         panel.show_analysis()
         panel.tabs.setCurrentIndex(1)
         panel.quantity.setCurrentText('Concentration')

@@ -109,7 +109,7 @@ The **INP toolkit client** sends Icescopy's Freeze Count Timeseries to [INP tool
 
 Choose the executable in **Preferences → INP toolkit client**, test the connection, and save. Then open **Analysis → INP Analysis…** to load the current counts automatically. Group samples or dilutions, mark water blanks, and enable blank correction to apply them to the analysis samples. Choose **MLE (maximum likelihood estimation)** or **Average**, and select concentration in suspension, sampled air, or dry soil using the corresponding sample metadata.
 
-Compare **number frozen**, **fraction frozen**, and **concentration** in the interactive plot. Concentration shows the combined group in black alongside each dilution in its sample color, with uncertainty visible by default. Set each dilution's temperature limits by dragging its tags below the plot or typing values; **Calculate** applies changes. **Auto range** can suggest limits for Average.
+Compare **number frozen**, **fraction frozen**, and **concentration** in the interactive plot. Concentration shows the combined group in black alongside directly calculated, blank-corrected dilution curves in their sample colors. Individual uncertainty comes from sample and blank binomial counts, regardless of the combination method. Set each dilution's temperature limits by dragging its tags below the plot or typing values; **Calculate** applies changes. **Auto range** can suggest limits for Average.
 
 ![MLE air-concentration result for the untreated M1 sample](resources/readme/2026-10-04-inp/m1-mle-air-concentration.png)
 

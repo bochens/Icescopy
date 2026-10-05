@@ -499,6 +499,8 @@ class InptkPanel(QWidget):
         controls.addWidget(self.fit_button)
         plot_layout.addLayout(controls)
         self.plot = pg.PlotWidget(axisItems={'left': ConcentrationAxis('left')})
+        self.uncertainty_lower_items = []
+        self.plot.getViewBox().sigYRangeChanged.connect(self.update_uncertainty_floor)
         self.plot.setBackground(self.palette().color(QPalette.Base))
         self.plot.getAxis('left').setWidth(100)
         for side in ("left", "bottom"):
@@ -568,7 +570,7 @@ class InptkPanel(QWidget):
         self.concentration_export_action = menu.addAction("Export combined concentration CSV…", lambda: self.export_csv())
         self.concentration_export_action.setToolTip("Temperature rows with concentration and lower/upper uncertainty bounds per combined group. Includes all calculated groups, using their saved units.")
         self.individual_export_action = menu.addAction("Export individual sample concentrations CSV…", lambda: self.export_csv('individual'))
-        self.individual_export_action.setToolTip("Temperature rows with concentration and lower/upper uncertainty bounds per individual sample/dilution. Uses full-range calculations in the saved units.")
+        self.individual_export_action.setToolTip("Direct blank-corrected concentrations and lower/upper binomial uncertainty bounds for every sample/dilution, on temperature rows in the saved units.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
@@ -650,121 +652,97 @@ class InptkPanel(QWidget):
             return (f'<p style="margin-top:12px; margin-bottom:4px;"><b>{title}</b></p>'
                     f'<p align="center" style="margin-top:6px; margin-bottom:10px; '
                     f'font-size:{text_size + 1.5:g}pt;">{formula}</p>')
+        direct = (
+            section('Individual dilution concentrations',
+                '<i>A</i> = −ln(1 − <i>f</i><sub>s</sub>)/<i>V</i><sub>s</sub>'
+                '<br><i>B</i> = −ln(1 − <i>f</i><sub>b</sub>)/<i>V</i><sub>b</sub>'
+                '<br><i>C</i> = <i>D</i>(<i>A</i> − <i>B</i>)') +
+            prose('<i>f</i><sub>s</sub> and <i>f</i><sub>b</sub> are the observed sample and blank '
+                  'frozen fractions. <i>V</i><sub>s</sub> and <i>V</i><sub>b</sub> are their well volumes '
+                  'in mL. <i>A</i> is the concentration in the diluted suspension, <i>B</i> the water '
+                  'background, and <i>D</i> the dilution factor. <i>C</i> is the corrected original '
+                  'suspension concentration in INP/mL. These direct individual curves are used for '
+                  'comparison and range selection regardless of the combination method.') +
+            prose('Assigned blanks with equal well volumes use pooled frozen and total counts. '
+                  'Different blank volumes are weighted by total assayed water volume. Without '
+                  'blank correction, <i>B</i> = 0. Signed corrected values remain in the individual results.') +
+            section('Individual counting uncertainty',
+                'δ<i>C</i><sub>−</sub> = <i>D</i>√[(δ<i>A</i><sub>−</sub>)² + (δ<i>B</i><sub>+</sub>)²]'
+                '<br>δ<i>C</i><sub>+</sub> = <i>D</i>√[(δ<i>A</i><sub>+</sub>)² + (δ<i>B</i><sub>−</sub>)²]') +
+            prose('Wilson binomial bounds are calculated separately from the sample and blank '
+                  'counts, then transformed to concentration bounds using their respective well '
+                  'volumes. δ<i>A</i><sub>−</sub> and δ<i>A</i><sub>+</sub> are the distances from '
+                  '<i>A</i> to its lower and upper bounds; δ<i>B</i><sub>−</sub> and '
+                  'δ<i>B</i><sub>+</sub> are the corresponding blank errors. The blank errors reverse '
+                  'direction because increasing the blank decreases the corrected concentration. '
+                  'Individual bounds are <i>C</i> − δ<i>C</i><sub>−</sub> and '
+                  '<i>C</i> + δ<i>C</i><sub>+</sub>.')
+        )
         if self.settings['method'] == 'mle':
             self.method_help.setText(prose('<b>Maximum likelihood (MLE)</b>') +
-                prose('Finds the sample concentration curve that maximizes the probability of the '
-                      'observed freezing counts, with the assigned water background included in the model.'))
+                prose('Finds one combined concentration curve that maximizes the probability of the '
+                      'observed freezing counts across dilutions and assigned water blanks. Individual '
+                      'dilutions use direct blank correction with binomial uncertainty for comparison.'))
             detail = (
-                section('Separate sample and water contributions',
-                    '<i>S</i><sub>sample</sub> = exp[−<i>v</i>(<i>K</i>/<i>D</i> + <i>B</i>)]'
-                    '<br><i>S</i><sub>blank</sub> = exp[−<i>v</i><sub>blank</sub><i>B</i>]') +
-                prose('<i>S</i> is the predicted fraction still liquid; exp is the exponential function. '
-                      '<i>K</i> is the original sample concentration and <i>B</i> the assigned water-background '
-                      'concentration, both in INP/mL. <i>D</i> is the dilution factor. '
-                      '<i>v</i> and <i>v</i><sub>blank</sub> are the actual sample and blank well volumes in mL.') +
-                prose('A sample well contains diluted sample material, <i>K</i>/<i>D</i>, plus water background '
-                      '<i>B</i>. Blank wells contain only <i>B</i>, so their frozen and liquid counts constrain '
-                      'the background. The fit finds one <i>K</i> curve across eligible dilutions and the '
-                      'background curves needed to explain their assigned blanks. The reported <i>K</i> '
-                      'is the sample contribution after separating out the water background. Each shared '
-                      'blank history contributes once. Without blank correction, <i>B</i> = 0.') +
-                section('Use additional frozen droplets at each step',
-                    '<i>n</i><sub>new</sub> = <i>F</i><sub>now</sub> − <i>F</i><sub>previous</sub>'
-                    '<br><i>p</i><sub>new</sub> = <i>S</i><sub>previous</sub> − <i>S</i><sub>now</sub>') +
-                prose('<i>F</i> is the observed number already frozen. <i>n</i><sub>new</sub> is the '
-                      'additional number frozen between readings; <i>p</i><sub>new</sub> is the predicted '
-                      'probability of freezing in that interval. For the first reading, the previous '
-                      'frozen count is zero and the previous liquid fraction is one.') +
-                section('Maximize the probability of both histories',
-                    'ℓ = Σ[<i>n</i><sub>new</sub> ln(<i>p</i><sub>new</sub>)]'
-                    '<br>+ Σ[<i>n</i><sub>liquid</sub> ln(<i>S</i><sub>end</sub>)]') +
-                prose('ℓ is the log likelihood: the logarithm of the probability of the measured counts. '
-                      'ln is the natural logarithm; Σ means sum. The first sum covers freezing intervals '
-                      'for samples and blanks. The second covers droplets still liquid at the end: '
-                      '<i>n</i><sub>liquid</sub> is their count and <i>S</i><sub>end</sub> their predicted '
-                      'liquid fraction. Each droplet contributes once. Terms constant during fitting '
-                      'are omitted. Sample and background concentrations are nonnegative and cannot '
-                      'decrease as cooling proceeds.') +
-                section('Include blank uncertainty in the concentration limits',
+                section('Sample and water contributions',
+                    '<i>S</i><sub>sample</sub> = exp[−<i>V</i>(<i>K</i>/<i>D</i> + <i>B</i>)]'
+                    '<br><i>S</i><sub>blank</sub> = exp[−<i>V</i><sub>blank</sub><i>B</i>]') +
+                prose('<i>S</i> is the predicted liquid fraction, <i>K</i> the original sample '
+                      'concentration, and <i>B</i> the water-background concentration, both in INP/mL. '
+                      '<i>D</i> is the dilution factor; <i>V</i> and <i>V</i><sub>blank</sub> are '
+                      'the sample and blank well volumes in mL. Sample wells contain both '
+                      '<i>K</i>/<i>D</i> and <i>B</i>; blank wells contain only <i>B</i>. The blank '
+                      'counts therefore constrain the background separated from the reported <i>K</i>. '
+                      'Each shared blank well set is included once. Without blank correction, <i>B</i> = 0.') +
+                section('Maximize the likelihood of the sample and blank counts',
+                    'ℓ(<i>K</i>, <i>B</i>) = Σ<sub>j,k</sub> Δ<i>F</i><sub>j,k</sub> '
+                    'ln(<i>S</i><sub>j,k−1</sub> − <i>S</i><sub>j,k</sub>)'
+                    '<br>+ Σ<sub>j</sub> (<i>N</i><sub>j</sub> − <i>F</i><sub>j,end</sub>) '
+                    'ln(<i>S</i><sub>j,end</sub>)') +
+                prose('<i>j</i> identifies a physical sample or blank well set and <i>k</i> a '
+                      'temperature reading during cooling. Δ<i>F</i><sub>j,k</sub> is the number '
+                      'newly frozen since the preceding reading. <i>N</i><sub>j</sub> is the '
+                      'initial well count; <i>F</i><sub>j,end</sub> is the final frozen count. '
+                      'The first term uses the probability of freezing between those readings. '
+                      'The second uses the probability of remaining liquid through the final reading. '
+                      'The fit maximizes ℓ over the sample and background curves together, with '
+                      'nonnegative concentrations that cannot decrease during cooling. Repeated '
+                      'readings of the same wells do not add independent droplets. Before the first '
+                      'reading, <i>F</i><sub>j,0</sub> = 0 and <i>S</i><sub>j,0</sub> = 1.') +
+                section('Combined concentration uncertainty',
                     'ℓ<sub>best</sub> − ℓ<sub>test</sub> ≤ <i>z</i><sup>2</sup>/2') +
-                prose('ℓ<sub>best</sub> is the largest log likelihood. For each tested sample concentration '
-                      'at one temperature, the toolkit re-estimates the other curve values and the blank '
-                      'background to obtain ℓ<sub>test</sub>. This lets blank uncertainty affect the '
-                      'allowed sample concentrations. The smallest and largest allowed values are the '
-                      'lower bound <i>L</i> and upper bound <i>U</i>. This procedure is called profile '
-                      'likelihood. The Advanced uncertainty setting <i>z</i> = 1.96 allows a log-likelihood '
-                      'drop of about 1.92, giving approximate 95% limits.')
+                prose('For each tested <i>K</i> at one temperature, the other sample-curve values and '
+                      'the blank background are refitted. The resulting ℓ<sub>test</sub> is compared '
+                      'with the maximum ℓ<sub>best</sub>. The smallest and largest accepted <i>K</i> '
+                      'are the lower and upper bounds. This profile-likelihood interval includes '
+                      'uncertainty in the fitted blank background. <i>z</i> = 1.96 gives approximate '
+                      '95% pointwise limits.') + direct
             )
         else:
             self.method_help.setText(prose('<b>Average</b>') +
-                prose('Converts each sample’s frozen fraction to concentration, subtracts its assigned '
-                      'water background, and corrects for dilution. Eligible concentrations are averaged '
-                      'equally. Uncertainty includes sample and blank counting errors, including shared blanks.'))
-            detail = (
-                section('Correct the water blank and dilution',
-                    '<i>A</i> = −ln(1 − <i>f</i><sub>s</sub>)/<i>V</i><sub>s</sub>'
-                    '<br><i>B</i> = −ln(1 − <i>f</i><sub>b</sub>)/<i>V</i><sub>b</sub>'
-                    '<br><i>C</i> = <i>d</i>(<i>A</i> − <i>B</i>)') +
-                prose('<i>f</i><sub>s</sub> and <i>f</i><sub>b</sub> are the sample and blank frozen fractions '
-                      '(frozen wells divided by total wells). <i>V</i><sub>s</sub> and <i>V</i><sub>b</sub> '
-                      'are their actual well volumes in mL; ln is the natural logarithm. '
-                      '<i>A</i> is the concentration in the measured sample suspension, <i>B</i> the '
-                      'water-background concentration, and <i>d</i> the dilution factor. '
-                      '<i>C</i> is the blank-corrected original sample concentration in INP/mL.') +
-                section('For equal sample and blank well volumes',
-                    '<i>f</i><sub>corrected</sub> = '
-                    '(<i>f</i><sub>s</sub> − <i>f</i><sub>b</sub>)/(1 − <i>f</i><sub>b</sub>)') +
-                prose('This corrected frozen fraction gives the same concentration. Without blank '
-                      'correction, <i>B</i> = 0. Negative corrected concentrations remain in the individual '
-                      'results for range review. Assigned blanks with equal well volumes use pooled '
-                      'frozen and total counts; different blank volumes are combined using weights '
-                      'proportional to their total water volumes (well count × well volume).') +
-                section('Counting uncertainty for sample and blank',
-                    '<i>f</i><sub>low, high</sub> = '
-                    '[<i>f</i> + <i>z</i><sup>2</sup>/(2<i>N</i>) ± '
-                    '<i>z</i>√(<i>f</i>(1 − <i>f</i>)/<i>N</i> + '
-                    '<i>z</i><sup>2</sup>/(4<i>N</i><sup>2</sup>))]'
-                    '<br>/ [1 + <i>z</i><sup>2</sup>/<i>N</i>]') +
-                prose('These are Wilson binomial bounds: uncertainty limits for a frozen fraction '
-                      'based on its total number of wells <i>N</i>. Use the sample and blank counts '
-                      'separately. <i>f</i> is the observed frozen fraction; <i>z</i> is the Advanced '
-                      'uncertainty setting (1.96 for nominal 95% limits). The minus sign gives '
-                      '<i>f</i><sub>low</sub>; the plus sign gives <i>f</i><sub>high</sub>.') +
-                prose('Convert each fraction bound through −ln(1 − <i>f</i>)/<i>V</i>, using its own '
-                      'well volume. For any concentration <i>X</i>, define the lower error width '
-                      'δ<i>X</i><sub>−</sub> = <i>X</i> − <i>X</i><sub>low</sub> and the upper error '
-                      'width δ<i>X</i><sub>+</sub> = <i>X</i><sub>high</sub> − <i>X</i>.') +
-                section('Propagate uncertainty through blank subtraction',
-                    'δ<i>C</i><sub>−</sub> = <i>d</i>√[(δ<i>A</i><sub>−</sub>)² + (δ<i>B</i><sub>+</sub>)²]'
-                    '<br>δ<i>C</i><sub>+</sub> = <i>d</i>√[(δ<i>A</i><sub>+</sub>)² + (δ<i>B</i><sub>−</sub>)²]') +
-                prose('A larger blank lowers the corrected sample concentration. Therefore the lower '
-                      'sample error uses the upper blank error, and the upper sample error uses the '
-                      'lower blank error. The independent error widths are squared, added, and '
-                      'square-rooted, then multiplied by dilution.') +
-                section('Combine uncertainty, including shared blanks',
+                prose('Averages eligible, directly blank-corrected dilution concentrations at each '
+                      'temperature. Uncertainty includes sample and blank counting errors, with '
+                      'shared blanks counted once.'))
+            detail = direct + (
+                section('Combined uncertainty with shared blanks',
                     'δ<i>C</i><sub>mean,−</sub> = √[Σ<i>w</i><sub>i</sub>²(δ<i>A</i><sub>i,−</sub>)²'
                     ' + Σ<i>q</i><sub>g</sub>²(δ<i>B</i><sub>g,+</sub>)²]'
                     '<br>δ<i>C</i><sub>mean,+</sub> = √[Σ<i>w</i><sub>i</sub>²(δ<i>A</i><sub>i,+</sub>)²'
                     ' + Σ<i>q</i><sub>g</sub>²(δ<i>B</i><sub>g,−</sub>)²]') +
-                prose('<i>C</i><sub>mean</sub> is the arithmetic mean of the eligible corrected '
-                      'concentrations. For <i>m</i> eligible samples, <i>w</i><sub>i</sub> = '
-                      '<i>d</i><sub>i</sub>/<i>m</i>. For each shared blank group <i>g</i>, '
-                      '<i>q</i><sub>g</sub> is the sum of these weights over samples using that blank. '
-                      'The first Σ sums the independent sample contributions; the second sums the '
-                      'blank-group contributions. A shared blank appears once with its combined weight.') +
-                section('Report lower and upper concentration bounds',
-                    '<i>L</i> = <i>C</i><sub>mean</sub> − δ<i>C</i><sub>mean,−</sub>'
-                    '<br><i>U</i> = <i>C</i><sub>mean</sub> + δ<i>C</i><sub>mean,+</sub>') +
-                prose('<i>L</i> is the lower concentration bound and <i>U</i> the upper concentration '
-                      'bound shown in the plot and CSV. At temperatures with one eligible sample, '
-                      'its corrected concentration and propagated errors are used.')
+                prose('<i>C</i><sub>mean</sub> is the equal-weight mean of the eligible corrected '
+                      'concentrations. With <i>m</i> contributing dilutions, <i>w</i><sub>i</sub> = '
+                      '<i>D</i><sub>i</sub>/<i>m</i>. For a shared blank group <i>g</i>, '
+                      '<i>q</i><sub>g</sub> sums those weights over the dilutions using that blank. '
+                      'Each shared blank contributes once with its combined weight. Lower and '
+                      'upper bounds are <i>C</i><sub>mean</sub> − δ<i>C</i><sub>mean,−</sub> '
+                      'and <i>C</i><sub>mean</sub> + δ<i>C</i><sub>mean,+</sub>. A single eligible '
+                      'dilution contributes its own direct concentration and propagated uncertainty.')
             )
         self.method_details.setText(detail +
             f'<p style="{paragraph} font-size:{max(10, text_size - 1):g}pt;">'
-            'These are approximate counting-uncertainty bounds at each temperature, not exact 95% '
-            'coverage or a confidence band for the entire curve. Supplied volumes, dilution factors, '
-            'normalization metadata and selected temperature ranges are treated as fixed. Conversion '
-            'to air or soil concentration scales the estimate and both bounds by the same factor.</p>')
+            'Bounds apply at each temperature. Volumes, dilution factors, normalization metadata '
+            'and selected ranges are treated as fixed. Air or soil conversion scales concentrations '
+            'and bounds by the same factor.</p>')
 
     def color(self, key):
         # Match the exact exported input to its Icescopy sample ID, including
@@ -1399,8 +1377,21 @@ class InptkPanel(QWidget):
                     raise ValueError('Review incomplete Auto ranges and enter cold and warm limits for: '
                                      + ', '.join(unresolved))
             unrestricted = not any(choices['ranges'].values())
-            args = cli_choices(choices, suggest=suggest, selected=selected,
-                               include_individual=not suggest and unrestricted, saved=True)
+            group_choices = copy_choices(choices)
+            direct_groups = {}
+            if not suggest and choices['method'] == 'mle':
+                combined = [curve for curve in choices['curves'] if len(curve['inputs']) > 1]
+                if combined:
+                    group_choices['curves'] = combined
+                    direct_groups = {curve['name']: curve['inputs'][0]
+                                     for curve in choices['curves'] if len(curve['inputs']) == 1}
+                else:
+                    # One dilution has no combination to fit. Use its observed
+                    # sample/blank fractions and binomial counting uncertainty.
+                    group_choices['method'] = 'average'
+            reuse_direct = not suggest and unrestricted and group_choices['method'] == 'average'
+            args = cli_choices(group_choices, suggest=suggest, selected=selected,
+                               include_individual=reuse_direct, saved=True)
             reference_choices = individual_choices(choices) if not suggest else None
             reference_key = (fingerprint([self.current_hash(), cli_choices(reference_choices)])
                              if reference_choices else None)
@@ -1467,13 +1458,13 @@ class InptkPanel(QWidget):
                 return
             def main_done(result):
                 pending = dict(result, key=key, choices=choices, source_hash=source_hash,
-                               toolkit_version=result['reply']['toolkit_version'])
-                if unrestricted:
+                               toolkit_version=result['reply']['toolkit_version'], direct_groups=direct_groups)
+                if reuse_direct:
                     finish(pending, references_from(result))
                 elif self.reference_cache and self.reference_cache['key'] == reference_key:
                     finish(pending, self.reference_cache)
                 else:
-                    self.operation_phase = 'Calculating full-range individual samples'; self.show_elapsed()
+                    self.operation_phase = 'Calculating direct individual concentrations'; self.show_elapsed()
                     analyze(reference, cli_choices(reference_choices, saved=True),
                             lambda result: finish(pending, references_from(result)),
                             lambda message: finish(pending, None, comparison_error=message))
@@ -1545,7 +1536,7 @@ class InptkPanel(QWidget):
                          if self.result.get('comparison_error') else
                          ". Calculate for full-range individual samples")
             self.plot_note.setText(note + ". Muted: excluded or outside selected limits.")
-            self.plot_note.setToolTip("Individual curves are independent full-range calculations using the same method, blanks and units. Excluded points and points outside the current limits are muted; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures, concentrations and lower/upper uncertainty bounds.")
+            self.plot_note.setToolTip("Individual curves use direct blank correction with propagated sample and blank binomial uncertainty, independently of the combination method. Excluded points and points outside the current limits are muted; the combined curve changes after Calculate. Log scale omits zeros. Saved sessions retain confidence limits; concentration CSVs contain temperatures, concentrations and lower/upper uncertainty bounds.")
         else:
             self.plot_note.setText("Measured freezing counts, before blank correction or combining dilutions.")
             self.plot_note.setToolTip("Each line represents one sample or marked water blank. Showing a blank does not assign it for correction.")
@@ -1606,9 +1597,19 @@ class InptkPanel(QWidget):
             self.refresh_preview()
         self.update_status()
 
+    def group_result_tables(self, result=None):
+        result = self.result if result is None else result
+        tables = dict((result or {}).get('tables', {}))
+        references = (result or {}).get('references')
+        if references is None: return tables  # A comparison failure is reported separately.
+        for name, key in (result or {}).get('direct_groups', {}).items():
+            original = references['by_input'][key]
+            tables[name] = references['tables'][original]
+        return tables
+
     def selected_result_tables(self, kind):
         selected = set(self.selected_curve_names())
-        return [(name, tables[kind]) for name, tables in (self.result or {}).get("tables", {}).items()
+        return [(name, tables[kind]) for name, tables in self.group_result_tables().items()
                 if kind in tables and name in selected]
 
     def concentration_tables(self, kind):
@@ -1618,15 +1619,14 @@ class InptkPanel(QWidget):
                    if curve['name'] in selected and len(curve['inputs']) > 1 for key in curve['inputs']}
         references = (self.result or {}).get('references')
         if references:
-            single_keys = {info['sources'][0]['measurement_id']
-                          for name, info in self.result['reply']['curves'].items()
-                          if name in selected and len(info['sources']) == 1}
+            single_keys = {curve['inputs'][0] for curve in self.result['choices']['curves']
+                           if curve['name'] in selected and len(curve['inputs']) == 1}
             for key, name in references['by_input'].items():
                 if key not in members or key in single_keys: continue
                 original = references['tables'][name]
                 if kind == 'cumulative':
                     # Display every individual estimate, including values omitted
-                    # by the toolkit's final monotonic selection. Do not alter the fit.
+                    # by the toolkit's final monotonic selection. Keep its values intact.
                     cache = self.reference_plot_tables
                     if name not in cache:
                         rows = sorted(original['cumulative']['rows'] +
@@ -1652,7 +1652,12 @@ class InptkPanel(QWidget):
             dilution = source.get('dilution')
             label = f"{key}, {float(dilution):g}×" if dilution is not None else key
             return label, key, True
-        sources = (self.result or {}).get('reply', {}).get('curves', {}).get(name, {}).get('sources', [])
+        result = self.result or {}
+        sources = result.get('reply', {}).get('curves', {}).get(name, {}).get('sources', [])
+        if name in result.get('direct_groups', {}) and result.get('references'):
+            references = result['references']
+            original = references['by_input'][result['direct_groups'][name]]
+            sources = references['reply']['curves'][original]['sources']
         overlay = name not in self.selected_curve_names()
         key = sources[0]['measurement_id'] if len(sources) == 1 else name
         label = name
@@ -1737,6 +1742,7 @@ class InptkPanel(QWidget):
         if self.render_key == render_key:
             self.draw_ranges(); self.update_status(); return
         self.render_key = render_key
+        self.uncertainty_lower_items.clear()
         self.plot.clear(); self.range_items.clear()
         legend = self.plot.getPlotItem().legend
         if legend: legend.clear()
@@ -1829,8 +1835,9 @@ class InptkPanel(QWidget):
                     upper = y + np.array([number(row.get("upper_error")) for row in chunk])
                     for bound in (lower, upper):
                         bound[~np.isfinite(bound)] = np.nan
-                        if logarithmic: bound[bound <= 0] = np.nan
-                        ys.extend(bound[np.isfinite(x) & np.isfinite(bound)])
+                        visible_bound = np.isfinite(x) & np.isfinite(bound)
+                        if logarithmic: visible_bound &= bound > 0
+                        ys.extend(bound[visible_bound])
                     # Individual uncertainty uses its sample color and the same
                     # outside-range muting as its curve. Combined bounds are black.
                     if overlay:
@@ -1844,23 +1851,45 @@ class InptkPanel(QWidget):
         if refit: self.fit_plot()
         self.draw_ranges(); self.update_status()
 
+    def uncertainty_floor(self):
+        # A drawing boundary below the viewport, never a substituted data bound.
+        return 10. ** max(-300., min(300., self.plot.getViewBox().viewRange()[1][0] - 1.))
+
+    def update_uncertainty_floor(self, *_args):
+        floor = self.uncertainty_floor()
+        for curve, x, values, nonpositive in self.uncertainty_lower_items:
+            shown = values.copy()
+            shown[nonpositive] = floor
+            curve.setData(x, shown)
+
     def draw_uncertainty(self, x, lower, upper, color, mask, opacity):
         lower, upper = lower.copy(), upper.copy()
         lower[~mask] = np.nan; upper[~mask] = np.nan
+        logarithmic = self.plot.getPlotItem().ctrl.logYCheck.isChecked()
         fill = QColor(color)
         fill.setAlphaF(self.window.inptk_uncertainty_opacity / 100. * opacity)
         edge = QColor(color)
         edge.setAlphaF(min(1., self.window.inptk_uncertainty_opacity / 100. * 2.5) * opacity)
         for bound in (lower, upper):
-            self.plot.plot(x, bound, pen=pg.mkPen(edge, width=1), connect="finite").setZValue(-1)
-        # Pair identical temperatures and split at gaps. Unequal or nonpositive
-        # log bounds must never close a diagonal polygon across missing values.
-        paired = np.flatnonzero(np.isfinite(x) & np.isfinite(lower) & np.isfinite(upper))
+            shown = bound.copy()
+            if logarithmic: shown[shown <= 0] = np.nan
+            self.plot.plot(x, shown, pen=pg.mkPen(edge, width=1), connect="finite").setZValue(-1)
+        paired = np.isfinite(x) & np.isfinite(lower) & np.isfinite(upper)
+        if logarithmic: paired &= upper > 0
+        paired = np.flatnonzero(paired)
+        # Split at missing observations and range boundaries. A nonpositive
+        # lower bound fills to the viewport bottom without drawing a false edge.
         for indices in np.split(paired, np.flatnonzero(np.diff(paired) != 1) + 1):
             if len(indices) < 2: continue
             boundary = pg.mkPen(QColor(0, 0, 0, 0))
-            band_lo = self.plot.plot(x[indices], lower[indices], pen=boundary)
+            values = lower[indices]
+            nonpositive = values <= 0 if logarithmic else np.zeros(len(values), dtype=bool)
+            shown = values.copy()
+            if nonpositive.any(): shown[nonpositive] = self.uncertainty_floor()
+            band_lo = self.plot.plot(x[indices], shown, pen=boundary)
             band_hi = self.plot.plot(x[indices], upper[indices], pen=boundary)
+            if nonpositive.any():
+                self.uncertainty_lower_items.append((band_lo, x[indices], values, nonpositive))
             band = pg.FillBetweenItem(band_lo, band_hi, brush=fill)
             band.setZValue(-2)
             self.plot.addItem(band, ignoreBounds=True)
@@ -2009,6 +2038,7 @@ class InptkPanel(QWidget):
             write_csv(path, headers, rows)
             return len(rows)
         if kind == 'frozen_fraction':
+            selection_result = result.get('references') or result
             def ready(reference):
                 def received(reply):
                     if not result['choices']['grid_step'].strip():
@@ -2020,7 +2050,7 @@ class InptkPanel(QWidget):
                     selected = []
                     tasks = ['cumulative']
                     if any(info['tables'].get('excluded', {}).get('row_count', 0)
-                           for info in result['reply']['curves'].values()): tasks.append('excluded')
+                           for info in selection_result['reply']['curves'].values()): tasks.append('excluded')
                     def next_table():
                         if not tasks:
                             self.client.compute(lambda: save(frozen_fraction_csv(reply['table'], result['choices'], selected)), done, self.error)
@@ -2032,14 +2062,14 @@ class InptkPanel(QWidget):
                     next_table()
                 self.client.request(['table', reference, '--table', 'frozen_fraction', '--no-history',
                     '--columns', 'temperature_C', 'measurement_id', 'run_id', 'cycle_id', 'observation_id', 'fraction_frozen'], received, self.error)
-            self.ensure_result_reference(result, ready)
+            self.ensure_result_reference(selection_result, ready)
         else:
             if kind == 'individual':
                 references = result['references']
                 tables = references['tables']
                 curves = list(references['by_input'].items())
             else:
-                tables = result['tables']
+                tables = self.group_result_tables(result)
                 curves = [(curve['name'], curve['name']) for curve in result['choices']['curves']]
             self.client.compute(lambda: save(concentration_csv(tables, curves)), done, self.error)
 

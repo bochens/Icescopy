@@ -31,12 +31,13 @@ def copy_choices(settings):
 
 
 def individual_choices(settings):
-    """Independent full-range fits, for comparison only, never extra replicates."""
+    """Direct full-range sample/blank calculations, independent of combination."""
     result = copy_choices(settings)
     keys = list(dict.fromkeys(k for c in settings["curves"] for k in c["inputs"]))
     result["curves"] = [{"name": key, "inputs": [key]} for key in keys]
     result["ranges"] = {}
     result["suggestion"] = None
+    result["method"] = "average"
     return result
 
 

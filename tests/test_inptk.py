@@ -15,7 +15,7 @@ from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QItemSelectionModel
 from PySide6.QtGui import QColor, QUndoCommand
-from icescopy_inptk_state import cli_choices, concentration_curves, new_settings, reconcile_inputs
+from icescopy_inptk_state import cli_choices, concentration_curves, individual_choices, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
@@ -114,6 +114,19 @@ class InpChoiceTests(unittest.TestCase):
         self.assertEqual(specs['Combined / B (2)']['inputs'], [{'measurement_id': 'B', 'cycle_id': '01'}])
         args = cli_choices(state, include_individual=True)
         self.assertEqual(json.loads(args[args.index('--curves')+1]), specs)
+        self.assertEqual(state, original)
+
+    def test_individual_calculation_is_direct_and_independent_of_combination(self):
+        state = self.settings()
+        state.update(method='mle', ranges={'A': {'min_C': -20, 'max_C': -10}})
+        original = copy.deepcopy(state)
+        direct = individual_choices(state)
+        args = cli_choices(direct, saved=True)
+        self.assertEqual(args[args.index('--method') + 1], 'average')
+        self.assertEqual(direct['ranges'], {})
+        self.assertEqual(direct['curves'], [{'name': 'A', 'inputs': ['A']},
+                                         {'name': 'B', 'inputs': ['B']}])
+        self.assertEqual(direct['inputs']['A']['blanks'], ['water'])
         self.assertEqual(state, original)
 
     def test_upload_keeps_counts_metadata_and_blanks_in_the_same_scope(self):
@@ -584,6 +597,65 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.close()
         self.assertFalse(self.panel.client.busy)
         self.assertIs(self.panel.result, original)
+
+    def test_mle_combination_uses_direct_individual_counts_and_binomial_bounds(self):
+        import csv
+        keys = self.configure(); p = self.panel
+        p.change_option('method', 'mle')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            self.calculate()
+        analyzes = [call.args[0] for call in requests.call_args_list if call.args[0][0] == 'analyze']
+        self.assertEqual([args[args.index('--method') + 1] for args in analyzes], ['mle', 'average'])
+        fitted = json.loads(analyzes[0][analyzes[0].index('--curves') + 1])
+        self.assertEqual(set(fitted), {'Combined'})
+        self.assertTrue(all(len(curve['inputs']) > 1 for curve in fitted.values()))
+        reference = p.result['references']
+        table = reference['tables'][reference['by_input'][keys[1]]]['cumulative']
+        point = next(row for row in table['rows'] if row['temperature_C'] == -8.)
+        # 8/10 frozen sample wells, 1/10 frozen blank wells, dilution 10,
+        # both well volumes 0.05 mL. Derive the reference independently.
+        def estimate_and_widths(frozen, total):
+            f, z, volume = frozen / total, 1.96, .05
+            center = (f + z*z/(2*total)) / (1 + z*z/total)
+            half = z * math.sqrt(f*(1-f)/total + z*z/(4*total*total)) / (1 + z*z/total)
+            value = -math.log1p(-f) / volume
+            low = -math.log1p(-(center-half)) / volume
+            high = -math.log1p(-(center+half)) / volume
+            return value, value-low, high-value
+        sample, slo, shi = estimate_and_widths(8, 10)
+        blank, blo, bhi = estimate_and_widths(1, 10)
+        self.assertAlmostEqual(point['concentration'], 10*(sample-blank))
+        self.assertAlmostEqual(point['lower_error'], 10*math.hypot(slo, bhi))
+        self.assertAlmostEqual(point['upper_error'], 10*math.hypot(shi, blo))
+        direct_group = p.group_result_tables()['Neat']['cumulative']
+        self.assertEqual(direct_group, reference['tables'][reference['by_input'][keys[0]]]['cumulative'])
+        path = self.fixture.root / 'direct-individual.csv'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(path), '')):
+            p.export_csv('individual')
+        self.wait(lambda: not p.operation and not p.client.busy)
+        with path.open() as handle: exported = list(csv.DictReader(handle))
+        row = next(row for row in exported if float(row['temperature_C']) == -8.)
+        self.assertAlmostEqual(float(row[f'{keys[1]} concentration (INP/mL suspension)']), point['concentration'])
+        self.assertAlmostEqual(float(row[f'{keys[1]} lower bound (INP/mL suspension)']), point['concentration']-point['lower_error'])
+        combined = copy.deepcopy(p.result['tables']['Combined'])
+        p.settings['ranges'][keys[1]] = {'min_C': -7., 'max_C': -5.}
+        self.calculate()
+        self.assertIs(p.result['references'], reference)
+        self.assertNotEqual(p.result['tables']['Combined'], combined)
+        p.change_option('method', 'average'); self.calculate()
+        self.assertEqual(p.result['references']['tables'][p.result['references']['by_input'][keys[1]]]['cumulative'], table)
+
+    def test_one_sample_group_uses_direct_calculation_when_mle_is_selected(self):
+        keys = self.configure(); p = self.panel
+        state = copy.deepcopy(p.settings)
+        state.update(method='mle', curves=[{'name': 'Single sample', 'inputs': [keys[0]]}])
+        p.commit(state, 'One sample without dilution combination')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            self.calculate()
+        analyzes = [call.args[0] for call in requests.call_args_list if call.args[0][0] == 'analyze']
+        self.assertEqual(len(analyzes), 1)
+        self.assertEqual(analyzes[0][analyzes[0].index('--method') + 1], 'average')
+        self.assertEqual(set(p.group_result_tables()), {'Single sample'})
 
     def test_one_selection_controls_plot_ranges_and_assigned_blank_visibility(self):
         keys = self.configure(); self.calculate()
@@ -1065,6 +1137,37 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertTrue(any(color.alphaF() < .1 for color in first))
         self.assertTrue(any(color.rgb() == QColor(Qt.black).rgb() for color in colors))
         self.assertEqual(p.plot_limits[0][1], 0.)
+
+    def test_log_band_crossing_zero_remains_visible_without_changing_bounds(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        self.window.inptk_log_concentration = True
+        references = p.result['references']
+        table = references['tables'][references['by_input'][keys[1]]]['cumulative']
+        for row in table['rows']:
+            row['lower_error'] = row['concentration']  # A real zero lower bound.
+        before = copy.deepcopy(table)
+        p.reference_plot_tables.clear(); p.render_key = None; p.draw()
+        self.assertTrue(p.uncertainty_lower_items)
+        import pyqtgraph as pg
+        bands = [item for item in p.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)
+                 and item.brush().color().rgb() == p.color(keys[1]).rgb()]
+        self.assertTrue(any(not item.path().isEmpty() for item in bands))
+        p.plot.setYRange(-7., 2., padding=0)
+        QApplication.processEvents()
+        for curve, x, values, nonpositive in p.uncertainty_lower_items:
+            for value in curve.yData[nonpositive]: self.assertAlmostEqual(value, 1e-8)
+        self.assertEqual(table, before)
+        _, rows = concentration_csv(references['tables'], list(references['by_input'].items()))
+        columns, _ = concentration_csv(references['tables'], list(references['by_input'].items()))
+        bound_column = columns.index(f'{keys[1]} lower bound (INP/mL suspension)')
+        self.assertTrue(all(row[bound_column] in ('', 0.) for row in rows))
+        p.change_option('method', 'mle')
+        p.update_method_help()
+        help_text = p.method_help.text() + p.method_details.text()
+        self.assertNotIn('exponential function', help_text)
+        self.assertNotIn('both histories', help_text)
+        self.assertIn('sample and blank counts', help_text)
+        self.assertIn('direct blank correction', help_text)
 
     def test_excluded_individual_point_inside_limits_is_faded_without_changing_saved_tables(self):
         keys = self.configure(); self.calculate(); p = self.panel
