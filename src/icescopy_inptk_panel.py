@@ -374,7 +374,7 @@ class InptkPanel(QWidget):
         self.blank_range_status.setWordWrap(True)
         layout.addWidget(self.blank_range_status)
         self.full_range = QPushButton("Full range")
-        self.full_range.setToolTip("Use each sample's measured cold limit and a warm limit of 0 °C.")
+        self.full_range.setToolTip("Reset manual limits to the full available data range for each sample.")
         self.full_range.clicked.connect(self.reset_ranges)
         layout.addWidget(self.full_range)
         layout.addSpacing(8)
@@ -459,7 +459,10 @@ class InptkPanel(QWidget):
         self.grid_step = self.option_edit("grid_step", "Off")
         self.grid_start = self.option_edit("grid_start", "")
         self.grid_end = self.option_edit("grid_end", "")
-        self.grid_window = self.option_edit("grid_window", "Required for centered window")
+        self.grid_window = self.option_edit("grid_window", "Full width, e.g. 0.5")
+        self.grid_window.setToolTip("Full centered width in °C, independent of grid spacing. Selects the largest frozen count; ties use the latest observation.")
+        self.grid_window_note = QLabel("A 0.5 °C window at −20 °C uses observations from −20.25 to −19.75 °C and selects the largest frozen count.")
+        self.grid_window_note.setWordWrap(True)
         self.grid_method = QComboBox()
         for name, key in (("Latest warmer", "latest"), ("Maximum warmer fraction", "max"), ("Centered window", "window")):
             self.grid_method.addItem(name, key)
@@ -469,6 +472,7 @@ class InptkPanel(QWidget):
         form.addRow("Cold end (°C)", self.grid_end)
         form.addRow("Count selection", self.grid_method)
         form.addRow("Window width (°C)", self.grid_window)
+        form.addRow(self.grid_window_note)
         layout.addWidget(self.grid_controls)
         layout.addSpacing(12)
         layout.addWidget(self.heading("Concentration"))
@@ -861,6 +865,7 @@ class InptkPanel(QWidget):
         self.grid_enabled.setChecked(bool(self.settings["grid_step"]))
         self.grid_controls.setVisible(bool(self.settings["grid_step"]))
         self.grid_form.setRowVisible(self.grid_window, self.settings["grid_method"] == "window")
+        self.grid_form.setRowVisible(self.grid_window_note, self.settings["grid_method"] == "window")
         for widget in (self.grid_start, self.grid_end, self.grid_method): widget.setEnabled(bool(self.settings["grid_step"]))
         samples = [key for key, value in self.settings["inputs"].items() if not value["blank"]]
         blanks = [key for key, value in self.settings["inputs"].items() if value["blank"]]
@@ -925,7 +930,7 @@ class InptkPanel(QWidget):
                 item = QTableWidgetItem(f"{number(value):.2f}" if value is not None else "")
                 endpoint = measured.get(key, {}).get(limit)
                 item.setData(Qt.UserRole, f"{endpoint:.2f}" if endpoint is not None else "Auto")
-                item.setToolTip("Displayed to two decimal places; stored limits retain their original precision. Clear this field to use the measured cold limit or a warm limit of 0 °C. Both endpoints are included.")
+                item.setToolTip("Displayed to two decimal places; stored limits retain their original precision. Clear this field to use the full available data range. Both endpoints are included.")
                 item.setData(Qt.AccessibleTextRole, item.text() or f"Full-range limit: {item.data(Qt.UserRole)} °C")
                 self.ranges.setItem(row, col, item)
         if self.range_ids:
@@ -1171,10 +1176,16 @@ class InptkPanel(QWidget):
             collection = "blank_ranges" if state["inputs"][key]["blank"] else "ranges"
             if collection == "ranges" or self.client.supports_option('analyze', BLANK_RANGE_FLAG):
                 state[collection].pop(key, None)
-        self.commit(state, "INP analysis: use the full freezing range through 0 °C for selected groups")
+        self.commit(state, "INP analysis: use the full available data range for selected groups")
 
     def full_range_limits(self):
-        cache_key = (id(self.preview), self.preview_hash, tuple((k, v['cycle']) for k, v in self.settings['inputs'].items()))
+        # These guides describe the data shown, rather than the grid bounds.
+        # Resetting manual limits still retains the toolkit's full-range fit.
+        references = (self.result or {}).get('references')
+        if (self.result or {}).get('source_hash') != self.preview_hash:
+            references = None
+        cache_key = (id(self.preview), self.preview_hash, self.quantity.currentText(), id(references),
+                     tuple((k, v['cycle']) for k, v in self.settings['inputs'].items()))
         if self.limits_cache and self.limits_cache[0] == cache_key:
             return self.limits_cache[1]
         temperatures = {}
@@ -1186,7 +1197,25 @@ class InptkPanel(QWidget):
             if math.isfinite(value):
                 lo, hi = temperatures.get(key, (value, value))
                 temperatures[key] = (min(lo, value), max(hi, value))
-        result = {key: {"min_C": min(values[0], 0.), "max_C": 0.} for key, values in temperatures.items()}
+        result = {key: {"min_C": values[0], "max_C": min(values[1], 0.)}
+                  for key, values in temperatures.items() if values[0] <= 0.}
+        if self.quantity.currentText() == 'Concentration' and references:
+            for key, name in references['by_input'].items():
+                source = references['reply']['curves'][name]['sources'][0]
+                if str(source['cycle_id']) != self.settings['inputs'][key]['cycle']:
+                    continue
+                tables = references['tables'][name]
+                # Excluded individual estimates remain visible for comparison.
+                # Their useful interval is supplied by the toolkit, not inferred here.
+                rows = tables['cumulative']['rows'] + [row for row in tables['excluded']['rows']
+                        if row.get('reporting_status') == 'within_freezing_interval']
+                available = [number(row['temperature_C']) for row in rows
+                             if math.isfinite(number(row['temperature_C']))
+                             and math.isfinite(number(row['concentration']))]
+                if available:
+                    result[key] = {'min_C': min(available), 'max_C': max(available)}
+                else:
+                    result.pop(key, None)
         self.limits_cache = (cache_key, result)
         return result
 
@@ -1250,15 +1279,18 @@ class InptkPanel(QWidget):
         measured = self.full_range_limits()
         blocked = self.ranges.blockSignals(True)
         for row, key in enumerate(self.range_ids):
-            if key not in measured: continue
-            limits = self.displayed_range(key, measured)
+            limits = self.displayed_range(key, measured) if key in measured else {}
             for column, boundary in ((1, 'min_C'), (2, 'max_C')):
                 item = self.ranges.item(row, column)
+                endpoint = measured.get(key, {}).get(boundary)
+                placeholder = f"{endpoint:.2f}" if endpoint is not None else "Unavailable"
+                item.setData(Qt.UserRole, placeholder)
+                item.setData(Qt.AccessibleTextRole, item.text() or f"Full-range limit: {placeholder}")
                 editable = self.range_boundary_editable(key, column - 1)
                 item.setFlags((item.flags() | Qt.ItemIsEditable) if editable else (item.flags() & ~Qt.ItemIsEditable))
                 brush = self.ranges.palette().brush(QPalette.Active if editable else QPalette.Disabled, QPalette.Text)
                 item.setForeground(brush)
-                if self.settings['inputs'][key]['blank'] and self.settings['blank_after_first_freeze'] and column == 2:
+                if key in measured and self.settings['inputs'][key]['blank'] and self.settings['blank_after_first_freeze'] and column == 2:
                     item.setText(f"{limits[boundary]:.2f}")
                     item.setToolTip("Locked to the first observed freeze in the assigned water blanks. The toolkit applies this rule.")
         self.ranges.blockSignals(blocked)

@@ -37,7 +37,7 @@ Expand **Equations and uncertainty** under Combine for the formulas and assumpti
 
 Each sample retains its own cold and warm limits. Faint vertical dashed lines show all limits in the selected group, using the sample catalog colors. Select a row in the limits table or click an individual sample's curve to show its two draggable tags in a single row **below the plot**. Only that sample's controls are active, so overlapping limits cannot silently edit a different sample. You can also type temperatures into the table. Dragging elsewhere in the plot pans the view.
 
-Both endpoints are included. Gray italic numbers show the default endpoints: the sample's measured cold limit and a **0 °C warm limit**. Clear a field to return that boundary to its default, or choose **Full range** to reset limits for all samples in the selected groups. These defaults are also sent to the toolkit; readings above 0 °C are omitted from the concentration calculation unless you explicitly set a warmer limit. Full range can be undone.
+Both endpoints are included. Gray italic numbers show the available data endpoints: the individual spectrum’s useful points in Concentration, or the measured count range up to 0 °C in the raw plots. Clear a field to return that boundary to its default, or choose **Full range** to remove manual limits for samples in the selected groups. The guides stay within the data; the grid bounds do not extend a spectrum. Full-range fitting retains earlier and later count observations that constrain the calculation. Full range can be undone.
 
 The limits table displays two decimal places. Dragging, calculations, and saved sessions retain the original precision; only editing a value changes it.
 
@@ -48,6 +48,8 @@ Choose **Calculate** to generate concentrations. Every click runs the group calc
 The status shows elapsed calculation time. The console reports toolkit and display time separately. Uploaded counts and unchanged full-range individual comparisons are reused to keep group calculations responsive.
 
 Counts are transferred from Icescopy's memory to one persistent toolkit process. Each calculation sends the requested groups' samples and their assigned blanks; Auto range sends only the selected group's inputs. The complete count table remains available for raw plots. Changing limits, method, or grid reuses uploaded counts; changing the source data, requested samples, metadata, or blank assignments transfers a new input. Calculating does not create temporary CSVs or save result folders. Superseded toolkit results are released after the replacement succeeds.
+
+**Centered window** shows a **Window width (°C)** field in Advanced. This is the full temperature width around each grid point, independent of grid spacing. For example, a 0.5 °C width at −20 °C selects the largest frozen count observed from −20.25 to −19.75 °C; ties use the latest observation. A window without observations leaves a gap.
 
 ## Read the plots
 
