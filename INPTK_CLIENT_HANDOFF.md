@@ -1,40 +1,48 @@
-# INP-toolkit client contract: water-blank controls
+# Icescopy INP-toolkit client handoff
 
-Scientific calculations remain in the external INP-toolkit CLI.
-Implemented toolkit source: `fe3d3b7` (package version 0.4.3).
-Query capabilities rather than relying on the displayed version.
+Current goal: use native grid-range selection consistently; prepare the next
+Icescopy release after client verification. Do not edit INP-toolkit here.
 
-## CLI interface
+## Verified toolkit contract
 
-Both `analyze` and `suggest-ranges` advertise these options:
+- Installed CLI: `/Applications/INP-toolkit/inptk`, source `84ffe3e`, version 0.4.3.
+- Sample limits select calculation targets after counts have been selected.
+- Original source rows supplying retained grid states remain unchanged.
+- Full and explicitly selecting the full useful grid span are equivalent.
+- MLE retains observations outside useful reporting support as fit constraints.
+- `settings.resolved_temperature_ranges_C` is keyed by curve, then input.
+- Each input reports `run_id`, `cycle_id`, `full_range_C`, `selected_range_C`,
+  and `calculation_limits_C`. A missing useful span is null.
+- `source_observations` includes selected frozen/total counts and source identity.
+- Average suggestions use the same grid domain.
 
-- `--water-blank-after-first-freeze`: boolean, off by default.
-- `--water-blank-temperature-range`: one JSON object containing inclusive `min_C` / `max_C` limits shared by all assigned water controls.
-- Sample combination limits continue to use `--temperature-ranges` by measurement ID.
-- Resolved controls are returned in `settings.water_blank_controls`, keyed by curve. Each entry identifies the run, cycle, measurement IDs, original first-freeze temperature, effective temperature limits, and whether background is zero throughout.
-- Saved native analyses retain these settings and resolved controls.
+## Client decisions
 
-## Scientific behavior supplied by the toolkit
+- Forward only explicit sample limits; Full sends an empty range map.
+- The configured count grid stays 0 to −35 °C in 0.5 °C steps by default.
+- Display sample Full endpoints from native `full_range_C`, not finite estimates.
+- After calculation, sample guides use these same native endpoints in all plots.
+- Before calculation, raw views can show acquisition extents. Concentration
+  never substitutes original observations or an outdated grid for native limits.
+- A warm-only drag changes only the warm choice, matching a numeric edit.
+- Combined cuts never alter direct individual reference calculations or exports.
+- Blank limits remain shared observation limits, editable only in raw views.
+- First-blank-freeze gating locks the warm blank control; the CLI enforces it.
 
-- Assigned blanks in each run/cycle share one water background and retain their actual well volumes.
-- The first-freeze option fixes background and its uncertainty contribution at zero before the earliest observed freeze in that assigned control set. Never-frozen controls give zero background throughout.
-- Onset is resolved from original observations before grid selection and sample exclusions.
-- The rule applies to joint MLE, Average, direct individual concentrations, and uncertainty.
-- Manual blank limits filter control observations. They do not imply zero correction outside the limits. Latest selection can retain a warmer state at a colder target; missing required direct-control states give unavailable concentrations. MLE uses retained trajectories.
-- Raw blank counts and fractions remain unchanged.
+## Files and checks
 
-## Icescopy controls
+- `src/icescopy_inptk_state.py`: CLI arguments; no implicit sample cutoff.
+- `src/icescopy_inptk_panel.py`: native Full guides and range editing.
+- `tests/test_inptk.py`: real CLI checks for grid equivalence and UI controls.
+- `/tmp/icescopy-inp-ui-review/reproduce-toolkit-grid-cut.py`: original CLI case.
+- `/tmp/icescopy-inp-ui-review/audit-warm-only-range.py`: read-only M1 check.
+- Use Icescopy conda Python, `PYTHONPATH=src:tests`, `QT_QPA_PLATFORM=offscreen`,
+  and `INPTK_TEST_EXECUTABLE=/Applications/INP-toolkit/inptk`.
+- Native comparison passed for MLE/Average and latest/max/window selection:
+  same full points, concentrations, uncertainty and sources; cold states retained.
+- M1 warm text/tag comparison retained −28.5 °C and preserved the saved recording.
 
-- The Samples page retains Apply blank correction, Start correction at first blank freeze, and plot visibility.
-- Blank range rows remain visible in the concentration limits table as read-only references; blank concentration is not plotted.
-- Edit shared blank limits in Number frozen or Fraction frozen. Changing one blank row updates the shared limit for all controls.
-- With first-freeze correction enabled, warm fields/tags remain visible but locked at onset. Cold limits remain adjustable in raw views.
-- Full range in concentration clears sample cuts only. Full range in raw views also clears manual blank cuts; it retains the first-freeze checkbox.
-- Method-dependent controls remain in a separate native Qt box, without redundant MLE/Average options titles.
-- Unsupported controls are disabled according to the executable's advertised capabilities.
-
-## Relevant client files
-
-`src/icescopy_inptk_state.py`, `src/icescopy_inptk_panel.py`, `src/icescopy_inptk_plot.py`, and `tests/test_inptk.py`.
-
-Checks cover actual CLI flags, both methods, direct uncertainty before onset, shared control ranges, multiple blanks, locked/read-only controls, saving, raw-count preservation, and grid-based useful spectrum endpoints.
+Client verification passed: 12 choice checks and seven real-CLI integration
+checks, plus the read-only M1 comparison. Reviewed diff and checked whitespace.
+Next: push/merge and release/install when requested. Preview `05daa4a` does not
+contain these latest client edits.

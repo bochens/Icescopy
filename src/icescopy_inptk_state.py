@@ -176,8 +176,8 @@ def concentration_curves(settings):
 
 
 def temperature_range(settings, key):
-    """The client's full freezing range ends at 0 °C unless explicitly edited."""
-    return {"max_C": 0., **settings["ranges"].get(key, {})}
+    """Forward only user limits; an empty range means toolkit Full range."""
+    return dict(settings["ranges"].get(key, {}))
 
 
 def cli_choices(settings, *, suggest=False, selected=None, include_individual=False, saved=False):
@@ -224,7 +224,8 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
     else:
         args += ["--method", settings["method"], "--output-basis", settings["basis"],
                  "--decrease-policy", settings["decrease_policy"]]
-        ranges = {key: temperature_range(settings, key) for key in sorted(used)}
+        ranges = {key: temperature_range(settings, key) for key in sorted(used)
+                  if settings["ranges"].get(key)}
         for key, limits in ranges.items():
             if any(not math.isfinite(float(v)) for v in limits.values()):
                 raise ValueError(f"{key}: limits must be finite temperatures.")

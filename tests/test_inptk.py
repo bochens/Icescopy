@@ -75,17 +75,19 @@ class InpChoiceTests(unittest.TestCase):
         self.assertNotIn(BLANK_RANGE_FLAG, args)
         self.assertNotIn(BLANK_ONSET_FLAG, args)
 
-    def test_full_freezing_range_ends_at_zero_and_keeps_explicit_limits(self):
+    def test_full_range_sends_no_hidden_cuts_and_keeps_explicit_limits(self):
         state = self.settings()
         before = copy.deepcopy(state)
         args = cli_choices(state)
-        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
-                         {'A': {'max_C': 0.}, 'B': {'max_C': 0.}})
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
+        self.assertEqual(args[args.index('--temperature-start-C') + 1], '0')
+        self.assertEqual(args[args.index('--temperature-end-C') + 1], '-35')
         self.assertEqual(state, before)
         state['ranges'] = {'A': {'min_C': -20}, 'B': {'max_C': -15}}
         args = cli_choices(state)
-        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
-                         {'A': {'min_C': -20, 'max_C': 0.}, 'B': {'max_C': -15}})
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), state['ranges'])
+        args = cli_choices(individual_choices(state))
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
 
     def test_invalid_choices_are_not_silently_corrected(self):
         edits = [
@@ -973,6 +975,63 @@ class InpIntegrationTests(unittest.TestCase):
         region.sigRegionChangeFinished.emit(region)
         self.assertEqual(p.settings['ranges'], {keys[1]: {'max_C': -6.5}})
 
+    def test_native_full_grid_limits_match_explicit_limits_for_both_methods(self):
+        keys = self.configure(); p, w = self.panel, self.window
+        for record in w.cell_records_by_id.values():
+            if record.sample_id == '0' and record.freeze_event_indices == [3]:
+                record.freeze_event_indices = [2]
+        data = make_data([-5., -6., -7., -8.2], {i:w.frame_name(i) for i in range(4)})
+        w.set_freeze_count_timeseries_results(*w.build_csu_freeze_count_timeseries_results(
+            data, count_source=CSU_COUNT_SOURCE_IMAGES))
+        p.refresh_preview()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        p.change_option('grid_step', '0.5')
+        p.tabs.setCurrentIndex(1)
+        for method in ('average', 'mle'):
+            with self.subTest(method=method):
+                p.change_option('method', method)
+                p.change_option('ranges', {})
+                self.calculate()
+                full = copy.deepcopy(p.result['tables']['Combined']['cumulative'])
+                details = p.result['reply']['settings']['resolved_temperature_ranges_C']['Combined']
+                limits = {key: value['full_range_C'] for key, value in details.items()}
+                self.assertEqual(limits[keys[1]], {'min_C': -8., 'max_C': -6.})
+                self.assertEqual(p.full_range_limits()[keys[1]], limits[keys[1]])
+                self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
+                p.change_option('ranges', limits)
+                self.calculate()
+                # Compare all returned columns, including uncertainty and counts.
+                self.assertEqual(p.result['tables']['Combined']['cumulative'], full)
+                p.full_range.click()
+                args = cli_choices(p.settings)
+                self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
+                self.calculate()
+                self.assertEqual(p.result['tables']['Combined']['cumulative'], full)
+
+    def test_range_controls_use_native_limits_even_when_concentration_is_missing(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        native = p.result['reply']['settings']['resolved_temperature_ranges_C']['Combined']
+        # Simulate unavailable direct estimates. Their missing values must not
+        # silently shrink the count-selection range returned by the toolkit.
+        for tables in p.result['references']['tables'].values():
+            for kind in ('cumulative', 'excluded'):
+                for row in tables[kind]['rows']:
+                    row['concentration'] = {'$nonfinite': 'nan'}
+        p.limits_cache = None
+        for quantity in ('Concentration', 'Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            p.tabs.setCurrentIndex(1)
+            for key in keys[:2]:
+                limits = native[key]['full_range_C']
+                self.assertEqual(p.full_range_limits()[key], limits)
+                self.assertEqual(p.range_items[key].getRegion(), (limits['min_C'], limits['max_C']))
+        p.quantity.setCurrentText('Concentration')
+        # New grid choices require newly resolved native endpoints. Do not show
+        # a stale grid or substitute original acquisition bounds.
+        p.change_option('grid_step', '0.5')
+        self.assertTrue(all(key not in p.full_range_limits() for key in keys[:2]))
+        self.assertTrue(all(key not in p.range_items for key in keys[:2]))
+
     def test_switching_quantity_refits_axes_including_uncertainty(self):
         import numpy as np
         import pyqtgraph as pg
@@ -1307,8 +1366,8 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -6.))
         self.assertEqual(p.result['tables'], tables)
         p.quantity.setCurrentText('Number frozen')
-        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -5.))
-        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-5.00')
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -6.))
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-6.00')
         # Window selection exposes its own full-width control, independently
         # of the grid spacing, and sends that width to the external toolkit.
         p.change_option('grid_step', '0.5')

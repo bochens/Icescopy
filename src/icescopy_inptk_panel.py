@@ -1181,12 +1181,18 @@ class InptkPanel(QWidget):
         self.commit(state, "INP analysis: use the full available data range for selected groups")
 
     def full_range_limits(self):
-        # These guides describe the data shown, rather than the grid bounds.
-        # Resetting manual limits still retains the toolkit's full-range fit.
-        references = (self.result or {}).get('references')
-        if (self.result or {}).get('source_hash') != self.preview_hash:
-            references = None
-        cache_key = (id(self.preview), self.preview_hash, self.quantity.currentText(), id(references),
+        # Sample limits come from native count selection, independently of
+        # concentration values, blank availability and final decrease exclusions.
+        calculated = self.result
+        grid_fields = ('grid_step', 'grid_start', 'grid_end', 'grid_method', 'grid_window')
+        if (calculated and (calculated['source_hash'] != self.preview_hash
+                or any(calculated['choices'][field] != self.settings[field] for field in grid_fields))):
+            calculated = None
+        references = (calculated or {}).get('references')
+        selected_groups = tuple(self.selected_curve_names())
+        cache_key = (id(self.preview), self.preview_hash, self.quantity.currentText(),
+                     id(calculated), id(references), selected_groups,
+                     tuple(self.settings[field] for field in grid_fields),
                      tuple((k, v['cycle']) for k, v in self.settings['inputs'].items()))
         if self.limits_cache and self.limits_cache[0] == cache_key:
             return self.limits_cache[1]
@@ -1199,25 +1205,30 @@ class InptkPanel(QWidget):
             if math.isfinite(value):
                 lo, hi = temperatures.get(key, (value, value))
                 temperatures[key] = (min(lo, value), max(hi, value))
+        # Blank cuts are observation limits. Before calculation, raw count views
+        # also show the observed extent; concentration never substitutes it for
+        # the toolkit's useful grid range.
         result = {key: {"min_C": values[0], "max_C": min(values[1], 0.)}
-                  for key, values in temperatures.items() if values[0] <= 0.}
-        if self.quantity.currentText() == 'Concentration' and references:
-            for key, name in references['by_input'].items():
-                source = references['reply']['curves'][name]['sources'][0]
-                if str(source['cycle_id']) != self.settings['inputs'][key]['cycle']:
-                    continue
-                tables = references['tables'][name]
-                # Excluded individual estimates remain visible for comparison.
-                # Their useful interval is supplied by the toolkit, not inferred here.
-                rows = tables['cumulative']['rows'] + [row for row in tables['excluded']['rows']
-                        if row.get('reporting_status') == 'within_freezing_interval']
-                available = [number(row['temperature_C']) for row in rows
-                             if math.isfinite(number(row['temperature_C']))
-                             and math.isfinite(number(row['concentration']))]
-                if available:
-                    result[key] = {'min_C': min(available), 'max_C': max(available)}
-                else:
-                    result.pop(key, None)
+                  for key, values in temperatures.items() if values[0] <= 0.
+                  and (self.quantity.currentText() != 'Concentration'
+                       or self.settings['inputs'][key]['blank'])}
+        if calculated:
+            for key, values in self.settings['inputs'].items():
+                if not values['blank']: result.pop(key, None)
+            # Direct references supply single-sample groups. For a combined
+            # group, its own resolved targets take precedence over references.
+            for native in (references, calculated):
+                if native is None: continue
+                for name, inputs in native['reply']['settings']['resolved_temperature_ranges_C'].items():
+                    if native is calculated and name not in selected_groups: continue
+                    for key, details in inputs.items():
+                        if str(details['cycle_id']) != self.settings['inputs'][key]['cycle']:
+                            continue
+                        limits = details['full_range_C']
+                        if limits is not None:
+                            result[key] = dict(limits)
+                        else:
+                            result.pop(key, None)
         self.limits_cache = (cache_key, result)
         return result
 
@@ -1327,8 +1338,8 @@ class InptkPanel(QWidget):
                 pen=pg.mkPen(guide, width=1, style=Qt.DashLine),
                 hoverPen=pg.mkPen(color, width=1.5, style=Qt.DashLine),
                 movable=key == active, swapMode="block")
-            # Full-range guides follow displayed grid points; they are not
-            # manual cuts on the original freezing observations.
+            # The toolkit resolves Full and explicit limits on the same grid.
+            # Dragging one endpoint preserves the opposite user choice.
             region.initial_limits = region.getRegion()
             region.setZValue(12 if key == active else 10)
             for boundary, (line, name) in enumerate(zip(region.lines, ("Cold", "Warm"))):
@@ -1405,8 +1416,8 @@ class InptkPanel(QWidget):
         # suggestion thresholds/report alone does not change a fitted result.
         choices = {k: v for k, v in self.settings.items()
                    if k not in {"suggestion", "min_frozen", "min_unfrozen"}}
-        # Include effective defaults so a saved fit made before the 0 °C
-        # freezing limit is marked stale, rather than silently reused.
+        # Only explicit sample cuts affect the request. Grid bounds remain
+        # separate settings and never become hidden sample limits.
         choices['ranges'] = {key: temperature_range(self.settings, key)
                              for key, value in self.settings['inputs'].items() if not value['blank']}
         if self.settings['grid_step'].strip():
