@@ -1327,6 +1327,9 @@ class InptkPanel(QWidget):
                 pen=pg.mkPen(guide, width=1, style=Qt.DashLine),
                 hoverPen=pg.mkPen(color, width=1.5, style=Qt.DashLine),
                 movable=key == active, swapMode="block")
+            # Full-range guides follow displayed grid points; they are not
+            # manual cuts on the original freezing observations.
+            region.initial_limits = region.getRegion()
             region.setZValue(12 if key == active else 10)
             for boundary, (line, name) in enumerate(zip(region.lines, ("Cold", "Warm"))):
                 editable = self.range_boundary_editable(key, boundary)
@@ -1380,12 +1383,14 @@ class InptkPanel(QWidget):
 
     def range_finished(self, key, region):
         if self.range_items.get(key) is not region: return
-        cold, warm = region.getRegion()
+        changes = {name: value for boundary, (name, value, original) in enumerate(
+            zip(('min_C', 'max_C'), region.getRegion(), region.initial_limits))
+            if value != original and self.range_boundary_editable(key, boundary)}
+        if not changes: return
         state = copy_choices(self.settings)
         limits = (state['blank_range'] if state['inputs'][key]['blank']
                   else state['ranges'].setdefault(key, {}))
-        if self.range_boundary_editable(key, 0): limits['min_C'] = cold
-        if self.range_boundary_editable(key, 1): limits['max_C'] = warm
+        limits.update(changes)
         self.commit(state, f"INP analysis: move temperature limits for {key}")
 
     def current_hash(self):

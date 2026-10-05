@@ -922,7 +922,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.tag_moved(keys[0], 0, -7.5, True)
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         self.assertEqual([entry[0] for entry in p.range_tags.entries], [keys[0]])
-        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': -5.}})
+        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5}})
         self.assertEqual(p.current_input(), keys[1])
         self.assertEqual(p.undo_stack.index(), undo_index + 1)
         p.undo_stack.undo()
@@ -930,6 +930,48 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         p.undo_stack.redo()
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
+
+    def test_warm_tag_matches_numeric_edit_without_cutting_last_freeze(self):
+        keys = self.configure(); p, w = self.panel, self.window
+        # The latest event is off the grid and belongs only to the dilute sample.
+        for record in w.cell_records_by_id.values():
+            if record.sample_id == '0' and record.freeze_event_indices == [3]:
+                record.freeze_event_indices = [2]
+        data = make_data([-5., -6., -7., -8.2], {i:w.frame_name(i) for i in range(4)})
+        w.set_freeze_count_timeseries_results(*w.build_csu_freeze_count_timeseries_results(
+            data, count_source=CSU_COUNT_SOURCE_IMAGES))
+        p.refresh_preview()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        p.change_option('grid_step', '0.5')
+        p.change_option('method', 'mle')
+        self.calculate()
+        p.tabs.setCurrentIndex(1)
+        p.quantity.setCurrentText('Concentration')
+        self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
+        p.ranges.item(p.range_ids.index(keys[1]), 2).setText('-6.5')
+        self.calculate()
+        expected = copy.deepcopy(p.result['tables']['Combined']['cumulative'])
+        self.assertIn(-8., [row['temperature_C'] for row in expected['rows']])
+        reference = p.result['references']
+        p.change_option('ranges', {})
+        p.activate_range(keys[1])
+        p.tag_moved(keys[1], 1, -6.5, True)
+        self.assertEqual(p.settings['ranges'], {keys[1]: {'max_C': -6.5}})
+        self.assertEqual(p.ranges.item(p.range_ids.index(keys[1]), 1).text(), '')
+        args = cli_choices(p.settings)
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1])[keys[1]],
+                         {'max_C': -6.5})
+        self.calculate()
+        self.assertEqual(p.result['tables']['Combined']['cumulative'], expected)
+        self.assertIs(p.result['references'], reference)
+        interval = p.result['reply']['settings']['reporting_intervals_C']['Combined']
+        self.assertEqual(interval['min_C'], -8.2)
+        # Moving the native plot line must also leave the opposite cut implicit.
+        p.change_option('ranges', {})
+        region = p.range_items[keys[1]]
+        region.lines[1].setValue(-6.5)
+        region.sigRegionChangeFinished.emit(region)
+        self.assertEqual(p.settings['ranges'], {keys[1]: {'max_C': -6.5}})
 
     def test_switching_quantity_refits_axes_including_uncertainty(self):
         import numpy as np
