@@ -28,8 +28,9 @@ from icescopy_sample_metadata import (  # noqa: E402
     normalize_sample_metadata_schema,
     sample_metadata_schema_from_xml,
     sample_metadata_schema_to_payload,
+    sample_metadata_field_is_relevant,
 )
-from icescopy_session_io import build_freeze_count_timeseries_csv_text, build_restore_state  # noqa: E402
+from icescopy_session_io import build_freeze_count_timeseries_csv_text, build_restore_state, serialize_sample_catalog_payload, deserialize_sample_catalog_payload  # noqa: E402
 
 
 def schema_with_custom_fields():
@@ -69,6 +70,17 @@ def schema_with_custom_fields():
 
 
 class SampleMetadataTests(unittest.TestCase):
+    def test_water_blank_type_round_trips_and_only_uses_relevant_physical_fields(self):
+        schema = default_sample_metadata_schema()
+        record = normalize_sample_catalog_record({'sample_type': 'Water blank', 'dilution': '28561',
+                                                   'well_volume_uL': '50'}, schema)
+        self.assertEqual(record['sample_type'], 'water blank')
+        for field in ('sample_name', 'sample_type', 'well_volume_uL'):
+            self.assertTrue(sample_metadata_field_is_relevant(schema, field, record))
+        for field in ('dilution', 'air_volume_L', 'filter_fraction_used', 'suspension_volume_mL', 'dry_mass_g'):
+            self.assertFalse(sample_metadata_field_is_relevant(schema, field, record))
+        self.assertEqual(deserialize_sample_catalog_payload(serialize_sample_catalog_payload({2: record}, schema), schema), {2: record})
+
     def test_preferences_initial_button_state_matches_empty_selection(self):
         QApplication.instance() or QApplication([])
         fake_window = SimpleNamespace(

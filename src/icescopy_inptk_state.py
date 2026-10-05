@@ -4,6 +4,8 @@ import hashlib
 import json
 import math
 
+from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
+
 
 def new_settings():
     return {
@@ -51,9 +53,9 @@ def number(value):
 
 
 def automatic_blank_assignments(settings):
-    """Apply every explicitly marked water blank to each non-blank sample."""
+    """Apply the selected catalog water blanks to each non-blank sample."""
     state = copy_choices(settings)
-    blanks = [key for key, value in state["inputs"].items() if value["blank"]]
+    blanks = [key for key, value in state["inputs"].items() if value["blank"] and value.get("use_blank", True)]
     for value in state["inputs"].values():
         value["blanks"] = [] if value["blank"] else list(blanks)
     return state
@@ -75,10 +77,11 @@ def available_concentration_bases(settings, metadata):
 
 
 def reconcile_inputs(settings, preview):
-    """Keep explicit choices only for exact known input identities; never infer blanks."""
-    result = copy.deepcopy(settings)
+    """Take blank roles from catalog types, preserving exact input selections."""
+    result = copy_choices(settings)
     known = result["inputs"]
     result["inputs"] = {}
+    metadata = {row["measurement_id"]: row for row in preview.get("measurement_metadata", [])}
     for measurement in preview.get("measurements", []):
         key = measurement["measurement_id"]
         cycles = [str(c) for c in measurement["cycle_ids"]]
@@ -86,10 +89,31 @@ def reconcile_inputs(settings, preview):
             "group": key, "blank": False, "blanks": [],
             "cycle": cycles[0] if len(cycles) == 1 else "",
         }))
+        value["blank"] = metadata.get(key, {}).get("sample_type") == WATER_BLANK_SAMPLE_TYPE
+        value.setdefault("use_blank", True)
+        if value["blank"]:
+            value["group"] = key
         if value["cycle"] not in cycles:
             value["cycle"] = cycles[0] if len(cycles) == 1 else ""
         result["inputs"][key] = value
-    return result
+    # A catalog water blank cannot also be an analysis sample. Preserve empty
+    # groups created by the user, but remove groups emptied by a role change.
+    curves = []
+    for curve in result["curves"]:
+        previous = curve["inputs"]
+        curve["inputs"] = [key for key in previous if key in result["inputs"] and not result["inputs"][key]["blank"]]
+        if curve["inputs"] or not previous:
+            curves.append(curve)
+    result["curves"] = curves
+    assigned = {key for curve in curves for key in curve["inputs"]}
+    for key, value in result["inputs"].items():
+        if not value["blank"] and known.get(key, {}).get("blank") and key not in assigned:
+            name, suffix = key, 2
+            while name in {curve["name"] for curve in curves}:
+                name = f"{key} ({suffix})"; suffix += 1
+            value["group"] = name
+            curves.append({"name": name, "inputs": [key]})
+    return automatic_blank_assignments(result)
 
 
 def curve_specs(settings, *, selected=None):

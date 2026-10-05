@@ -14,17 +14,17 @@ A **sample group** contains the independent samples or dilutions you want to com
 
 1. Select a group, or choose **New…** beside **Sample groups**. Double-click its name to rename it.
 2. In **Samples**, check **Use** beside each sample that belongs to the group. Checking a sample moves it from its previous group; empty previous groups are removed. Unchecking a sample returns it to an individual group. No observations are deleted.
-3. Mark water controls in the **Blank** column. Every marked blank is automatically assigned to all non-blank analysis samples. **Apply blank correction** turns their correction on or off. Several marked blanks are supplied together to the toolkit.
+3. Set water controls to **water blank** in the sample catalog. They appear in a separate **Water blanks** section. Check **Use** beside the controls to include in correction for all analysis samples. **Apply blank correction** turns the correction on or off. Several selected blanks are supplied together, each with its own well volume. Dilution and air/soil conversion fields are ignored for blanks.
 4. If a sample has several freezing cycles, select its row and choose **Cycle for [sample]** below the table. The selector and legend cycle suffix are hidden for samples with only one cycle. Repeated cycles are not pooled as independent droplets.
 
 **Remove** removes the selected group from the output, not the source samples. They remain available in the Samples table. Hold Ctrl/Cmd or Shift to select several groups for comparison; select one group to change its membership or request automatic ranges. The heading above the results identifies the selected group and number of samples.
 
 Dilution factors are shown beside sample names (for example, **10×**). The **Show** checkbox hides or shows each sample, including its uncertainty and range guides, without changing calculation membership or exports. **Show combined curve** controls the combined concentration line. It stays visible and is grayed out for counts, fractions, and single-sample groups. **Uncertainty** also stays visible and is grayed out for counts and fractions. These display choices are saved with the session; hidden curves disappear from the compact legend. To change dilution, well volume, or other physical metadata, choose **Edit sample metadata…**. This closes the analysis window without discarding its choices. On reopening, Icescopy refreshes the counts and metadata automatically.
 
-In **Settings → INP toolkit client → Table columns**, choose fields separately for **Samples tab** and **Combine tab (temperature limits)**, including custom catalog fields. Each table keeps its own selection. Dilution is shown by default. Sample identity and the Use, Blank, and Show controls stay visible. Additional columns scroll horizontally inside the table; they do not widen the analysis window. These preferences affect display only.
+In **Settings → INP toolkit client → Table columns**, choose fields separately for **Samples tab** and **Combine tab (temperature limits)**, including custom catalog fields. Each table keeps its own selection. Dilution is shown by default. Sample identity and the Use and Show controls stay visible. Additional columns scroll horizontally inside the table; they do not widen the analysis window. These preferences affect display only.
 
 
-Turning **Apply blank correction** off retains the marked blanks. Unchecking **Blank** removes that control from correction for every sample; Undo restores both its role and the assignments.
+Turning **Apply blank correction** off retains the selected blanks. Unchecking **Use** beside a water blank removes it from correction for every sample; Undo restores the selection and assignments. Its catalog type and measured counts remain unchanged.
 
 ## Combine dilutions and set ranges
 
@@ -57,7 +57,7 @@ Use the quantity control above the plot to switch between:
 - **Fraction frozen:** original fractions on a 0–1 scale, with a small margin for endpoint symbols.
 - **Concentration:** calculated values on a logarithmic axis by default, with the concentration unit on the axis. A solid black line shows the combined group; colored dashed lines show its individual samples, labeled with their dilution factors. Turn on **Uncertainty** to show the group's confidence limits and gray shading; the axes expand to include them.
 
-Every sample marked **Blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, including while correction is switched off. Blanks follow the included samples' cycles; when no sample uses a blank, its own cycle choice is shown. These plots show measured values before correction. The Show checkbox changes visibility only; the Blank checkbox determines correction.
+Every catalog **water blank** appears in the counts and fraction plots as a dotted line labeled **water blank**, including while correction is switched off. Blanks follow the included samples' cycles; when no sample uses a blank, its own cycle choice is shown. These plots show measured values before correction. The Show checkbox changes visibility only; the water blank’s Use checkbox determines correction.
 
 Checking **Use** in a new or existing group updates both raw plots and their axes immediately. No calculation is needed to show counts or fractions; concentration updates require **Calculate**.
 

@@ -5,7 +5,8 @@ import re
 from xml.etree.ElementTree import SubElement
 
 
-ALLOWED_SAMPLE_TYPES = ("air", "soil", "other")
+WATER_BLANK_SAMPLE_TYPE = "water blank"
+ALLOWED_SAMPLE_TYPES = ("air", "soil", "other", WATER_BLANK_SAMPLE_TYPE)
 SAMPLE_METADATA_FIELD_TYPES = ("text", "number", "datetime", "sample_type")
 CUSTOM_SAMPLE_METADATA_FIELD_TYPES = ("text", "number", "datetime")
 RESERVED_SAMPLE_METADATA_KEYS = ("sample_id", "cell_number")
@@ -350,12 +351,16 @@ def sample_metadata_field_is_relevant(schema, field_key, sample_record):
     field = sample_metadata_field_for_key(schema, field_key)
     if field is None:
         return False
+    sample_type = str(sample_record.get("sample_type", "") or "").strip().casefold()
+    if sample_type == WATER_BLANK_SAMPLE_TYPE and field_key in {
+        "dilution", "air_volume_L", "filter_fraction_used", "suspension_volume_mL", "dry_mass_g",
+    }:
+        return False
     if field.get("fixed", False):
         return True
     required_types = tuple(field.get("required_for_sample_types", ()) or ())
     if not required_types:
         return True
-    sample_type = str(sample_record.get("sample_type", "") or "").strip().casefold()
     return bool(sample_type) and sample_type in required_types
 
 

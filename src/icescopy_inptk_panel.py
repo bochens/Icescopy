@@ -26,6 +26,7 @@ from icescopy_inptk_state import automatic_blank_assignments, available_concentr
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
 from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
+from icescopy_sample_metadata import sample_metadata_field_is_relevant
 
 
 def concentration_unit(unit):
@@ -151,6 +152,7 @@ class InptkPanel(QWidget):
         self.generation = 0
         self.range_items = {}
         self.input_ids = []
+        self.input_rows = []
         self.range_ids = []
         self.make_ui()
         self.undo_action = QAction("Undo", self)
@@ -270,12 +272,11 @@ class InptkPanel(QWidget):
         help_text = self.sample_help = QLabel()
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
-        self.inputs = QTableWidget(0, 5)
-        self.inputs.setHorizontalHeaderLabels(["Use", "Sample", "Dilution", "Blank", "Show"])
-        self.inputs.setAccessibleName("Sample membership, dilution, blank roles and plot visibility")
-        self.inputs.horizontalHeaderItem(4).setToolTip("Show this sample in the plot. Does not change calculation membership or exports.")
-        self.inputs.horizontalHeaderItem(0).setToolTip("Check to move a sample into the selected group.")
-        self.inputs.horizontalHeaderItem(3).setToolTip("Marked water controls are applied to every non-blank sample when blank correction is on.")
+        self.inputs = QTableWidget(0, 4)
+        self.inputs.setHorizontalHeaderLabels(["Use", "Sample", "Dilution", "Show"])
+        self.inputs.setAccessibleName("Samples and water blanks, calculation membership and plot visibility")
+        self.inputs.horizontalHeaderItem(3).setToolTip("Show this sample in the plot. Does not change calculation membership or exports.")
+        self.inputs.horizontalHeaderItem(0).setToolTip("Samples: move into the selected group. Water blanks: include in blank correction.")
         self.inputs.verticalHeader().hide()
         self.inputs.setShowGrid(False)
         self.inputs.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -305,7 +306,7 @@ class InptkPanel(QWidget):
         layout.addLayout(cycle_row)
         self.blank_enabled = QCheckBox("Apply blank correction")
         self.blank_enabled.setToolTip(
-            "Use every sample marked Blank as a water control for all non-blank samples. "
+            "Use the selected water blanks for all analysis samples. "
             "Uncheck to calculate without blank correction.")
         self.blank_enabled.toggled.connect(lambda value: self.change_option("blank_correction", value))
         layout.addWidget(self.blank_enabled)
@@ -782,6 +783,8 @@ class InptkPanel(QWidget):
 
     def restore_choices(self, choices):
         self.loading = True
+        if self.preview is not None:
+            choices = reconcile_inputs(choices, self.preview)
         choices = automatic_blank_assignments(choices)
         for key, default in (('grid_start', '0'), ('grid_end', '-35')):
             if not choices.get(key, '').strip(): choices[key] = default
@@ -828,33 +831,41 @@ class InptkPanel(QWidget):
         self.grid_controls.setVisible(bool(self.settings["grid_step"]))
         self.grid_form.setRowVisible(self.grid_window, self.settings["grid_method"] == "window")
         for widget in (self.grid_start, self.grid_end, self.grid_method): widget.setEnabled(bool(self.settings["grid_step"]))
-        self.input_ids = list(self.settings["inputs"])
+        samples = [key for key, value in self.settings["inputs"].items() if not value["blank"]]
+        blanks = [key for key, value in self.settings["inputs"].items() if value["blank"]]
+        self.input_ids = samples + blanks
+        self.input_rows = samples + ([None] + blanks if blanks else [])
+        self.inputs.clearSpans()
         self.inputs.setRowCount(0)
-        self.inputs.setRowCount(len(self.input_ids))
-        for row, key in enumerate(self.input_ids):
+        self.inputs.setRowCount(len(self.input_rows))
+        metadata_by_id = {m["measurement_id"]: m for m in (self.preview or {}).get("measurement_metadata", [])}
+        for row, key in enumerate(self.input_rows):
+            if key is None:
+                section = QTableWidgetItem("Water blanks")
+                section.setFlags(Qt.ItemIsEnabled)
+                font = section.font(); font.setBold(True); section.setFont(font)
+                section.setBackground(self.inputs.palette().brush(QPalette.AlternateBase))
+                self.inputs.setItem(row, 0, section)
+                continue
             values = self.settings["inputs"][key]
             use = QTableWidgetItem()
             self.inputs.setItem(row, 0, use)
             item = QTableWidgetItem(key); item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setData(Qt.DecorationRole, self.color(key)); self.inputs.setItem(row, 1, item)
-            metadata = next((m for m in (self.preview or {}).get("measurement_metadata", []) if m["measurement_id"] == key), {})
-            factor = number(metadata.get("dilution"))
-            dilution = QTableWidgetItem(f"{factor:g}×" if math.isfinite(factor) else "")
+            factor = number(metadata_by_id.get(key, {}).get("dilution"))
+            dilution = QTableWidgetItem(f"{factor:g}×" if not values["blank"] and math.isfinite(factor) else "")
             dilution.setFlags(dilution.flags() & ~Qt.ItemIsEditable)
             self.inputs.setItem(row, 2, dilution)
-            blank = QTableWidgetItem(); blank.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
-            blank.setCheckState(Qt.Checked if values["blank"] else Qt.Unchecked)
-            self.inputs.setItem(row, 3, blank)
             shown = QTableWidgetItem()
             shown.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
             shown.setCheckState(Qt.Unchecked if key in self.hidden_plot_inputs else Qt.Checked)
             shown.setToolTip(f"Show {key} in plots only; calculation membership and exports are unchanged.")
-            self.inputs.setItem(row, 4, shown)
+            self.inputs.setItem(row, 3, shown)
         self.refresh_sample_table_columns()
-        self.fit_table_height(self.inputs, len(self.input_ids))
+        self.fit_table_height(self.inputs, len(self.input_rows))
         # Reserve a scrollbar row so wide metadata does not obscure sample rows.
         self.inputs.setFixedHeight(self.inputs.height() + self.inputs.horizontalScrollBar().sizeHint().height())
-        if self.input_ids: self.inputs.selectRow(self.input_ids.index(old_input) if old_input in self.input_ids else 0)
+        if self.input_ids: self.inputs.selectRow(self.input_row(old_input if old_input in self.input_ids else self.input_ids[0]))
         self.curves.clear()
         for curve in self.settings["curves"]:
             item = QListWidgetItem(curve["name"]); item.setFlags(item.flags() | Qt.ItemIsEditable)
@@ -904,7 +915,7 @@ class InptkPanel(QWidget):
         metadata = dict(zip(identifiers, records))
         self.inputs.setColumnHidden(2, 'dilution' not in selected)
         for table, keys, first_column, fixed_fields, selected in (
-            (self.inputs, self.input_ids, 5, {'sample_name', 'dilution'}, selected),
+            (self.inputs, self.input_rows, 4, {'sample_name', 'dilution'}, selected),
             (self.ranges, self.range_ids, 3, {'sample_name'}, set(self.window.inptk_range_columns)),
         ):
             extra = [field for field in schema if field['key'] in selected and field['key'] not in fixed_fields]
@@ -916,22 +927,31 @@ class InptkPanel(QWidget):
                 table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Interactive)
                 table.setColumnWidth(column, min(200, max(110, table.fontMetrics().horizontalAdvance(field['label']) + 24)))
                 for row, key in enumerate(keys):
+                    if key is None: continue
                     values = dict(metadata.get(key, {}))
                     sample_id = str(values.get('sample_id', '')).strip()
                     if sample_id:
                         values.update(self.window.sample_record_for_id(sample_id))
-                    value = str(values.get(field['key'], '') or '')
+                    value = (str(values.get(field['key'], '') or '')
+                             if sample_metadata_field_is_relevant(schema, field['key'], values) else '')
                     if field['key'] == 'dilution' and math.isfinite(number(value)):
                         value = f"{number(value):g}×"
                     item = QTableWidgetItem(value)
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setToolTip(value)
                     table.setItem(row, column, item)
+            if table is self.inputs:
+                table.clearSpans()
+                for row, key in enumerate(self.input_rows):
+                    if key is None: table.setSpan(row, 0, 1, table.columnCount())
             table.blockSignals(blocked)
+
+    def input_row(self, key):
+        return self.input_rows.index(key)
 
     def current_input(self):
         row = self.inputs.currentRow()
-        return self.input_ids[row] if 0 <= row < len(self.input_ids) else None
+        return self.input_rows[row] if 0 <= row < len(self.input_rows) else None
 
     def refresh_concentration_bases(self):
         # The normalization applies to every calculated group, so restrict it
@@ -973,14 +993,19 @@ class InptkPanel(QWidget):
 
     def input_changed(self, item):
         if self.loading: return
-        key = self.input_ids[item.row()]
-        if item.column() == 4:
+        key = self.input_rows[item.row()]
+        if key is None: return
+        if item.column() == 3:
             if item.checkState() == Qt.Checked: self.hidden_plot_inputs.discard(key)
             else: self.hidden_plot_inputs.add(key)
             self.draw()
             return
         state = copy_choices(self.settings)
         if item.column() == 0:
+            if state["inputs"][key]["blank"]:
+                state["inputs"][key]["use_blank"] = item.checkState() == Qt.Checked
+                self.commit(state, f"INP analysis: select water blank {key}")
+                return
             index = self.single_curve_row()
             if index < 0: return
             members = list(state["curves"][index]["inputs"])
@@ -991,12 +1016,6 @@ class InptkPanel(QWidget):
             name = state["curves"][index]["name"]
             self.commit(set_group_inputs(state, index, members), f"INP analysis: update samples in {name}")
             return
-        if item.column() != 3: return
-        state["inputs"][key]["blank"] = item.checkState() == Qt.Checked
-        if state["inputs"][key]["blank"]:
-            for curve in state["curves"]: curve["inputs"] = [k for k in curve["inputs"] if k != key]
-            state["curves"] = [c for c in state["curves"] if c["inputs"]]
-        self.commit(state, f"INP analysis: update blank role for {key}")
 
     def change_input_cycle(self, key, cycle):
         if self.loading or key is None: return
@@ -1018,7 +1037,7 @@ class InptkPanel(QWidget):
     def select_curve(self):
         if self.loading: return
         row = self.single_curve_row()
-        help_text = ("Check samples to move them into this group. Mark water controls as Blank."
+        help_text = ("Check samples to move them into this group. Select water blanks below for correction."
                      if row >= 0 else "Select one group to edit its samples, or several groups to compare their plots.")
         if any(len(m.get("cycle_ids", [])) > 1 for m in (self.preview or {}).get("measurements", [])):
             help_text += " Select a sample row to choose its freezing cycle below the table."
@@ -1026,12 +1045,17 @@ class InptkPanel(QWidget):
         self.sample_help.setText(help_text)
         values = set(self.selected_input_ids())
         self.loading = True
-        for i, key in enumerate(self.input_ids):
-            item = self.inputs.item(i, 0)
+        for key in self.input_ids:
+            item = self.inputs.item(self.input_row(key), 0)
             flags = Qt.ItemIsSelectable | Qt.ItemIsUserCheckable
-            if row >= 0 and not self.settings["inputs"][key]["blank"]: flags |= Qt.ItemIsEnabled
+            blank = self.settings["inputs"][key]["blank"]
+            if row >= 0 or blank: flags |= Qt.ItemIsEnabled
             item.setFlags(flags)
-            item.setCheckState(Qt.Checked if key in values else Qt.Unchecked)
+            checked = self.settings["inputs"][key].get("use_blank", True) if blank else key in values
+            item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+            if blank:
+                item.setToolTip("Include this water blank in correction for all analysis samples. Show controls plot visibility separately.")
+                continue
             owner = next((c["name"] for c in self.settings["curves"] if key in c["inputs"]), "ungrouped")
             item.setToolTip(f"Current group: {owner}. Check to move this sample into the selected group.")
         self.loading = False
@@ -1270,7 +1294,14 @@ class InptkPanel(QWidget):
         # no CSV is serialized, parsed or written for analysis.
         headers = tuple(self.window.freeze_count_timeseries_headers)
         rows = tuple(tuple(row) for row in self.window.freeze_count_timeseries_rows)
-        metadata = [dict(row) for row in self.window.freeze_count_timeseries_summary.get('sample_column_metadata', [])]
+        metadata = []
+        for row in self.window.freeze_count_timeseries_summary.get('sample_column_metadata', []):
+            record = dict(row)
+            if record.get('sample_id', ''):
+                record.update(self.window.sample_record_for_id(record['sample_id']))
+            metadata.append(record)
+        # Scientific input uses the complete catalog, independently of which
+        # metadata fields the user chooses to include in count CSV exports.
         revision, generation = self.source_revision, self.generation
         self.last_error = ''; self.operation = True; self.update_status()
         def done(source):
@@ -1282,7 +1313,7 @@ class InptkPanel(QWidget):
             self.observations_cache = self.limits_cache = None
             state = reconcile_inputs(self.settings, self.preview)
             if not self.settings['inputs'] and not state['curves']:
-                state['curves'] = [{'name': key, 'inputs': [key]} for key in state['inputs']]
+                state['curves'] = [{'name': key, 'inputs': [key]} for key, value in state['inputs'].items() if not value['blank']]
             self.restore_choices(state)
             self.window.log('INP analysis: counts and fractions updated.')
             if after: after()

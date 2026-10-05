@@ -253,7 +253,7 @@ class SampleCatalogTreeModel(QAbstractItemModel):
             return Qt.NoItemFlags
         node = self.node_from_index(index)
         flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
-        if node.kind == "field" and int(index.column()) == 1:
+        if node.kind == "field" and int(index.column()) == 1 and self.field_is_relevant(node.sample_id, node.field_key):
             flags |= Qt.ItemIsEditable
         return flags
 
@@ -276,7 +276,7 @@ class SampleCatalogTreeModel(QAbstractItemModel):
                 QMessageBox.warning(
                     self.main_window,
                     "Sample Catalog",
-                    "Sample type must be one of: air, soil, other.",
+                    "Sample type must be one of: air, soil, other, water blank.",
                 )
                 return False
         elif field_type == "number" and value_text:

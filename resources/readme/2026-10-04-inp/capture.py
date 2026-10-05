@@ -57,13 +57,13 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         saved = payload.get('inp_analysis', {}).get('choices')
         if not saved or len(saved.get('curves', [])) != 1:
             raise ValueError('Use the saved M1 session with one combined sample group.')
-        # A marked water control is undiluted. Normalize its metadata only in
-        # this in-memory demonstration; leave counts and the source file intact.
+        # Set the water-control catalog type in this in-memory demonstration;
+        # leave the saved recording intact.
         blanks = {key for key, item in saved['inputs'].items() if item['blank']}
         for item in payload['freeze_count_timeseries_summary']['sample_column_metadata']:
             if item['sample_name'] in blanks:
-                item['dilution'] = '1'
-                payload['sample_catalog'][str(item['sample_id'])]['dilution'] = '1'
+                item['sample_type'] = 'water blank'
+                payload['sample_catalog'][str(item['sample_id'])]['sample_type'] = 'water blank'
         window.restore_session_state(
             build_restore_state(window, payload, grayscale, freeze, counts),
             restore_inp_analysis=False)

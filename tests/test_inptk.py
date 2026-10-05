@@ -19,7 +19,7 @@ from icescopy_inptk_state import cli_choices, concentration_curves, individual_c
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
-from icescopy_inptk_data import PLOT_COLUMNS, upload_choices
+from icescopy_inptk_data import PLOT_COLUMNS, prepare_source, upload_choices
 from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 from icescopy_session import SessionSnapshotCommand
@@ -144,6 +144,42 @@ class InpChoiceTests(unittest.TestCase):
         self.assertEqual(payload['water_blank_map'], {'A': ['water']})
         self.assertEqual(source, before)
 
+    def test_catalog_blank_role_overrides_group_membership_and_preserves_selection(self):
+        state = self.settings()
+        state['inputs']['water']['blank'] = False
+        state['inputs']['water']['group'] = 'sample'
+        state['curves'][0]['inputs'].append('water')
+        preview = {'measurements': [{'measurement_id': key, 'cycle_ids': ['01']} for key in state['inputs']],
+                   'measurement_metadata': [{'measurement_id': key, 'sample_type': 'water blank' if key == 'water' else 'air'} for key in state['inputs']]}
+        result = reconcile_inputs(state, preview)
+        self.assertEqual(result['curves'][0]['inputs'], ['A', 'B'])
+        self.assertTrue(result['inputs']['water']['blank'])
+        self.assertEqual(result['inputs']['water']['group'], 'water')
+        result['inputs']['water']['use_blank'] = False
+        refreshed = reconcile_inputs(result, preview)
+        self.assertFalse(refreshed['inputs']['water']['use_blank'])
+        self.assertEqual(refreshed['inputs']['A']['blanks'], [])
+        self.assertEqual(state['curves'][0]['inputs'], ['A', 'B', 'water'])
+
+    def test_water_blank_upload_ignores_dilution_and_normalization_but_keeps_volume(self):
+        headers = ['temperature_C', 'A number total', 'A number frozen', 'water number total', 'water number frozen']
+        source = prepare_source(headers, [[-5, 10, 0, 8, 0], [-6, 10, 4, 8, 2]], [
+            {'sample_type': 'air', 'dilution': '10', 'well_volume_uL': '50'},
+            {'sample_type': 'water blank', 'dilution': '', 'well_volume_uL': '20',
+             'air_volume_L': '-1', 'suspension_volume_mL': '0', 'filter_fraction_used': '4', 'dry_mass_g': '-3'}])
+        self.assertTrue(source['preview']['suspension_metadata']['valid'])
+        state = self.settings(); state['curves'] = [{'name': 'A', 'inputs': ['A']}]
+        before = copy.deepcopy(source)
+        uploaded = upload_choices(source, state)
+        blank = uploaded['metadata'][1]
+        self.assertEqual(blank, {'measurement_id': 'water', 'sample_id': 'water', 'run_id': '1',
+                                'sample_type': 'other', 'dilution': 1., 'droplet_volume_uL': 20.})
+        self.assertEqual(uploaded['counts']['n_frozen'], [0, 4, 0, 2])
+        self.assertEqual(source, before)
+        missing = prepare_source(headers, [[-5, 10, 0, 8, 0]], [
+            {'sample_type': 'air', 'dilution': '1', 'well_volume_uL': '50'}, {'sample_type': 'water blank'}])
+        self.assertEqual(missing['preview']['suspension_metadata']['missing_fields'], {'water': ['droplet_volume_uL']})
+
 
 class InpProtocolTests(unittest.TestCase):
     @classmethod
@@ -256,7 +292,17 @@ class InpIntegrationTests(unittest.TestCase):
             time.sleep(.01)
         self.assertTrue(condition(), self.panel.status.text())
 
+    def mark_catalog_blanks(self, *keys):
+        metadata = {row['sample_name']: row for row in self.window.freeze_count_timeseries_summary['sample_column_metadata']}
+        for key in keys:
+            self.window.sample_catalog[int(metadata[key]['sample_id'])]['sample_type'] = 'water blank'
+        self.window.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+        self.panel.refresh_preview()
+        self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
+        self.assertFalse(self.errors)
+
     def configure(self):
+        self.mark_catalog_blanks(list(self.panel.settings['inputs'])[2])
         state = copy.deepcopy(self.panel.settings)
         keys = list(state["inputs"])
         self.assertEqual(len(keys),3)
@@ -273,6 +319,59 @@ class InpIntegrationTests(unittest.TestCase):
         self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
         self.assertIsNotNone(self.panel.result,self.panel.status.text())
         self.assertIn("up to date",self.panel.status.text())
+
+    def test_catalog_water_blank_sections_ignore_unrelated_fields_and_keep_count_csv(self):
+        p, w = self.panel, self.window
+        keys = list(p.settings['inputs'])
+        w.sample_catalog[2].update(dilution='', air_volume_L='-1', dry_mass_g='-3',
+                                   suspension_volume_mL='0', filter_fraction_used='4', well_volume_uL='20')
+        counts_before = copy.deepcopy(w.freeze_count_timeseries_rows)
+        self.mark_catalog_blanks(keys[2])
+        self.assertEqual(w.freeze_count_timeseries_rows, counts_before)
+        self.assertEqual(p.inputs.item(p.input_row(keys[2]), 2).text(), '')
+        self.assertEqual(p.inputs.item(p.input_row(keys[2])-1, 0).text(), 'Water blanks')
+        self.assertIsNone(p.input_rows[p.input_row(keys[2])-1])
+        self.assertNotIn(keys[2], p.range_ids)
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
+        self.assertNotIn(keys[2], {k for c in p.settings['curves'] for k in c['inputs']})
+        catalog_model = w.sample_catalog_tree_model
+        for field in ('dilution', 'air_volume_L', 'dry_mass_g', 'suspension_volume_mL', 'filter_fraction_used'):
+            self.assertFalse(catalog_model.field_index(2, field, 1).flags() & Qt.ItemIsEditable)
+        self.assertTrue(catalog_model.field_index(2, 'well_volume_uL', 1).flags() & Qt.ItemIsEditable)
+        w.sample_catalog[1]['sample_type'] = 'soil'
+        w.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+        exported = build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers,
+            w.freeze_count_timeseries_rows, summary=w.freeze_count_timeseries_summary)
+        self.assertIn('# sample_type,air,soil,water blank', exported)
+        self.assertIn(keys[2] + ' number frozen', exported)
+        blank_metadata = w.freeze_count_timeseries_summary['sample_column_metadata'][2]
+        self.assertEqual(blank_metadata['dilution'], '')
+        self.assertEqual(blank_metadata['air_volume_L'], '')
+        self.assertEqual(blank_metadata['well_volume_uL'], '20')
+        self.calculate()  # Real toolkit validates blank volume but ignores its unrelated fields.
+        p.inputs.item(p.input_row(keys[2]), 0).setCheckState(Qt.Unchecked)
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [])
+        p.undo_stack.undo()
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
+
+    def test_blank_catalog_type_does_not_depend_on_export_columns_or_stale_undo(self):
+        p, w = self.panel, self.window
+        keys = list(p.settings['inputs'])
+        p.inputs.item(p.input_row(keys[1]), 0).setCheckState(Qt.Checked)
+        for field in w.sample_metadata_schema:
+            if field['key'] in ('sample_type', 'well_volume_uL', 'dilution'):
+                field['export'] = False
+        self.mark_catalog_blanks(keys[1], keys[2])
+        self.assertNotIn('sample_type', w.freeze_count_timeseries_summary['sample_column_metadata'][2])
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertEqual(p.source_cache['metadata'][2]['droplet_volume_uL'], 50.)
+        self.assertEqual(p.source_cache['metadata'][2]['sample_type'], 'water blank')
+        p.undo_stack.undo()  # Group history must not undo the external catalog's blank type.
+        self.assertTrue(p.settings['inputs'][keys[1]]['blank'])
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertTrue(all(k == keys[0] for c in p.settings['curves'] for k in c['inputs']))
+        self.calculate()
 
     def test_export_scope_and_units_follow_the_saved_calculation(self):
         self.configure(); self.calculate()
@@ -681,12 +780,12 @@ class InpIntegrationTests(unittest.TestCase):
             p.add_group()
             self.assertEqual(p.visible_points, 0)
             for index, key in enumerate(keys[:2], 1):
-                p.inputs.item(p.input_ids.index(key), 0).setCheckState(Qt.Checked)
+                p.inputs.item(p.input_row(key), 0).setCheckState(Qt.Checked)
                 self.assertEqual(p.visible_points, 4 * index)
                 self.assertGreaterEqual(p.plot_limits[1][1], 10)
             p.quantity.setCurrentText('Fraction frozen')
             self.assertEqual(p.visible_points, 8)
-            p.inputs.item(p.input_ids.index(keys[0]), 0).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[0]), 0).setCheckState(Qt.Unchecked)
             self.assertEqual(p.visible_points, 4)
             p.undo_stack.undo()
             self.assertEqual(p.visible_points, 8)
@@ -696,7 +795,7 @@ class InpIntegrationTests(unittest.TestCase):
         p = self.panel
         blank = p.input_ids[2]
         p.quantity.setCurrentText('Number frozen')
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         original = copy.deepcopy(p.settings)
         with patch.object(p.client, 'request') as request:
             for quantity in ('Number frozen', 'Fraction frozen'):
@@ -709,8 +808,8 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertEqual(p.settings['inputs'][p.input_ids[1]]['blanks'], [blank])
             p.change_option('blank_correction', False)
             self.assertEqual(p.visible_points, 8)
-            p.inputs.item(p.input_ids.index(blank), 3).setCheckState(Qt.Unchecked)
-            self.assertEqual(p.visible_points, 4)
+            p.inputs.item(p.input_row(blank), 0).setCheckState(Qt.Unchecked)
+            self.assertEqual(p.visible_points, 8)  # Unused blanks remain visible as measured controls.
             p.undo_stack.undo()
             self.assertEqual(p.visible_points, 8)
             request.assert_not_called()
@@ -719,7 +818,7 @@ class InpIntegrationTests(unittest.TestCase):
         keys = self.configure(); p = self.panel
         p.tabs.setCurrentIndex(1)
         # The last sample clicked in Samples differs from the active range row.
-        p.inputs.selectRow(p.input_ids.index(keys[1]))
+        p.inputs.selectRow(p.input_row(keys[1]))
         p.activate_range(keys[0])
         before = copy.deepcopy(p.settings['ranges'])
         undo_index = p.undo_stack.index()
@@ -831,7 +930,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.inputs.item(1, 0).setCheckState(Qt.Checked)
         p.inputs.item(1, 0).setCheckState(Qt.Unchecked)
         self.assertEqual({key for c in p.settings['curves'] for key in c['inputs']}, set(p.input_ids))
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         self.assertTrue(p.settings['inputs'][p.input_ids[2]]['blank'])
         self.assertNotIn(p.input_ids[2], {key for c in p.settings['curves'] for key in c['inputs']})
 
@@ -875,7 +974,7 @@ class InpIntegrationTests(unittest.TestCase):
     def test_blank_checkboxes_assign_all_samples_and_removal_is_undoable(self):
         p = self.panel
         blank = p.input_ids[2]
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         for key in p.input_ids[:2]:
             self.assertEqual(p.settings['inputs'][key]['blanks'], [blank])
         self.assertEqual(p.settings['inputs'][blank]['blanks'], [])
@@ -885,7 +984,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertIn('--no-water-blank-correction', cli_choices(p.settings))
         self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
         p.blank_enabled.setChecked(True)
-        p.inputs.item(2, 3).setCheckState(Qt.Unchecked)
+        p.inputs.item(p.input_row(blank), 0).setCheckState(Qt.Unchecked)
         self.assertTrue(all(not value['blanks'] for value in p.settings['inputs'].values()))
         p.undo_stack.undo()
         self.assertTrue(p.settings['inputs'][blank]['blank'])
@@ -895,17 +994,17 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_multiple_marked_blanks_are_sent_together_without_self_assignment(self):
         p = self.panel
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
-        p.inputs.item(1, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
+        self.mark_catalog_blanks(p.input_ids[1])
         sample, blank1, blank2 = p.input_ids
         self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank1, blank2])
         self.assertEqual(p.settings['inputs'][blank1]['blanks'], [])
         self.assertEqual(p.settings['inputs'][blank2]['blanks'], [])
         args = cli_choices(p.settings)
         self.assertEqual(json.loads(args[args.index('--water-blank-map') + 1]), {sample: [blank1, blank2]})
-        p.inputs.item(1, 3).setCheckState(Qt.Unchecked)
+        p.inputs.item(p.input_row(blank1), 0).setCheckState(Qt.Unchecked)
         self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank2])
-        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [blank2])
+        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [])
 
     def test_concentration_basis_follows_included_sample_types_and_ignores_blanks(self):
         keys = self.configure(); p = self.panel
@@ -914,7 +1013,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.basis.findData('dry_soil'), -1)
         p.change_option('basis', 'sampled_air')
         metadata = {row['measurement_id']: row for row in p.preview['measurement_metadata']}
-        metadata[keys[2]]['sample_type'] = 'other'
+        metadata[keys[2]]['sample_type'] = 'water blank'
         p.restore_choices(p.settings)
         self.assertEqual(p.settings['basis'], 'sampled_air')
         for key in keys[:2]: metadata[key]['sample_type'] = 'soil'
@@ -1028,7 +1127,7 @@ class InpIntegrationTests(unittest.TestCase):
         from PySide6.QtTest import QTest
         keys = self.configure(); p = self.panel; w = self.window
         before = copy.deepcopy(p.settings)
-        custom = dict(w.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False)
+        custom = dict(w.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False, required_for_sample_types=())
         w.sample_metadata_schema.append(custom)
         w.sample_catalog[0]['instrument'] = 'Cold stage A'
         w.sample_catalog[0]['sampling_site'] = 'Lab'
@@ -1038,7 +1137,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.show(); p.tabs.setCurrentIndex(0); QTest.qWait(100)
         headers = [p.inputs.horizontalHeaderItem(i).text() for i in range(p.inputs.columnCount())]
         self.assertIn('Instrument', headers)
-        self.assertEqual(p.inputs.item(p.input_ids.index(keys[0]), headers.index('Instrument')).text(), 'Cold stage A')
+        self.assertEqual(p.inputs.item(p.input_row(keys[0]), headers.index('Instrument')).text(), 'Cold stage A')
         range_headers = [p.ranges.horizontalHeaderItem(i).text() for i in range(p.ranges.columnCount())]
         self.assertIn('Instrument', range_headers)
         self.assertEqual(p.ranges.item(p.range_ids.index(keys[0]), range_headers.index('Instrument')).text(), 'Cold stage A')
@@ -1047,7 +1146,7 @@ class InpIntegrationTests(unittest.TestCase):
         w.inptk_sample_columns = []
         p.refresh_sample_table_columns()
         self.assertTrue(p.inputs.isColumnHidden(2))
-        self.assertEqual(p.inputs.columnCount(), 5)
+        self.assertEqual(p.inputs.columnCount(), 4)
         self.assertEqual(p.ranges.columnCount(), 4)
         self.assertEqual(p.ranges.horizontalHeaderItem(3).text(), 'Instrument')
         w.inptk_range_columns = []; p.refresh_sample_table_columns()
@@ -1062,22 +1161,22 @@ class InpIntegrationTests(unittest.TestCase):
         calculation_key = p.calculation_key()
         original_csv = concentration_csv(result['tables'], [(c['name'], c['name']) for c in result['choices']['curves']])
         p.tabs.setCurrentIndex(1)
-        row = p.input_ids.index(keys[0])
+        row = p.input_row(keys[0])
         self.assertEqual(p.inputs.item(row, 2).text(), '1×')
-        self.assertEqual(p.inputs.item(p.input_ids.index(keys[1]), 2).text(), '10×')
+        self.assertEqual(p.inputs.item(p.input_row(keys[1]), 2).text(), '10×')
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
-            p.inputs.item(row, 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(row, 3).setCheckState(Qt.Unchecked)
             self.assertNotIn(keys[0], p.range_items)
             self.assertTrue(all(keys[0] not in label.text for _, label in p.legend.items))
             self.assertTrue(any('(combined)' in label.text for _, label in p.legend.items))
             p.show_combined.setChecked(False)
             self.assertTrue(all('(combined)' not in label.text for _, label in p.legend.items))
-            p.inputs.item(p.input_ids.index(keys[1]), 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[1]), 3).setCheckState(Qt.Unchecked)
             self.assertIn('All curves are hidden', p.empty_plot.text())
             for quantity in ('Number frozen', 'Fraction frozen'):
                 p.quantity.setCurrentText(quantity)
                 self.assertEqual([label.text for _, label in p.legend.items], [f'{keys[2]} (water blank)'])
-            p.inputs.item(p.input_ids.index(keys[2]), 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[2]), 3).setCheckState(Qt.Unchecked)
             self.assertIn('All curves are hidden', p.empty_plot.text())
             self.assertEqual(requests.call_count, 0)
         self.assertEqual(p.settings, choices)
@@ -1088,8 +1187,8 @@ class InpIntegrationTests(unittest.TestCase):
         p.restore_session(saved)
         self.assertEqual(p.hidden_plot_inputs, set(keys))
         self.assertFalse(p.show_combined.isChecked())
-        self.assertEqual(p.inputs.item(row, 4).checkState(), Qt.Unchecked)
-        p.inputs.item(row, 4).setCheckState(Qt.Checked)
+        self.assertEqual(p.inputs.item(row, 3).checkState(), Qt.Unchecked)
+        p.inputs.item(row, 3).setCheckState(Qt.Checked)
         self.assertTrue(any(keys[0] in label.text for _, label in p.legend.items))
         # Older sessions default to displaying every curve.
         saved.pop('display')
@@ -1300,7 +1399,7 @@ class InpIntegrationTests(unittest.TestCase):
         rows.extend(later)
         p.source_changed(); p.refresh_preview()
         self.wait(lambda:not p.operation and not p.client.busy)
-        p.inputs.selectRow(p.input_ids.index(keys[0]))
+        p.inputs.selectRow(p.input_row(keys[0]))
         self.assertFalse(p.input_cycle.isHidden())
         self.assertIn('below the table', p.sample_help.text())
         p.input_cycle.setCurrentIndex(p.input_cycle.findData('1'))
@@ -1337,8 +1436,8 @@ class InpIntegrationTests(unittest.TestCase):
             p.commit(state, 'Restrict sample'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 1)
             state = copy.deepcopy(p.settings)
-            state['inputs'][keys[2]]['blank'] = False
-            p.commit(state, 'Unmark water blank'); self.calculate()
+            state['inputs'][keys[2]]['use_blank'] = False
+            p.commit(state, 'Deselect water blank'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 2)
             self.assertNotIn(first_reference, p.live_refs)
             self.assertLessEqual(len(p.live_refs), 3)
