@@ -57,13 +57,13 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         saved = payload.get('inp_analysis', {}).get('choices')
         if not saved or len(saved.get('curves', [])) != 1:
             raise ValueError('Use the saved M1 session with one combined sample group.')
-        # A marked water control is undiluted. Normalize its metadata only in
-        # this in-memory demonstration; leave counts and the source file intact.
+        # Set the water-control catalog type in this in-memory demonstration;
+        # leave the saved recording intact.
         blanks = {key for key, item in saved['inputs'].items() if item['blank']}
         for item in payload['freeze_count_timeseries_summary']['sample_column_metadata']:
             if item['sample_name'] in blanks:
-                item['dilution'] = '1'
-                payload['sample_catalog'][str(item['sample_id'])]['dilution'] = '1'
+                item['sample_type'] = 'water blank'
+                payload['sample_catalog'][str(item['sample_id'])]['sample_type'] = 'water blank'
         window.restore_session_state(
             build_restore_state(window, payload, grayscale, freeze, counts),
             restore_inp_analysis=False)
@@ -75,7 +75,9 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         for key in choices:
             if key in saved:
                 choices[key] = copy.deepcopy(saved[key])
-        choices.update(method='mle', basis='sampled_air', suggestion=None)
+        choices.update(method='mle', basis='sampled_air', suggestion=None, ranges={},
+                       grid_step='0.5', grid_start='0', grid_end='-35', grid_method='latest',
+                       grid_window='', z='1.96')
         group = choices['curves'][0]
         group['name'] = 'M1 untreated'
         for key in group['inputs']:
@@ -90,6 +92,11 @@ with tempfile.TemporaryDirectory(prefix='icescopy-inp-demo-') as temporary:
         finite = [row for row in rows if math.isfinite(number(row['concentration']))]
         if not finite:
             raise RuntimeError('The combined concentration has no finite results.')
+        if panel.result['reply']['settings']['estimation_method'] != 'mle':
+            raise RuntimeError('The combined result must use MLE.')
+        references = panel.result['references']
+        if references['reply']['settings']['estimation_method'] != 'average':
+            raise RuntimeError('Individual comparisons must use direct sample/blank calculations.')
         panel.show_analysis()
         panel.tabs.setCurrentIndex(1)
         panel.quantity.setCurrentText('Concentration')

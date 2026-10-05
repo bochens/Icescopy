@@ -33,8 +33,10 @@ To create an empty catalog entry first, open **Edit → Sample Catalog Manager**
 1. Open **Edit → Sample Catalog Manager**, or show **Window → Sample Catalog**.
 2. Expand a sample to see its fields.
 3. Edit a value, then finish the field by pressing **Tab** or clicking another field.
-4. Set **Sample type** to `air`, `soil`, or `other` as appropriate. This controls which type-specific fields are editable.
+4. Set **Sample type** to `air`, `soil`, `other`, or `water blank` as appropriate. This controls which type-specific fields are editable.
 5. Save the session and inspect the metadata rows in a fresh freeze-count export.
+
+Each sample can have its own type when **Sample type [all]** is off. Water blanks retain their total and frozen counts in the freeze-count table. They need a well volume for INP analysis; dilution and air/soil conversion fields are grayed out and omitted from their exported metadata values.
 
 Dates use `YYYY-MM-DD HH:MM:SS`, such as `2026-01-15 09:30:00`. Numeric fields take the number alone; their labels specify units. A blank field remains missing information. Do not enter zero merely to avoid a blank.
 
@@ -51,7 +53,7 @@ These are the default definitions. A saved session can carry customized definiti
 | Sampling site | `sampling_site` | User-supplied site description |
 | Collection start | `collection_start` | Start date and time |
 | Collection end | `collection_end` | End date and time |
-| Sample type | `sample_type` | `air`, `soil`, or `other` |
+| Sample type | `sample_type` | `air`, `soil`, `other`, or `water blank` |
 | Well volume (uL) | `well_volume_uL` | Microliters per well; shared by default |
 | Dilution factor | `dilution` | Dilution information; available for all three sample types |
 | Air volume (L) | `air_volume_L` | Liters; available for air samples |

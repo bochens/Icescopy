@@ -80,15 +80,21 @@ class TemperatureTags(QWidget):
         self.plot = plot
         self.entries = []
         self.targets = []
+        self.locked_boundaries = frozenset()
         self.drag = None
+        self.setFixedHeight(self.row_height + 4)
+        policy = self.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
         self.setMouseTracking(True)
         self.setAccessibleName("Sample temperature limits. Drag a colored tag or edit the limits table.")
         plot.getViewBox().sigRangeChanged.connect(self.update)
         plot.getViewBox().sigResized.connect(self.update)
 
-    def set_entries(self, entries):
+    def set_entries(self, entries, *, locked=()):
+        self.locked_boundaries = frozenset(locked)
         self.entries = [entry for entry in entries if entry[3]]
-        self.setFixedHeight(self.row_height + 4 if entries else 0)
+        # Hide inactive controls without resizing the plot above this lane.
         self.setVisible(bool(entries))
         self.update()
 
@@ -128,10 +134,13 @@ class TemperatureTags(QWidget):
                 tip = QPainterPath(); tip.moveTo(x, top)
                 tip.lineTo(center - 7, top + 9); tip.lineTo(center + 7, top + 9); tip.closeSubpath()
                 shape = shape.united(tip)
-                fill = QColor(color); fill.setAlpha(215 if active else 145)
-                painter.setPen(QPen(color, 1.5 if active else 1))
+                locked = (key, boundary) in self.locked_boundaries
+                tag_color = self.palette().color(QPalette.Disabled, QPalette.Text) if locked else color
+                fill = QColor(tag_color); fill.setAlpha(100 if locked else 215 if active else 145)
+                painter.setPen(QPen(tag_color, 1.5 if active and not locked else 1))
                 painter.setBrush(fill); painter.drawPath(shape)
-                painter.setPen(Qt.black if color.lightnessF() > .45 else Qt.white)
+                painter.setPen(self.palette().color(QPalette.Disabled, QPalette.Text) if locked
+                               else Qt.black if color.lightnessF() > .45 else Qt.white)
                 painter.drawText(rect, Qt.AlignCenter, text)
                 self.targets.append((shape, key, boundary, value))
 
@@ -143,6 +152,8 @@ class TemperatureTags(QWidget):
         if event.button() != Qt.LeftButton or target is None:
             event.ignore(); return
         _, key, boundary, value = target
+        if (key, boundary) in self.locked_boundaries:
+            event.ignore(); return
         self.drag = (key, boundary, value, self.temperature_at(event.position().x()))
         self.activated.emit(key)
         self.setCursor(Qt.SizeHorCursor)
@@ -154,11 +165,13 @@ class TemperatureTags(QWidget):
             self.moved.emit(key, boundary, value + self.temperature_at(event.position().x()) - start, False)
         else:
             target = self.target_at(event.position())
-            self.setCursor(Qt.SizeHorCursor if target else Qt.ArrowCursor)
+            editable = target and (target[1], target[2]) not in self.locked_boundaries
+            self.setCursor(Qt.SizeHorCursor if editable else Qt.ArrowCursor)
             if target:
                 _, key, boundary, value = target
                 QToolTip.showText(event.globalPosition().toPoint(),
-                    f"{key}: {'cold' if boundary == 0 else 'warm'} limit {value:g} °C", self)
+                    f"{key}: {'cold' if boundary == 0 else 'warm'} limit {value:g} °C"
+                    + (" (locked)" if not editable else ""), self)
             else:
                 row = int(event.position().y() // self.row_height)
                 if 0 <= row < len(self.entries):

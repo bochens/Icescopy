@@ -10,6 +10,7 @@ from collections import defaultdict
 
 import pandas as pd
 from icescopy_inptk_state import curve_specs
+from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
 
 
 NORMALIZATION_FIELDS = ('air_volume_L', 'suspension_volume_mL', 'filter_fraction_used', 'dry_mass_g')
@@ -50,7 +51,8 @@ def prepare_source(headers, rows, metadata):
             try: parsed = float(value) if value not in (None, '', 'NA') else None
             except (TypeError, ValueError): parsed = None
             record[destination] = parsed if parsed is None or math.isfinite(parsed) else None
-        required = [field for field in ('dilution', 'droplet_volume_uL') if record[field] is None]
+        required_fields = ('droplet_volume_uL',) if record['sample_type'] == WATER_BLANK_SAMPLE_TYPE else ('dilution', 'droplet_volume_uL')
+        required = [field for field in required_fields if record[field] is None]
         sample_rows, observation_number = [], defaultdict(int)
         for index, row in enumerate(rows):
             if row[total_col] in ('', None) or row[frozen_col] in ('', None): continue
@@ -112,6 +114,13 @@ def upload_choices(source, settings, *, selected=None):
         key = record['measurement_id']
         if key not in scope: continue
         record['sample_id'] = scope[key][0]
+        if settings['inputs'][key]['blank']:
+            # Preserve the catalog role. The toolkit supplies the neutral blank
+            # dilution; only the actual well volume and counts affect correction.
+            record['sample_type'] = WATER_BLANK_SAMPLE_TYPE
+            record.pop('dilution', None)
+            for field in NORMALIZATION_FIELDS:
+                record.pop(field, None)
         records.append({key: value for key, value in record.items() if value is not None})
     blank_map = {key: list(blanks) for key, (_group, blanks) in scope.items() if blanks}
     indices = [i for i, key in enumerate(source['counts']['measurement_id']) if key in scope]

@@ -136,6 +136,13 @@ class InptkClient(QObject):
     def busy(self):
         return self.connecting or self.active is not None or bool(self.pending) or bool(self.jobs)
 
+    def supports_option(self, command, flag):
+        """Read the executable's advertised CLI options, without version guesses."""
+        if not self.capabilities:
+            return False
+        options = self.capabilities["commands"][command]["options"]
+        return any(flag in option["flags"] for option in options)
+
     def connect_executable(self, path):
         if self.closed: return
         path = str(Path(path).expanduser()) if path else ''

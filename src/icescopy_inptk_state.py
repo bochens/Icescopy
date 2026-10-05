@@ -4,11 +4,18 @@ import hashlib
 import json
 import math
 
+from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
+
+
+# External-toolkit options; the client enables them only when advertised.
+BLANK_ONSET_FLAG = "--water-blank-after-first-freeze"
+BLANK_RANGE_FLAG = "--water-blank-temperature-range"
+
 
 def new_settings():
     return {
-        "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
-        "blank_correction": True, "basis": "suspension",
+        "inputs": {}, "curves": [], "ranges": {}, "blank_range": {}, "method": "mle",
+        "blank_correction": True, "blank_after_first_freeze": False, "basis": "suspension",
         "grid_step": "0.5", "grid_start": "0", "grid_end": "-35", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
         "min_frozen": 3, "min_unfrozen": 3, "suggestion": None,
@@ -31,12 +38,13 @@ def copy_choices(settings):
 
 
 def individual_choices(settings):
-    """Independent full-range fits, for comparison only, never extra replicates."""
+    """Direct full-range sample/blank calculations, independent of combination."""
     result = copy_choices(settings)
     keys = list(dict.fromkeys(k for c in settings["curves"] for k in c["inputs"]))
     result["curves"] = [{"name": key, "inputs": [key]} for key in keys]
     result["ranges"] = {}
     result["suggestion"] = None
+    result["method"] = "average"
     return result
 
 
@@ -50,9 +58,9 @@ def number(value):
 
 
 def automatic_blank_assignments(settings):
-    """Apply every explicitly marked water blank to each non-blank sample."""
+    """Apply the selected catalog water blanks to each non-blank sample."""
     state = copy_choices(settings)
-    blanks = [key for key, value in state["inputs"].items() if value["blank"]]
+    blanks = [key for key, value in state["inputs"].items() if value["blank"] and value.get("use_blank", True)]
     for value in state["inputs"].values():
         value["blanks"] = [] if value["blank"] else list(blanks)
     return state
@@ -74,10 +82,11 @@ def available_concentration_bases(settings, metadata):
 
 
 def reconcile_inputs(settings, preview):
-    """Keep explicit choices only for exact known input identities; never infer blanks."""
-    result = copy.deepcopy(settings)
+    """Take blank roles from catalog types, preserving exact input selections."""
+    result = copy_choices(settings)
     known = result["inputs"]
     result["inputs"] = {}
+    metadata = {row["measurement_id"]: row for row in preview.get("measurement_metadata", [])}
     for measurement in preview.get("measurements", []):
         key = measurement["measurement_id"]
         cycles = [str(c) for c in measurement["cycle_ids"]]
@@ -85,10 +94,31 @@ def reconcile_inputs(settings, preview):
             "group": key, "blank": False, "blanks": [],
             "cycle": cycles[0] if len(cycles) == 1 else "",
         }))
+        value["blank"] = metadata.get(key, {}).get("sample_type") == WATER_BLANK_SAMPLE_TYPE
+        value.setdefault("use_blank", True)
+        if value["blank"]:
+            value["group"] = key
         if value["cycle"] not in cycles:
             value["cycle"] = cycles[0] if len(cycles) == 1 else ""
         result["inputs"][key] = value
-    return result
+    # A catalog water blank cannot also be an analysis sample. Preserve empty
+    # groups created by the user, but remove groups emptied by a role change.
+    curves = []
+    for curve in result["curves"]:
+        previous = curve["inputs"]
+        curve["inputs"] = [key for key in previous if key in result["inputs"] and not result["inputs"][key]["blank"]]
+        if curve["inputs"] or not previous:
+            curves.append(curve)
+    result["curves"] = curves
+    assigned = {key for curve in curves for key in curve["inputs"]}
+    for key, value in result["inputs"].items():
+        if not value["blank"] and known.get(key, {}).get("blank") and key not in assigned:
+            name, suffix = key, 2
+            while name in {curve["name"] for curve in curves}:
+                name = f"{key} ({suffix})"; suffix += 1
+            value["group"] = name
+            curves.append({"name": name, "inputs": [key]})
+    return automatic_blank_assignments(result)
 
 
 def curve_specs(settings, *, selected=None):
@@ -146,8 +176,8 @@ def concentration_curves(settings):
 
 
 def temperature_range(settings, key):
-    """The client's full freezing range ends at 0 °C unless explicitly edited."""
-    return {"max_C": 0., **settings["ranges"].get(key, {})}
+    """Forward only user limits; an empty range means toolkit Full range."""
+    return dict(settings["ranges"].get(key, {}))
 
 
 def cli_choices(settings, *, suggest=False, selected=None, include_individual=False, saved=False):
@@ -168,6 +198,17 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
     if saved: args = ['--curves', json.dumps(specs)]
     if not settings["blank_correction"]:
         args.append("--no-water-blank-correction")
+    elif settings["blank_after_first_freeze"]:
+        args.append(BLANK_ONSET_FLAG)
+    blank_range = dict(settings["blank_range"])
+    if settings["blank_after_first_freeze"]:
+        blank_range.pop("max_C", None)
+    if settings["blank_correction"] and blank_map and blank_range:
+        if any(not math.isfinite(float(v)) for v in blank_range.values()):
+            raise ValueError("Water-blank limits must be finite temperatures.")
+        if blank_range.get("min_C", -math.inf) > blank_range.get("max_C", math.inf):
+            raise ValueError("The water-blank cold limit must not exceed the warm limit.")
+        args += [BLANK_RANGE_FLAG, json.dumps(blank_range)]
     numeric = {"z": "--z"}
     if settings["grid_step"].strip():
         numeric.update(grid_step="--temperature-step-C", grid_start="--temperature-start-C",
@@ -183,7 +224,8 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
     else:
         args += ["--method", settings["method"], "--output-basis", settings["basis"],
                  "--decrease-policy", settings["decrease_policy"]]
-        ranges = {key: temperature_range(settings, key) for key in sorted(used)}
+        ranges = {key: temperature_range(settings, key) for key in sorted(used)
+                  if settings["ranges"].get(key)}
         for key, limits in ranges.items():
             if any(not math.isfinite(float(v)) for v in limits.values()):
                 raise ValueError(f"{key}: limits must be finite temperatures.")

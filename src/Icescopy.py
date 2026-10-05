@@ -132,6 +132,7 @@ from icescopy_sample_metadata import (
     sample_metadata_schema_from_payload,
     sample_metadata_schema_from_xml,
     sample_metadata_schema_to_payload,
+    sample_metadata_field_is_relevant,
 )
 from icescopy_tool_options import (
     TOOL_OPTIONS_BUTTON_SPACING,
@@ -843,7 +844,8 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "sample_id": sample_id,
             "cell_number": cell_number,
             **{
-                field_name: str(record.get(field_name, "") or "")
+                field_name: (str(record.get(field_name, "") or "")
+                             if sample_metadata_field_is_relevant(active_schema, field_name, record) else "")
                 for field_name in export_sample_metadata_field_keys(
                     active_schema
                 )
@@ -880,6 +882,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     getattr(self, "sample_metadata_schema", None)
                 )
                 if field_name != "sample_name"
+                and sample_metadata_field_is_relevant(self.active_sample_metadata_schema(), field_name, sample_metadata)
                 and not str(sample_metadata.get(field_name, "") or "").strip()
             ]
             if not missing_fields:

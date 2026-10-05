@@ -15,11 +15,11 @@ from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QItemSelectionModel
 from PySide6.QtGui import QColor, QUndoCommand
-from icescopy_inptk_state import cli_choices, concentration_curves, new_settings, reconcile_inputs
+from icescopy_inptk_state import BLANK_ONSET_FLAG, BLANK_RANGE_FLAG, cli_choices, concentration_curves, individual_choices, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
-from icescopy_inptk_data import PLOT_COLUMNS, upload_choices
+from icescopy_inptk_data import PLOT_COLUMNS, prepare_source, upload_choices
 from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
 from icescopy_session_io import build_freeze_count_timeseries_csv_text
 from icescopy_session import SessionSnapshotCommand
@@ -48,17 +48,46 @@ class InpChoiceTests(unittest.TestCase):
         self.assertIn("--no-water-blank-correction", cli_choices(state))
         self.assertEqual(state["inputs"]["A"]["blanks"], ["water"])
 
-    def test_full_freezing_range_ends_at_zero_and_keeps_explicit_limits(self):
+    def test_blank_onset_and_ranges_apply_to_both_methods_and_direct_outputs(self):
+        state = self.settings()
+        self.assertFalse(state['blank_after_first_freeze'])
+        self.assertNotIn(BLANK_ONSET_FLAG, cli_choices(state))
+        state['blank_range'] = {'min_C': -25., 'max_C': -8.}
+        state['blank_after_first_freeze'] = True
+        before = copy.deepcopy(state)
+        for method in ('mle', 'average'):
+            state['method'] = method
+            for saved in (False, True):
+                args = cli_choices(state, saved=saved)
+                self.assertIn(BLANK_ONSET_FLAG, args)
+                self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]),
+                                 {'min_C': -25.})
+            direct = cli_choices(individual_choices(state))
+            self.assertIn(BLANK_ONSET_FLAG, direct)
+            self.assertIn(BLANK_RANGE_FLAG, direct)
+            self.assertIn(BLANK_ONSET_FLAG, cli_choices(state, suggest=True))
+        self.assertEqual(state['blank_range'], before['blank_range'])
+        state['blank_after_first_freeze'] = False
+        args = cli_choices(state)
+        self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]), state['blank_range'])
+        state['blank_correction'] = False
+        args = cli_choices(state)
+        self.assertNotIn(BLANK_RANGE_FLAG, args)
+        self.assertNotIn(BLANK_ONSET_FLAG, args)
+
+    def test_full_range_sends_no_hidden_cuts_and_keeps_explicit_limits(self):
         state = self.settings()
         before = copy.deepcopy(state)
         args = cli_choices(state)
-        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
-                         {'A': {'max_C': 0.}, 'B': {'max_C': 0.}})
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
+        self.assertEqual(args[args.index('--temperature-start-C') + 1], '0')
+        self.assertEqual(args[args.index('--temperature-end-C') + 1], '-35')
         self.assertEqual(state, before)
         state['ranges'] = {'A': {'min_C': -20}, 'B': {'max_C': -15}}
         args = cli_choices(state)
-        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]),
-                         {'A': {'min_C': -20, 'max_C': 0.}, 'B': {'max_C': -15}})
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), state['ranges'])
+        args = cli_choices(individual_choices(state))
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
 
     def test_invalid_choices_are_not_silently_corrected(self):
         edits = [
@@ -116,6 +145,19 @@ class InpChoiceTests(unittest.TestCase):
         self.assertEqual(json.loads(args[args.index('--curves')+1]), specs)
         self.assertEqual(state, original)
 
+    def test_individual_calculation_is_direct_and_independent_of_combination(self):
+        state = self.settings()
+        state.update(method='mle', ranges={'A': {'min_C': -20, 'max_C': -10}})
+        original = copy.deepcopy(state)
+        direct = individual_choices(state)
+        args = cli_choices(direct, saved=True)
+        self.assertEqual(args[args.index('--method') + 1], 'average')
+        self.assertEqual(direct['ranges'], {})
+        self.assertEqual(direct['curves'], [{'name': 'A', 'inputs': ['A']},
+                                         {'name': 'B', 'inputs': ['B']}])
+        self.assertEqual(direct['inputs']['A']['blanks'], ['water'])
+        self.assertEqual(state, original)
+
     def test_upload_keeps_counts_metadata_and_blanks_in_the_same_scope(self):
         state = self.settings()
         state['curves'] = [{'name': 'Neat', 'inputs': ['A']}, {'name': 'Diluted', 'inputs': ['B']}]
@@ -130,6 +172,42 @@ class InpChoiceTests(unittest.TestCase):
         self.assertEqual([r['measurement_id'] for r in payload['metadata']], ['A', 'water'])
         self.assertEqual(payload['water_blank_map'], {'A': ['water']})
         self.assertEqual(source, before)
+
+    def test_catalog_blank_role_overrides_group_membership_and_preserves_selection(self):
+        state = self.settings()
+        state['inputs']['water']['blank'] = False
+        state['inputs']['water']['group'] = 'sample'
+        state['curves'][0]['inputs'].append('water')
+        preview = {'measurements': [{'measurement_id': key, 'cycle_ids': ['01']} for key in state['inputs']],
+                   'measurement_metadata': [{'measurement_id': key, 'sample_type': 'water blank' if key == 'water' else 'air'} for key in state['inputs']]}
+        result = reconcile_inputs(state, preview)
+        self.assertEqual(result['curves'][0]['inputs'], ['A', 'B'])
+        self.assertTrue(result['inputs']['water']['blank'])
+        self.assertEqual(result['inputs']['water']['group'], 'water')
+        result['inputs']['water']['use_blank'] = False
+        refreshed = reconcile_inputs(result, preview)
+        self.assertFalse(refreshed['inputs']['water']['use_blank'])
+        self.assertEqual(refreshed['inputs']['A']['blanks'], [])
+        self.assertEqual(state['curves'][0]['inputs'], ['A', 'B', 'water'])
+
+    def test_water_blank_upload_ignores_dilution_and_normalization_but_keeps_volume(self):
+        headers = ['temperature_C', 'A number total', 'A number frozen', 'water number total', 'water number frozen']
+        source = prepare_source(headers, [[-5, 10, 0, 8, 0], [-6, 10, 4, 8, 2]], [
+            {'sample_type': 'air', 'dilution': '10', 'well_volume_uL': '50'},
+            {'sample_type': 'water blank', 'dilution': '', 'well_volume_uL': '20',
+             'air_volume_L': '-1', 'suspension_volume_mL': '0', 'filter_fraction_used': '4', 'dry_mass_g': '-3'}])
+        self.assertTrue(source['preview']['suspension_metadata']['valid'])
+        state = self.settings(); state['curves'] = [{'name': 'A', 'inputs': ['A']}]
+        before = copy.deepcopy(source)
+        uploaded = upload_choices(source, state)
+        blank = uploaded['metadata'][1]
+        self.assertEqual(blank, {'measurement_id': 'water', 'sample_id': 'water', 'run_id': '1',
+                                'sample_type': 'water blank', 'droplet_volume_uL': 20.})
+        self.assertEqual(uploaded['counts']['n_frozen'], [0, 4, 0, 2])
+        self.assertEqual(source, before)
+        missing = prepare_source(headers, [[-5, 10, 0, 8, 0]], [
+            {'sample_type': 'air', 'dilution': '1', 'well_volume_uL': '50'}, {'sample_type': 'water blank'}])
+        self.assertEqual(missing['preview']['suspension_metadata']['missing_fields'], {'water': ['droplet_volume_uL']})
 
 
 class InpProtocolTests(unittest.TestCase):
@@ -243,7 +321,17 @@ class InpIntegrationTests(unittest.TestCase):
             time.sleep(.01)
         self.assertTrue(condition(), self.panel.status.text())
 
+    def mark_catalog_blanks(self, *keys):
+        metadata = {row['sample_name']: row for row in self.window.freeze_count_timeseries_summary['sample_column_metadata']}
+        for key in keys:
+            self.window.sample_catalog[int(metadata[key]['sample_id'])]['sample_type'] = 'water blank'
+        self.window.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+        self.panel.refresh_preview()
+        self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
+        self.assertFalse(self.errors)
+
     def configure(self):
+        self.mark_catalog_blanks(list(self.panel.settings['inputs'])[2])
         state = copy.deepcopy(self.panel.settings)
         keys = list(state["inputs"])
         self.assertEqual(len(keys),3)
@@ -260,6 +348,104 @@ class InpIntegrationTests(unittest.TestCase):
         self.wait(lambda: not self.panel.operation and not self.panel.client.busy)
         self.assertIsNotNone(self.panel.result,self.panel.status.text())
         self.assertIn("up to date",self.panel.status.text())
+
+    def test_catalog_water_blank_sections_ignore_unrelated_fields_and_keep_count_csv(self):
+        p, w = self.panel, self.window
+        keys = list(p.settings['inputs'])
+        w.sample_catalog[2].update(dilution='', air_volume_L='-1', dry_mass_g='-3',
+                                   suspension_volume_mL='0', filter_fraction_used='4', well_volume_uL='20')
+        counts_before = copy.deepcopy(w.freeze_count_timeseries_rows)
+        self.mark_catalog_blanks(keys[2])
+        self.assertEqual(w.freeze_count_timeseries_rows, counts_before)
+        self.assertEqual(p.inputs.item(p.input_row(keys[2]), 2).text(), '')
+        self.assertEqual(p.inputs.item(p.input_row(keys[2])-1, 0).text(), 'Water blanks')
+        self.assertIsNone(p.input_rows[p.input_row(keys[2])-1])
+        self.assertIn(keys[2], p.range_ids)
+        self.assertFalse(p.range_boundary_editable(keys[2], 0))
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
+        self.assertNotIn(keys[2], {k for c in p.settings['curves'] for k in c['inputs']})
+        catalog_model = w.sample_catalog_tree_model
+        for field in ('dilution', 'air_volume_L', 'dry_mass_g', 'suspension_volume_mL', 'filter_fraction_used'):
+            self.assertFalse(catalog_model.field_index(2, field, 1).flags() & Qt.ItemIsEditable)
+        self.assertTrue(catalog_model.field_index(2, 'well_volume_uL', 1).flags() & Qt.ItemIsEditable)
+        w.sample_catalog[1]['sample_type'] = 'soil'
+        w.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+        exported = build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers,
+            w.freeze_count_timeseries_rows, summary=w.freeze_count_timeseries_summary)
+        self.assertIn('# sample_type,air,soil,water blank', exported)
+        self.assertIn(keys[2] + ' number frozen', exported)
+        blank_metadata = w.freeze_count_timeseries_summary['sample_column_metadata'][2]
+        self.assertEqual(blank_metadata['dilution'], '')
+        self.assertEqual(blank_metadata['air_volume_L'], '')
+        self.assertEqual(blank_metadata['well_volume_uL'], '20')
+        self.calculate()  # Real toolkit validates blank volume but ignores its unrelated fields.
+        p.inputs.item(p.input_row(keys[2]), 0).setCheckState(Qt.Unchecked)
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [])
+        p.undo_stack.undo()
+        self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
+
+    def test_csv_water_blank_input_matches_native_calculation_and_explicit_selection(self):
+        p, w = self.panel, self.window
+        w.sample_catalog[2].update(dilution='', well_volume_uL='20', air_volume_L='-1',
+                                   dry_mass_g='-3', suspension_volume_mL='0', filter_fraction_used='4')
+        keys = self.configure()
+        self.calculate()
+        source = self.fixture.root / 'catalog-water-blank.csv'
+        source.write_text(build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers,
+                          w.freeze_count_timeseries_rows, summary=w.freeze_count_timeseries_summary))
+        previews = []
+        p.client.request(['preview', str(source), '--format', 'icescopy'], previews.append)
+        self.wait(lambda: not p.client.busy)
+        self.assertFalse(self.errors)
+        blank = next(row for row in previews[0]['measurement_metadata'] if row['measurement_id'] == keys[2])
+        self.assertEqual(blank['sample_type'], 'water blank')
+        self.assertEqual(blank['dilution'], 1.)
+        self.assertEqual(blank['droplet_volume_uL'], 20.)
+        for field in ('air_volume_L', 'suspension_volume_mL', 'filter_fraction_used', 'dry_mass_g'):
+            self.assertIsNone(blank[field])
+        payload = upload_choices(p.source_cache, p.settings)
+        native_blank = next(row for row in payload['metadata'] if row['measurement_id'] == keys[2])
+        self.assertEqual(native_blank['sample_type'], 'water blank')
+        self.assertNotIn('dilution', native_blank)
+        for selected in (True, False):
+            if not selected:
+                p.inputs.item(p.input_row(keys[2]), 0).setCheckState(Qt.Unchecked)
+                self.calculate()
+            reference = '@csv-with-blank' if selected else '@csv-without-blank'
+            replies = []
+            p.client.request(['analyze', str(source), '--format', 'icescopy',
+                              *cli_choices(p.settings, include_individual=True), '--out', reference], replies.append)
+            self.wait(lambda: not p.client.busy)
+            self.assertFalse(self.errors)
+            tables = []
+            p.read_plot_tables(reference, replies[0], tables.append, self.errors.append)
+            self.wait(lambda: bool(tables) and not p.client.busy)
+            groups = [(curve['name'], curve['name']) for curve in p.settings['curves']]
+            self.assertEqual(concentration_csv(tables[0], groups), concentration_csv(p.group_result_tables(), groups))
+            for curve in replies[0]['curves'].values():
+                for member in curve['sources']:
+                    self.assertEqual(member['water_blank_ids'], [keys[2]] if selected else [])
+        self.assertEqual(w.sample_catalog[2]['sample_type'], 'water blank')
+        self.assertEqual(w.sample_catalog[2]['dilution'], '')
+
+    def test_blank_catalog_type_does_not_depend_on_export_columns_or_stale_undo(self):
+        p, w = self.panel, self.window
+        keys = list(p.settings['inputs'])
+        p.inputs.item(p.input_row(keys[1]), 0).setCheckState(Qt.Checked)
+        for field in w.sample_metadata_schema:
+            if field['key'] in ('sample_type', 'well_volume_uL', 'dilution'):
+                field['export'] = False
+        self.mark_catalog_blanks(keys[1], keys[2])
+        self.assertNotIn('sample_type', w.freeze_count_timeseries_summary['sample_column_metadata'][2])
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertEqual(p.source_cache['metadata'][2]['droplet_volume_uL'], 50.)
+        self.assertEqual(p.source_cache['metadata'][2]['sample_type'], 'water blank')
+        p.undo_stack.undo()  # Group history must not undo the external catalog's blank type.
+        self.assertTrue(p.settings['inputs'][keys[1]]['blank'])
+        self.assertTrue(p.settings['inputs'][keys[2]]['blank'])
+        self.assertTrue(all(k == keys[0] for c in p.settings['curves'] for k in c['inputs']))
+        self.calculate()
 
     def test_export_scope_and_units_follow_the_saved_calculation(self):
         self.configure(); self.calculate()
@@ -426,7 +612,7 @@ class InpIntegrationTests(unittest.TestCase):
     def test_each_group_input_has_independent_handles_and_numeric_limits(self):
         keys = self.configure()
         self.panel.tabs.setCurrentIndex(1)
-        self.assertEqual(set(self.panel.range_items), set(keys[:2]))
+        self.assertEqual(set(self.panel.range_items), set(keys))
         first, second = [self.panel.range_items[key] for key in keys[:2]]
         self.assertEqual(first.span, (0, 1))
         self.assertEqual(first.brush.color().alpha(), 0)
@@ -452,14 +638,36 @@ class InpIntegrationTests(unittest.TestCase):
         self.panel.undo_stack.undo()
         self.assertEqual(self.panel.settings["ranges"], {})
         self.panel.ranges.item(0, 1).setText("-7")
-        self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, 0))
-        self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, 0))
+        self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, -5))
+        self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, -5))
         self.panel.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
-        self.assertEqual(set(self.panel.range_items), {keys[0]})
+        self.assertEqual(set(self.panel.range_items), {keys[0], keys[2]})
         self.assertTrue(self.panel.ranges.isRowHidden(1))
         self.assertEqual(self.panel.range_ids[self.panel.ranges.currentRow()], keys[0])
         self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
-        self.assertEqual(set(self.panel.range_items), set(keys[:2]))
+        self.assertEqual(set(self.panel.range_items), set(keys))
+
+    def test_switching_control_tabs_preserves_plot_geometry_and_zoom(self):
+        from PySide6.QtTest import QTest
+        self.configure(); self.calculate(); p = self.panel
+        p.show_analysis()
+        p.resize(1100, 800)
+        for quantity in ('Number frozen', 'Concentration'):
+            p.quantity.setCurrentText(quantity)
+            p.tabs.setCurrentIndex(1)
+            QTest.qWait(60)
+            p.plot.setRange(xRange=(-7.5, -5.5), yRange=(0., 1.), padding=0)
+            geometry = p.plot.geometry()
+            viewport = p.plot.viewport().size()
+            view_range = p.plot.viewRange()
+            for tab in (0, 2, 1):
+                p.tabs.setCurrentIndex(tab)
+                QTest.qWait(60)
+                self.assertEqual(p.range_tags.height(), 34)
+                self.assertEqual(p.range_tags.isHidden(), tab != 1)
+                self.assertEqual(p.plot.geometry(), geometry)
+                self.assertEqual(p.plot.viewport().size(), viewport)
+                self.assertEqual(p.plot.viewRange(), view_range)
 
     def test_enter_commits_field_without_triggering_window_buttons(self):
         from PySide6.QtTest import QTest
@@ -585,6 +793,65 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(self.panel.client.busy)
         self.assertIs(self.panel.result, original)
 
+    def test_mle_combination_uses_direct_individual_counts_and_binomial_bounds(self):
+        import csv
+        keys = self.configure(); p = self.panel
+        p.change_option('method', 'mle')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            self.calculate()
+        analyzes = [call.args[0] for call in requests.call_args_list if call.args[0][0] == 'analyze']
+        self.assertEqual([args[args.index('--method') + 1] for args in analyzes], ['mle', 'average'])
+        fitted = json.loads(analyzes[0][analyzes[0].index('--curves') + 1])
+        self.assertEqual(set(fitted), {'Combined'})
+        self.assertTrue(all(len(curve['inputs']) > 1 for curve in fitted.values()))
+        reference = p.result['references']
+        table = reference['tables'][reference['by_input'][keys[1]]]['cumulative']
+        point = next(row for row in table['rows'] if row['temperature_C'] == -8.)
+        # 8/10 frozen sample wells, 1/10 frozen blank wells, dilution 10,
+        # both well volumes 0.05 mL. Derive the reference independently.
+        def estimate_and_widths(frozen, total):
+            f, z, volume = frozen / total, 1.96, .05
+            center = (f + z*z/(2*total)) / (1 + z*z/total)
+            half = z * math.sqrt(f*(1-f)/total + z*z/(4*total*total)) / (1 + z*z/total)
+            value = -math.log1p(-f) / volume
+            low = -math.log1p(-(center-half)) / volume
+            high = -math.log1p(-(center+half)) / volume
+            return value, value-low, high-value
+        sample, slo, shi = estimate_and_widths(8, 10)
+        blank, blo, bhi = estimate_and_widths(1, 10)
+        self.assertAlmostEqual(point['concentration'], 10*(sample-blank))
+        self.assertAlmostEqual(point['lower_error'], 10*math.hypot(slo, bhi))
+        self.assertAlmostEqual(point['upper_error'], 10*math.hypot(shi, blo))
+        direct_group = p.group_result_tables()['Neat']['cumulative']
+        self.assertEqual(direct_group, reference['tables'][reference['by_input'][keys[0]]]['cumulative'])
+        path = self.fixture.root / 'direct-individual.csv'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(path), '')):
+            p.export_csv('individual')
+        self.wait(lambda: not p.operation and not p.client.busy)
+        with path.open() as handle: exported = list(csv.DictReader(handle))
+        row = next(row for row in exported if float(row['temperature_C']) == -8.)
+        self.assertAlmostEqual(float(row[f'{keys[1]} concentration (INP/mL suspension)']), point['concentration'])
+        self.assertAlmostEqual(float(row[f'{keys[1]} lower bound (INP/mL suspension)']), point['concentration']-point['lower_error'])
+        combined = copy.deepcopy(p.result['tables']['Combined'])
+        p.settings['ranges'][keys[1]] = {'min_C': -7., 'max_C': -5.}
+        self.calculate()
+        self.assertIs(p.result['references'], reference)
+        self.assertNotEqual(p.result['tables']['Combined'], combined)
+        p.change_option('method', 'average'); self.calculate()
+        self.assertEqual(p.result['references']['tables'][p.result['references']['by_input'][keys[1]]]['cumulative'], table)
+
+    def test_one_sample_group_uses_direct_calculation_when_mle_is_selected(self):
+        keys = self.configure(); p = self.panel
+        state = copy.deepcopy(p.settings)
+        state.update(method='mle', curves=[{'name': 'Single sample', 'inputs': [keys[0]]}])
+        p.commit(state, 'One sample without dilution combination')
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            self.calculate()
+        analyzes = [call.args[0] for call in requests.call_args_list if call.args[0][0] == 'analyze']
+        self.assertEqual(len(analyzes), 1)
+        self.assertEqual(analyzes[0][analyzes[0].index('--method') + 1], 'average')
+        self.assertEqual(set(p.group_result_tables()), {'Single sample'})
+
     def test_one_selection_controls_plot_ranges_and_assigned_blank_visibility(self):
         keys = self.configure(); self.calculate()
         p = self.panel
@@ -609,12 +876,12 @@ class InpIntegrationTests(unittest.TestCase):
             p.add_group()
             self.assertEqual(p.visible_points, 0)
             for index, key in enumerate(keys[:2], 1):
-                p.inputs.item(p.input_ids.index(key), 0).setCheckState(Qt.Checked)
+                p.inputs.item(p.input_row(key), 0).setCheckState(Qt.Checked)
                 self.assertEqual(p.visible_points, 4 * index)
                 self.assertGreaterEqual(p.plot_limits[1][1], 10)
             p.quantity.setCurrentText('Fraction frozen')
             self.assertEqual(p.visible_points, 8)
-            p.inputs.item(p.input_ids.index(keys[0]), 0).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[0]), 0).setCheckState(Qt.Unchecked)
             self.assertEqual(p.visible_points, 4)
             p.undo_stack.undo()
             self.assertEqual(p.visible_points, 8)
@@ -624,7 +891,7 @@ class InpIntegrationTests(unittest.TestCase):
         p = self.panel
         blank = p.input_ids[2]
         p.quantity.setCurrentText('Number frozen')
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         original = copy.deepcopy(p.settings)
         with patch.object(p.client, 'request') as request:
             for quantity in ('Number frozen', 'Fraction frozen'):
@@ -637,8 +904,8 @@ class InpIntegrationTests(unittest.TestCase):
             self.assertEqual(p.settings['inputs'][p.input_ids[1]]['blanks'], [blank])
             p.change_option('blank_correction', False)
             self.assertEqual(p.visible_points, 8)
-            p.inputs.item(p.input_ids.index(blank), 3).setCheckState(Qt.Unchecked)
-            self.assertEqual(p.visible_points, 4)
+            p.inputs.item(p.input_row(blank), 0).setCheckState(Qt.Unchecked)
+            self.assertEqual(p.visible_points, 8)  # Unused blanks remain visible as measured controls.
             p.undo_stack.undo()
             self.assertEqual(p.visible_points, 8)
             request.assert_not_called()
@@ -647,7 +914,7 @@ class InpIntegrationTests(unittest.TestCase):
         keys = self.configure(); p = self.panel
         p.tabs.setCurrentIndex(1)
         # The last sample clicked in Samples differs from the active range row.
-        p.inputs.selectRow(p.input_ids.index(keys[1]))
+        p.inputs.selectRow(p.input_row(keys[1]))
         p.activate_range(keys[0])
         before = copy.deepcopy(p.settings['ranges'])
         undo_index = p.undo_stack.index()
@@ -657,7 +924,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.tag_moved(keys[0], 0, -7.5, True)
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         self.assertEqual([entry[0] for entry in p.range_tags.entries], [keys[0]])
-        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5, 'max_C': 0}})
+        self.assertEqual(p.settings['ranges'], {keys[0]: {'min_C': -7.5}})
         self.assertEqual(p.current_input(), keys[1])
         self.assertEqual(p.undo_stack.index(), undo_index + 1)
         p.undo_stack.undo()
@@ -665,6 +932,105 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
         p.undo_stack.redo()
         self.assertEqual(p.range_ids[p.ranges.currentRow()], keys[0])
+
+    def test_warm_tag_matches_numeric_edit_without_cutting_last_freeze(self):
+        keys = self.configure(); p, w = self.panel, self.window
+        # The latest event is off the grid and belongs only to the dilute sample.
+        for record in w.cell_records_by_id.values():
+            if record.sample_id == '0' and record.freeze_event_indices == [3]:
+                record.freeze_event_indices = [2]
+        data = make_data([-5., -6., -7., -8.2], {i:w.frame_name(i) for i in range(4)})
+        w.set_freeze_count_timeseries_results(*w.build_csu_freeze_count_timeseries_results(
+            data, count_source=CSU_COUNT_SOURCE_IMAGES))
+        p.refresh_preview()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        p.change_option('grid_step', '0.5')
+        p.change_option('method', 'mle')
+        self.calculate()
+        p.tabs.setCurrentIndex(1)
+        p.quantity.setCurrentText('Concentration')
+        self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
+        p.ranges.item(p.range_ids.index(keys[1]), 2).setText('-6.5')
+        self.calculate()
+        expected = copy.deepcopy(p.result['tables']['Combined']['cumulative'])
+        self.assertIn(-8., [row['temperature_C'] for row in expected['rows']])
+        reference = p.result['references']
+        p.change_option('ranges', {})
+        p.activate_range(keys[1])
+        p.tag_moved(keys[1], 1, -6.5, True)
+        self.assertEqual(p.settings['ranges'], {keys[1]: {'max_C': -6.5}})
+        self.assertEqual(p.ranges.item(p.range_ids.index(keys[1]), 1).text(), '')
+        args = cli_choices(p.settings)
+        self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1])[keys[1]],
+                         {'max_C': -6.5})
+        self.calculate()
+        self.assertEqual(p.result['tables']['Combined']['cumulative'], expected)
+        self.assertIs(p.result['references'], reference)
+        interval = p.result['reply']['settings']['reporting_intervals_C']['Combined']
+        self.assertEqual(interval['min_C'], -8.2)
+        # Moving the native plot line must also leave the opposite cut implicit.
+        p.change_option('ranges', {})
+        region = p.range_items[keys[1]]
+        region.lines[1].setValue(-6.5)
+        region.sigRegionChangeFinished.emit(region)
+        self.assertEqual(p.settings['ranges'], {keys[1]: {'max_C': -6.5}})
+
+    def test_native_full_grid_limits_match_explicit_limits_for_both_methods(self):
+        keys = self.configure(); p, w = self.panel, self.window
+        for record in w.cell_records_by_id.values():
+            if record.sample_id == '0' and record.freeze_event_indices == [3]:
+                record.freeze_event_indices = [2]
+        data = make_data([-5., -6., -7., -8.2], {i:w.frame_name(i) for i in range(4)})
+        w.set_freeze_count_timeseries_results(*w.build_csu_freeze_count_timeseries_results(
+            data, count_source=CSU_COUNT_SOURCE_IMAGES))
+        p.refresh_preview()
+        self.wait(lambda:not p.operation and not p.client.busy)
+        p.change_option('grid_step', '0.5')
+        p.tabs.setCurrentIndex(1)
+        for method in ('average', 'mle'):
+            with self.subTest(method=method):
+                p.change_option('method', method)
+                p.change_option('ranges', {})
+                self.calculate()
+                full = copy.deepcopy(p.result['tables']['Combined']['cumulative'])
+                details = p.result['reply']['settings']['resolved_temperature_ranges_C']['Combined']
+                limits = {key: value['full_range_C'] for key, value in details.items()}
+                self.assertEqual(limits[keys[1]], {'min_C': -8., 'max_C': -6.})
+                self.assertEqual(p.full_range_limits()[keys[1]], limits[keys[1]])
+                self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
+                p.change_option('ranges', limits)
+                self.calculate()
+                # Compare all returned columns, including uncertainty and counts.
+                self.assertEqual(p.result['tables']['Combined']['cumulative'], full)
+                p.full_range.click()
+                args = cli_choices(p.settings)
+                self.assertEqual(json.loads(args[args.index('--temperature-ranges') + 1]), {})
+                self.calculate()
+                self.assertEqual(p.result['tables']['Combined']['cumulative'], full)
+
+    def test_range_controls_use_native_limits_even_when_concentration_is_missing(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        native = p.result['reply']['settings']['resolved_temperature_ranges_C']['Combined']
+        # Simulate unavailable direct estimates. Their missing values must not
+        # silently shrink the count-selection range returned by the toolkit.
+        for tables in p.result['references']['tables'].values():
+            for kind in ('cumulative', 'excluded'):
+                for row in tables[kind]['rows']:
+                    row['concentration'] = {'$nonfinite': 'nan'}
+        p.limits_cache = None
+        for quantity in ('Concentration', 'Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            p.tabs.setCurrentIndex(1)
+            for key in keys[:2]:
+                limits = native[key]['full_range_C']
+                self.assertEqual(p.full_range_limits()[key], limits)
+                self.assertEqual(p.range_items[key].getRegion(), (limits['min_C'], limits['max_C']))
+        p.quantity.setCurrentText('Concentration')
+        # New grid choices require newly resolved native endpoints. Do not show
+        # a stale grid or substitute original acquisition bounds.
+        p.change_option('grid_step', '0.5')
+        self.assertTrue(all(key not in p.full_range_limits() for key in keys[:2]))
+        self.assertTrue(all(key not in p.range_items for key in keys[:2]))
 
     def test_switching_quantity_refits_axes_including_uncertainty(self):
         import numpy as np
@@ -759,7 +1125,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.inputs.item(1, 0).setCheckState(Qt.Checked)
         p.inputs.item(1, 0).setCheckState(Qt.Unchecked)
         self.assertEqual({key for c in p.settings['curves'] for key in c['inputs']}, set(p.input_ids))
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         self.assertTrue(p.settings['inputs'][p.input_ids[2]]['blank'])
         self.assertNotIn(p.input_ids[2], {key for c in p.settings['curves'] for key in c['inputs']})
 
@@ -780,6 +1146,192 @@ class InpIntegrationTests(unittest.TestCase):
             self.wait(lambda:not p.operation and not p.client.busy)
             self.assertEqual(prepare.call_count, 1)
 
+    def test_method_controls_are_separate_and_unsupported_blank_options_stay_gray(self):
+        keys = self.configure(); p = self.panel
+        p.tabs.setCurrentIndex(1)
+        p.show_analysis()
+        p.client.capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] = [option for option in
+                p.client.capabilities['commands'][command]['options']
+                if not set(option['flags']) & {BLANK_ONSET_FLAG, BLANK_RANGE_FLAG}]
+        p.update_status()
+        self.assertFalse(p.blank_first_freeze.isEnabled())
+        self.assertFalse(p.blank_onset_status.isHidden())
+        self.assertEqual(p.method_options.title(), '')
+        self.assertTrue(p.method_options.isAncestorOf(p.suggest))
+        self.assertFalse(p.method_options.isAncestorOf(p.full_range))
+        self.assertFalse(p.method_options.isAncestorOf(p.ranges))
+        full_parent, range_parent = p.full_range.parent(), p.ranges.parent()
+        p.change_option('method', 'mle')
+        self.assertEqual(p.method_options.title(), '')
+        self.assertFalse(p.suggest.isVisible())
+        self.assertTrue(p.method_options.isAncestorOf(p.method_help))
+        self.assertIs(p.full_range.parent(), full_parent)
+        self.assertIs(p.ranges.parent(), range_parent)
+        p.change_option('blank_after_first_freeze', True)
+        with patch.object(p, 'error') as error, patch.object(p.client, 'request') as request:
+            p.run_calculation(False)
+        request.assert_not_called()
+        self.assertIn('does not support', error.call_args.args[0])
+        p.undo_stack.undo()
+        self.assertFalse(p.settings['blank_after_first_freeze'])
+
+    def test_blank_ranges_only_appear_where_blank_is_plotted_and_lock_warm_handle(self):
+        keys = self.configure(); p = self.panel
+        blank = keys[2]
+        p.tabs.setCurrentIndex(1)
+        p.show_analysis()
+        raw_before = copy.deepcopy(p.preview['table'])
+        for quantity in ('Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            self.assertIn(blank, p.visible_range_ids())
+            self.assertIn(blank, p.range_items)
+        p.client.capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] = [option for option in
+                p.client.capabilities['commands'][command]['options']
+                if not set(option['flags']) & {BLANK_ONSET_FLAG, BLANK_RANGE_FLAG}]
+        p.update_status(); p.draw_ranges()
+        self.assertFalse(p.range_boundary_editable(blank, 0))
+        capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] += [
+                {'flags': [BLANK_ONSET_FLAG]}, {'flags': [BLANK_RANGE_FLAG]}]
+        self.addCleanup(setattr, p.client, 'capabilities', capabilities)
+        p.update_status(); p.draw_ranges()
+        self.assertTrue(p.blank_first_freeze.isEnabled())
+        p.ranges.selectRow(p.range_ids.index(blank))
+        sample_limits = copy.deepcopy(p.settings['ranges'])
+        p.ranges.item(p.range_ids.index(blank), 1).setText('-7')
+        self.assertEqual(p.settings['blank_range']['min_C'], -7.)
+        self.assertEqual(p.settings['ranges'], sample_limits)
+        with patch.object(p, 'error') as error:
+            p.blank_first_freeze.click()
+        self.assertTrue(error.called)
+        self.assertFalse(p.settings['blank_after_first_freeze'])
+        p.full_range.click()
+        p.blank_first_freeze.click()
+        warm_item = p.ranges.item(p.range_ids.index(blank), 2)
+        self.assertFalse(warm_item.flags() & Qt.ItemIsEditable)
+        self.assertEqual(float(warm_item.text()), -8.)
+        self.assertEqual(p.range_items[blank].getRegion()[1], -8.)
+        self.assertFalse(p.range_items[blank].lines[1].movable)
+        self.assertIn((blank, 1), p.range_tags.locked_boundaries)
+        before = copy.deepcopy(p.settings)
+        with patch.object(p, 'error') as error:
+            p.ranges.item(p.range_ids.index(blank), 1).setText('-7')
+        self.assertTrue(error.called)
+        self.assertEqual(p.settings, before)
+        from PySide6.QtTest import QTest
+        QTest.qWait(20)
+        target = next(target for target in p.range_tags.targets if target[1:3] == (blank, 1))
+        position = target[0].boundingRect().center().toPoint()
+        QTest.mousePress(p.range_tags, Qt.LeftButton, pos=position)
+        self.assertIsNone(p.range_tags.drag)
+        QTest.mouseRelease(p.range_tags, Qt.LeftButton, pos=position)
+        self.assertEqual(p.settings, before)
+        p.tag_moved(blank, 1, -5., True)
+        self.assertEqual(p.settings, before)
+        p.change_option('grid_step', '0.1')
+        self.assertEqual(float(p.ranges.item(p.range_ids.index(blank), 2).text()), -8.)
+        p.quantity.setCurrentText('Concentration')
+        self.assertIn(blank, p.visible_range_ids())
+        self.assertFalse(p.ranges.isRowHidden(p.range_ids.index(blank)))
+        self.assertNotIn(blank, p.range_items)
+        for column in (1, 2):
+            self.assertFalse(p.ranges.item(p.range_ids.index(blank), column).flags() & Qt.ItemIsEditable)
+        self.assertFalse(p.range_boundary_editable(blank, 0))
+        p.quantity.setCurrentText('Number frozen')
+        p.inputs.item(p.input_row(blank), 3).setCheckState(Qt.Unchecked)
+        self.assertNotIn(blank, p.visible_range_ids())
+        self.assertNotIn(blank, p.range_items)
+        self.assertEqual(p.preview['table'], raw_before)
+        saved = p.session_state()
+        p.restore_session(saved)
+        self.assertTrue(p.settings['blank_after_first_freeze'])
+        self.assertEqual(p.settings['blank_range'], saved['choices']['blank_range'])
+
+    def test_real_blank_flags_match_shared_limits_and_returned_onset(self):
+        keys = self.configure(); p = self.panel
+        if not p.client.supports_option('analyze', BLANK_RANGE_FLAG):
+            self.skipTest('Requires the new water-blank CLI options')
+        p.tabs.setCurrentIndex(1)
+        raw = copy.deepcopy(p.preview['table'])
+        # Direct concentrations before the first blank freeze must agree with
+        # the uncorrected calculation, including their binomial uncertainty.
+        p.blank_enabled.setChecked(False); self.calculate()
+        baseline = p.result['references']['tables'][p.result['references']['by_input'][keys[0]]]['cumulative']['rows']
+        expected = next(row for row in baseline if row['temperature_C'] == -6.)
+        p.blank_enabled.setChecked(True)
+        p.blank_first_freeze.click()
+        self.assertTrue(p.settings['blank_after_first_freeze'])
+        for method in ('average', 'mle'):
+            p.change_option('method', method); self.calculate()
+            settings = p.result['reply']['settings']
+            self.assertTrue(settings['water_blank_after_first_freeze'])
+            groups = [group for controls in settings['water_blank_controls'].values() for group in controls]
+            self.assertTrue(groups)
+            self.assertTrue(all(group['first_freeze_temperature_C'] == -8. for group in groups))
+            direct = p.result['references']['tables'][p.result['references']['by_input'][keys[0]]]['cumulative']['rows']
+            actual = next(row for row in direct if row['temperature_C'] == -6.)
+            for field in ('concentration', 'lower_error', 'upper_error'):
+                self.assertAlmostEqual(actual[field], expected[field])
+            p.quantity.setCurrentText('Number frozen')
+            self.assertEqual(p.range_items[keys[2]].getRegion()[1], -8.)
+            p.ranges.item(p.range_ids.index(keys[2]), 1).setText('-8')
+            self.calculate()
+            self.assertEqual(p.result['reply']['settings']['water_blank_temperature_range_C']['min_C'], -8.)
+            # Concentration can display blank limits, but cannot edit/reset them.
+            p.quantity.setCurrentText('Concentration')
+            row = p.range_ids.index(keys[2])
+            self.assertFalse(p.ranges.isRowHidden(row))
+            self.assertNotIn(keys[2], p.range_items)
+            self.assertFalse(p.ranges.item(row, 1).flags() & Qt.ItemIsEditable)
+            before = copy.deepcopy(p.settings['blank_range'])
+            p.full_range.click()
+            self.assertEqual(p.settings['blank_range'], before)
+            p.quantity.setCurrentText('Fraction frozen')
+            p.full_range.click()
+        self.assertEqual(p.preview['table'], raw)
+        p.change_option('blank_range', {'min_C': -8.})
+        self.calculate()
+        target = self.fixture.root / 'blank-controls.inptk'
+        with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+            p.export_result()
+        self.wait(lambda: not p.operation and not p.client.busy)
+        self.assertTrue(target.exists())
+        self.assertEqual(p.session_state()['choices']['blank_range'], {'min_C': -8.})
+        p.change_option('method', 'average')
+        p.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
+        p.suggest_ranges()
+        self.wait(lambda: not p.operation and not p.client.busy)
+        self.assertFalse(p.last_error, p.last_error)
+        suggested = p.settings['suggestion']['settings']
+        self.assertTrue(suggested['water_blank_after_first_freeze'])
+        self.assertEqual(suggested['water_blank_temperature_range_C']['min_C'], -8.)
+
+    def test_multiple_water_blanks_share_range_edits_and_locked_onset(self):
+        keys = self.configure(); p = self.panel
+        if not p.client.supports_option('analyze', BLANK_RANGE_FLAG):
+            self.skipTest('Requires the new water-blank CLI options')
+        self.mark_catalog_blanks(keys[1])
+        p.tabs.setCurrentIndex(1); p.quantity.setCurrentText('Number frozen')
+        p.ranges.item(p.range_ids.index(keys[2]), 1).setText('-7.5')
+        self.assertEqual(p.settings['blank_range'], {'min_C': -7.5})
+        for key in keys[1:]:
+            self.assertEqual(p.range_items[key].getRegion()[0], -7.5)
+            self.assertEqual(p.ranges.item(p.range_ids.index(key), 1).text(), '-7.50')
+        p.blank_first_freeze.click()
+        for key in keys[1:]:
+            self.assertEqual(p.range_items[key].getRegion()[1], -6.)
+            self.assertFalse(p.range_items[key].lines[1].movable)
+        self.calculate()
+        groups = [group for controls in p.result['reply']['settings']['water_blank_controls'].values() for group in controls]
+        self.assertTrue(all(group['measurement_ids'] == sorted(keys[1:]) for group in groups))
+        self.assertTrue(all(group['first_freeze_temperature_C'] == -6. for group in groups))
+        self.assertFalse(p.method_options.title())
+
     def test_full_range_uses_measured_placeholders_and_undo_restores_limits(self):
         p = self.panel
         p.inputs.item(1, 0).setCheckState(Qt.Checked)
@@ -789,21 +1341,49 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertFalse(p.settings['ranges'])
         self.assertEqual(p.ranges.item(0, 1).text(), '')
         self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8.00')
-        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '0.00')
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-5.00')
         p.ranges.item(0, 1).setText('-7')
         p.ranges.item(1, 2).setText('-6')
         before = copy.deepcopy(p.settings['ranges'])
         p.full_range.click()
         self.assertFalse(p.settings['ranges'])
-        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., 0.))
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -5.))
         p.undo_stack.undo()
         self.assertEqual(p.settings['ranges'], before)
         self.assertEqual(p.range_items[keys[1]].getRegion(), (-8., -6.))
 
+    def test_full_concentration_ranges_follow_useful_points_without_changing_fit(self):
+        keys = self.configure(); self.calculate()
+        p = self.panel
+        p.tabs.setCurrentIndex(1)
+        tables = copy.deepcopy(p.result['tables'])
+        p.quantity.setCurrentText('Concentration')
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -6.))
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-6.00')
+        p.ranges.item(0, 1).setText('-7')
+        p.full_range.click()
+        self.assertFalse(p.settings['ranges'])
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -6.))
+        self.assertEqual(p.result['tables'], tables)
+        p.quantity.setCurrentText('Number frozen')
+        self.assertEqual(p.range_items[keys[0]].getRegion(), (-8., -6.))
+        self.assertEqual(p.ranges.item(0, 2).data(Qt.UserRole), '-6.00')
+        # Window selection exposes its own full-width control, independently
+        # of the grid spacing, and sends that width to the external toolkit.
+        p.change_option('grid_step', '0.5')
+        p.change_option('grid_method', 'window')
+        self.assertTrue(p.grid_form.isRowVisible(p.grid_window))
+        p.grid_window.setText('0.75'); p.grid_window.editingFinished.emit()
+        args = cli_choices(p.settings)
+        self.assertEqual(args[args.index('--temperature-window-C') + 1], '0.75')
+        p.change_option('grid_method', 'latest')
+        self.assertFalse(p.grid_form.isRowVisible(p.grid_window))
+        self.assertNotIn('--temperature-window-C', cli_choices(p.settings))
+
     def test_blank_checkboxes_assign_all_samples_and_removal_is_undoable(self):
         p = self.panel
         blank = p.input_ids[2]
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
         for key in p.input_ids[:2]:
             self.assertEqual(p.settings['inputs'][key]['blanks'], [blank])
         self.assertEqual(p.settings['inputs'][blank]['blanks'], [])
@@ -813,7 +1393,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertIn('--no-water-blank-correction', cli_choices(p.settings))
         self.assertEqual(p.settings['inputs'][p.input_ids[0]]['blanks'], [blank])
         p.blank_enabled.setChecked(True)
-        p.inputs.item(2, 3).setCheckState(Qt.Unchecked)
+        p.inputs.item(p.input_row(blank), 0).setCheckState(Qt.Unchecked)
         self.assertTrue(all(not value['blanks'] for value in p.settings['inputs'].values()))
         p.undo_stack.undo()
         self.assertTrue(p.settings['inputs'][blank]['blank'])
@@ -823,17 +1403,17 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_multiple_marked_blanks_are_sent_together_without_self_assignment(self):
         p = self.panel
-        p.inputs.item(2, 3).setCheckState(Qt.Checked)
-        p.inputs.item(1, 3).setCheckState(Qt.Checked)
+        self.mark_catalog_blanks(p.input_ids[2])
+        self.mark_catalog_blanks(p.input_ids[1])
         sample, blank1, blank2 = p.input_ids
         self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank1, blank2])
         self.assertEqual(p.settings['inputs'][blank1]['blanks'], [])
         self.assertEqual(p.settings['inputs'][blank2]['blanks'], [])
         args = cli_choices(p.settings)
         self.assertEqual(json.loads(args[args.index('--water-blank-map') + 1]), {sample: [blank1, blank2]})
-        p.inputs.item(1, 3).setCheckState(Qt.Unchecked)
+        p.inputs.item(p.input_row(blank1), 0).setCheckState(Qt.Unchecked)
         self.assertEqual(p.settings['inputs'][sample]['blanks'], [blank2])
-        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [blank2])
+        self.assertEqual(p.settings['inputs'][blank1]['blanks'], [])
 
     def test_concentration_basis_follows_included_sample_types_and_ignores_blanks(self):
         keys = self.configure(); p = self.panel
@@ -842,7 +1422,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.basis.findData('dry_soil'), -1)
         p.change_option('basis', 'sampled_air')
         metadata = {row['measurement_id']: row for row in p.preview['measurement_metadata']}
-        metadata[keys[2]]['sample_type'] = 'other'
+        metadata[keys[2]]['sample_type'] = 'water blank'
         p.restore_choices(p.settings)
         self.assertEqual(p.settings['basis'], 'sampled_air')
         for key in keys[:2]: metadata[key]['sample_type'] = 'soil'
@@ -866,6 +1446,7 @@ class InpIntegrationTests(unittest.TestCase):
         key = p.input_ids[0]
         other = dict(p.preview['table']['rows'][0], measurement_id=key, cycle_id='later', temperature_C=-20.)
         p.preview['table']['rows'].append(other)
+        next(m for m in p.preview['measurements'] if m['measurement_id'] == key)['cycle_ids'].append('later')
         p.restore_choices(p.settings)
         self.assertEqual(p.ranges.item(0, 1).data(Qt.UserRole), '-8.00')
         p.change_input_cycle(key, 'later')
@@ -956,7 +1537,7 @@ class InpIntegrationTests(unittest.TestCase):
         from PySide6.QtTest import QTest
         keys = self.configure(); p = self.panel; w = self.window
         before = copy.deepcopy(p.settings)
-        custom = dict(w.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False)
+        custom = dict(w.active_sample_metadata_schema()[-1], key='instrument', label='Instrument', type='text', fixed=False, export=False, required_for_sample_types=())
         w.sample_metadata_schema.append(custom)
         w.sample_catalog[0]['instrument'] = 'Cold stage A'
         w.sample_catalog[0]['sampling_site'] = 'Lab'
@@ -966,7 +1547,7 @@ class InpIntegrationTests(unittest.TestCase):
         p.show(); p.tabs.setCurrentIndex(0); QTest.qWait(100)
         headers = [p.inputs.horizontalHeaderItem(i).text() for i in range(p.inputs.columnCount())]
         self.assertIn('Instrument', headers)
-        self.assertEqual(p.inputs.item(p.input_ids.index(keys[0]), headers.index('Instrument')).text(), 'Cold stage A')
+        self.assertEqual(p.inputs.item(p.input_row(keys[0]), headers.index('Instrument')).text(), 'Cold stage A')
         range_headers = [p.ranges.horizontalHeaderItem(i).text() for i in range(p.ranges.columnCount())]
         self.assertIn('Instrument', range_headers)
         self.assertEqual(p.ranges.item(p.range_ids.index(keys[0]), range_headers.index('Instrument')).text(), 'Cold stage A')
@@ -975,7 +1556,7 @@ class InpIntegrationTests(unittest.TestCase):
         w.inptk_sample_columns = []
         p.refresh_sample_table_columns()
         self.assertTrue(p.inputs.isColumnHidden(2))
-        self.assertEqual(p.inputs.columnCount(), 5)
+        self.assertEqual(p.inputs.columnCount(), 4)
         self.assertEqual(p.ranges.columnCount(), 4)
         self.assertEqual(p.ranges.horizontalHeaderItem(3).text(), 'Instrument')
         w.inptk_range_columns = []; p.refresh_sample_table_columns()
@@ -990,22 +1571,22 @@ class InpIntegrationTests(unittest.TestCase):
         calculation_key = p.calculation_key()
         original_csv = concentration_csv(result['tables'], [(c['name'], c['name']) for c in result['choices']['curves']])
         p.tabs.setCurrentIndex(1)
-        row = p.input_ids.index(keys[0])
+        row = p.input_row(keys[0])
         self.assertEqual(p.inputs.item(row, 2).text(), '1×')
-        self.assertEqual(p.inputs.item(p.input_ids.index(keys[1]), 2).text(), '10×')
+        self.assertEqual(p.inputs.item(p.input_row(keys[1]), 2).text(), '10×')
         with patch.object(p.client, 'request', wraps=p.client.request) as requests:
-            p.inputs.item(row, 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(row, 3).setCheckState(Qt.Unchecked)
             self.assertNotIn(keys[0], p.range_items)
             self.assertTrue(all(keys[0] not in label.text for _, label in p.legend.items))
             self.assertTrue(any('(combined)' in label.text for _, label in p.legend.items))
             p.show_combined.setChecked(False)
             self.assertTrue(all('(combined)' not in label.text for _, label in p.legend.items))
-            p.inputs.item(p.input_ids.index(keys[1]), 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[1]), 3).setCheckState(Qt.Unchecked)
             self.assertIn('All curves are hidden', p.empty_plot.text())
             for quantity in ('Number frozen', 'Fraction frozen'):
                 p.quantity.setCurrentText(quantity)
                 self.assertEqual([label.text for _, label in p.legend.items], [f'{keys[2]} (water blank)'])
-            p.inputs.item(p.input_ids.index(keys[2]), 4).setCheckState(Qt.Unchecked)
+            p.inputs.item(p.input_row(keys[2]), 3).setCheckState(Qt.Unchecked)
             self.assertIn('All curves are hidden', p.empty_plot.text())
             self.assertEqual(requests.call_count, 0)
         self.assertEqual(p.settings, choices)
@@ -1016,8 +1597,8 @@ class InpIntegrationTests(unittest.TestCase):
         p.restore_session(saved)
         self.assertEqual(p.hidden_plot_inputs, set(keys))
         self.assertFalse(p.show_combined.isChecked())
-        self.assertEqual(p.inputs.item(row, 4).checkState(), Qt.Unchecked)
-        p.inputs.item(row, 4).setCheckState(Qt.Checked)
+        self.assertEqual(p.inputs.item(row, 3).checkState(), Qt.Unchecked)
+        p.inputs.item(row, 3).setCheckState(Qt.Checked)
         self.assertTrue(any(keys[0] in label.text for _, label in p.legend.items))
         # Older sessions default to displaying every curve.
         saved.pop('display')
@@ -1065,6 +1646,37 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertTrue(any(color.alphaF() < .1 for color in first))
         self.assertTrue(any(color.rgb() == QColor(Qt.black).rgb() for color in colors))
         self.assertEqual(p.plot_limits[0][1], 0.)
+
+    def test_log_band_crossing_zero_remains_visible_without_changing_bounds(self):
+        keys = self.configure(); self.calculate(); p = self.panel
+        self.window.inptk_log_concentration = True
+        references = p.result['references']
+        table = references['tables'][references['by_input'][keys[1]]]['cumulative']
+        for row in table['rows']:
+            row['lower_error'] = row['concentration']  # A real zero lower bound.
+        before = copy.deepcopy(table)
+        p.reference_plot_tables.clear(); p.render_key = None; p.draw()
+        self.assertTrue(p.uncertainty_lower_items)
+        import pyqtgraph as pg
+        bands = [item for item in p.plot.getPlotItem().items if isinstance(item, pg.FillBetweenItem)
+                 and item.brush().color().rgb() == p.color(keys[1]).rgb()]
+        self.assertTrue(any(not item.path().isEmpty() for item in bands))
+        p.plot.setYRange(-7., 2., padding=0)
+        QApplication.processEvents()
+        for curve, x, values, nonpositive in p.uncertainty_lower_items:
+            for value in curve.yData[nonpositive]: self.assertAlmostEqual(value, 1e-8)
+        self.assertEqual(table, before)
+        _, rows = concentration_csv(references['tables'], list(references['by_input'].items()))
+        columns, _ = concentration_csv(references['tables'], list(references['by_input'].items()))
+        bound_column = columns.index(f'{keys[1]} lower bound (INP/mL suspension)')
+        self.assertTrue(all(row[bound_column] in ('', 0.) for row in rows))
+        p.change_option('method', 'mle')
+        p.update_method_help()
+        help_text = p.method_help.text() + p.method_details.text()
+        self.assertNotIn('exponential function', help_text)
+        self.assertNotIn('both histories', help_text)
+        self.assertIn('sample and blank counts', help_text)
+        self.assertIn('direct blank correction', help_text)
 
     def test_excluded_individual_point_inside_limits_is_faded_without_changing_saved_tables(self):
         keys = self.configure(); self.calculate(); p = self.panel
@@ -1197,7 +1809,7 @@ class InpIntegrationTests(unittest.TestCase):
         rows.extend(later)
         p.source_changed(); p.refresh_preview()
         self.wait(lambda:not p.operation and not p.client.busy)
-        p.inputs.selectRow(p.input_ids.index(keys[0]))
+        p.inputs.selectRow(p.input_row(keys[0]))
         self.assertFalse(p.input_cycle.isHidden())
         self.assertIn('below the table', p.sample_help.text())
         p.input_cycle.setCurrentIndex(p.input_cycle.findData('1'))
@@ -1234,8 +1846,8 @@ class InpIntegrationTests(unittest.TestCase):
             p.commit(state, 'Restrict sample'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 1)
             state = copy.deepcopy(p.settings)
-            state['inputs'][keys[2]]['blank'] = False
-            p.commit(state, 'Unmark water blank'); self.calculate()
+            state['inputs'][keys[2]]['use_blank'] = False
+            p.commit(state, 'Deselect water blank'); self.calculate()
             self.assertEqual(sum('import' in call.args[0] for call in requests.call_args_list), 2)
             self.assertNotIn(first_reference, p.live_refs)
             self.assertLessEqual(len(p.live_refs), 3)
