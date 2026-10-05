@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from icescopy_inptk_client import InptkClient
 from icescopy_inptk_plot import ConcentrationAxis, PlotLegend, TemperatureRangeItem, TemperatureTags, axis_limits
-from icescopy_inptk_state import automatic_blank_assignments, available_concentration_bases, cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
+from icescopy_inptk_state import BLANK_ONSET_FLAG, automatic_blank_assignments, available_concentration_bases, cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings, number, reconcile_inputs, set_group_inputs, temperature_range
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
 from icescopy_inptk_export import concentration_csv, frozen_fraction_csv, write_csv
@@ -309,7 +309,20 @@ class InptkPanel(QWidget):
             "Use the selected water blanks for all analysis samples. "
             "Uncheck to calculate without blank correction.")
         self.blank_enabled.toggled.connect(lambda value: self.change_option("blank_correction", value))
-        layout.addWidget(self.blank_enabled)
+        blank_options = QGroupBox("Blank correction")
+        blank_layout = QVBoxLayout(blank_options)
+        blank_layout.addWidget(self.blank_enabled)
+        self.blank_first_freeze = QCheckBox("Start correction at first blank freeze")
+        self.blank_first_freeze.setToolTip(
+            "Before the first observed freeze in assigned water blanks, omit water "
+            "background and its uncertainty. Applies to MLE, Average and individual curves.")
+        self.blank_first_freeze.toggled.connect(
+            lambda value: self.change_option("blank_after_first_freeze", value))
+        blank_layout.addWidget(self.blank_first_freeze)
+        self.blank_onset_status = QLabel("Requires an INP toolkit update.")
+        self.blank_onset_status.setWordWrap(True)
+        blank_layout.addWidget(self.blank_onset_status)
+        layout.addWidget(blank_options)
         layout.addStretch(1)
         catalog = QPushButton("Edit sample metadata…")
         catalog.setToolTip("Close this window to edit physical metadata. Your INP analysis is retained.")
@@ -357,6 +370,14 @@ class InptkPanel(QWidget):
         self.ranges.itemChanged.connect(self.range_changed)
         self.ranges.itemSelectionChanged.connect(self.draw_ranges)
         layout.addWidget(self.ranges, 1)
+        self.full_range = QPushButton("Full range")
+        self.full_range.setToolTip("Use each sample's measured cold limit and a warm limit of 0 °C.")
+        self.full_range.clicked.connect(self.reset_ranges)
+        layout.addWidget(self.full_range)
+        layout.addSpacing(8)
+        self.method_options = QGroupBox()
+        method_layout = QVBoxLayout(self.method_options)
+        layout.addWidget(self.method_options)
         self.min_frozen = QSpinBox()
         self.min_unfrozen = QSpinBox()
         for widget, key in ((self.min_frozen, "min_frozen"), (self.min_unfrozen, "min_unfrozen")):
@@ -369,31 +390,25 @@ class InptkPanel(QWidget):
         self.thresholds = thresholds
         self.auto_range_options = QWidget()
         self.auto_range_options.setLayout(thresholds)
-        layout.addWidget(self.auto_range_options)
+        method_layout.addWidget(self.auto_range_options)
         self.suggest = QPushButton("Auto range")
         self.suggest.setToolTip("Suggest Average limits for the selected sample group.")
         self.suggest.clicked.connect(self.suggest_ranges)
-        self.full_range = QPushButton("Full range")
-        self.full_range.setToolTip("Use each sample's measured cold limit and a warm limit of 0 °C.")
-        self.full_range.clicked.connect(self.reset_ranges)
-        range_actions = QHBoxLayout()
-        range_actions.addWidget(self.suggest)
-        range_actions.addWidget(self.full_range)
-        layout.addLayout(range_actions)
+        method_layout.addWidget(self.suggest)
         self.suggestion_status = QLabel("Automatic limits are available for Average; MLE limits are manual.")
         self.suggestion_status.setWordWrap(True)
         help_font = QFont(self.font())
         if help_font.pointSizeF() > 0:
             help_font.setPointSizeF(max(10, help_font.pointSizeF() - 1))
         self.suggestion_status.setFont(help_font)
-        layout.addWidget(self.suggestion_status)
-        layout.addSpacing(6)
+        method_layout.addWidget(self.suggestion_status)
+        method_layout.addSpacing(6)
         self.method_help = QLabel()
         self.method_help.setFont(help_font)
         self.method_help.setWordWrap(True)
         self.method_help.setTextFormat(Qt.RichText)
         self.method_help.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.method_help)
+        method_layout.addWidget(self.method_help)
         self.method_details_button = QToolButton()
         self.method_details_button.setFont(help_font)
         self.method_details_button.setAutoRaise(True)
@@ -413,7 +428,7 @@ class InptkPanel(QWidget):
             QToolButton:focus { color: palette(link);
                                 border-bottom: 1px dotted palette(link); }
         """)
-        layout.addWidget(self.method_details_button, alignment=Qt.AlignLeft)
+        method_layout.addWidget(self.method_details_button, alignment=Qt.AlignLeft)
         self.method_details = QLabel()
         self.method_details.setFont(help_font)
         self.method_details.setTextFormat(Qt.RichText)
@@ -421,7 +436,7 @@ class InptkPanel(QWidget):
         self.method_details.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.method_details.hide()
         self.method_details_button.toggled.connect(self.toggle_method_details)
-        layout.addWidget(self.method_details)
+        method_layout.addWidget(self.method_details)
         layout.addStretch(1)
         self.add_control_tab(combine, "Combine")
 
@@ -823,6 +838,8 @@ class InptkPanel(QWidget):
         for key in ("method", "basis", "grid_method", "decrease_policy"):
             widget = getattr(self, key); widget.setCurrentIndex(widget.findData(self.settings[key]))
         self.blank_enabled.setChecked(self.settings["blank_correction"])
+        self.blank_first_freeze.setChecked(self.settings["blank_after_first_freeze"])
+        self.method_options.setTitle("Average options" if self.settings["method"] == "average" else "MLE options")
         self.min_frozen.setValue(self.settings["min_frozen"])
         self.min_unfrozen.setValue(self.settings["min_unfrozen"])
         self.auto_range_options.setVisible(self.settings["method"] == "average")
@@ -1397,6 +1414,11 @@ class InptkPanel(QWidget):
         row = self.single_curve_row()
         selected = self.settings['curves'][row]['name'] if suggest and row >= 0 else None
         try:
+            command = 'suggest-ranges' if suggest else 'analyze'
+            if (self.settings['blank_correction'] and self.settings['blank_after_first_freeze']
+                    and not self.client.supports_option(command, BLANK_ONSET_FLAG)):
+                raise ValueError('This INP toolkit does not support starting blank correction at its first freeze. '
+                                 'Update the toolkit or turn off that option in Samples.')
             if suggest and selected is None: raise ValueError('Select one sample group for Auto range.')
             choices = copy_choices(self.settings)
             report = choices.get('suggestion')
@@ -1528,6 +1550,12 @@ class InptkPanel(QWidget):
         if not hasattr(self, "calculate"): return
         busy = self.operation or self.client.busy
         connected = bool(self.client.capabilities)
+        onset_supported = self.client.supports_option('analyze', BLANK_ONSET_FLAG)
+        blanks_selected = any(value['blank'] and value.get('use_blank', True)
+                              for value in self.settings['inputs'].values())
+        self.blank_first_freeze.setEnabled(
+            onset_supported and not busy and self.settings['blank_correction'] and blanks_selected)
+        self.blank_onset_status.setVisible(not onset_supported)
         self.calculate.setEnabled(not busy and bool(self.current_hash()))
         self.calculate.setText("Calculate")
         self.cancel.setVisible(busy)

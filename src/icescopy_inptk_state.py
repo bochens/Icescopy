@@ -7,10 +7,14 @@ import math
 from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
 
 
+# Proposed external-toolkit option; the client enables it only when advertised.
+BLANK_ONSET_FLAG = "--water-blank-after-first-freeze"
+
+
 def new_settings():
     return {
         "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
-        "blank_correction": True, "basis": "suspension",
+        "blank_correction": True, "blank_after_first_freeze": False, "basis": "suspension",
         "grid_step": "0.5", "grid_start": "0", "grid_end": "-35", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
         "min_frozen": 3, "min_unfrozen": 3, "suggestion": None,
@@ -193,6 +197,8 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
     if saved: args = ['--curves', json.dumps(specs)]
     if not settings["blank_correction"]:
         args.append("--no-water-blank-correction")
+    elif settings["blank_after_first_freeze"]:
+        args.append(BLANK_ONSET_FLAG)
     numeric = {"z": "--z"}
     if settings["grid_step"].strip():
         numeric.update(grid_step="--temperature-step-C", grid_start="--temperature-start-C",
