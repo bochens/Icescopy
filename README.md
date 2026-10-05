@@ -12,7 +12,7 @@ Download the version listed for your computer below. These downloads include Pyt
 
 | Platform | Download | Installation |
 | --- | --- | --- |
-| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-windows-installer.exe) — v2.6.1 | Run the installer. |
+| Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.0/Icescopy-windows-installer.exe) — v2.6.0 | Run the installer. |
 | macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-macos-arm64.zip) — v2.6.1 | Unzip, then move **Icescopy.app** to **Applications**. |
 
 The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
