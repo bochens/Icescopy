@@ -15,7 +15,7 @@ from test_csu_count_sources import make_data
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QItemSelectionModel
 from PySide6.QtGui import QColor, QUndoCommand
-from icescopy_inptk_state import cli_choices, concentration_curves, individual_choices, new_settings, reconcile_inputs
+from icescopy_inptk_state import BLANK_ONSET_FLAG, BLANK_RANGE_FLAG, cli_choices, concentration_curves, individual_choices, new_settings, reconcile_inputs
 from icescopy_session_io import build_session_payload, build_restore_state, load_session_bundle, save_session_bundle
 from icescopy_temperature_import import CSU_COUNT_SOURCE_IMAGES
 from icescopy_inptk_client import InptkClient, ToolkitTransport
@@ -47,6 +47,33 @@ class InpChoiceTests(unittest.TestCase):
         state["blank_correction"] = False
         self.assertIn("--no-water-blank-correction", cli_choices(state))
         self.assertEqual(state["inputs"]["A"]["blanks"], ["water"])
+
+    def test_blank_onset_and_ranges_apply_to_both_methods_and_direct_outputs(self):
+        state = self.settings()
+        self.assertFalse(state['blank_after_first_freeze'])
+        self.assertNotIn(BLANK_ONSET_FLAG, cli_choices(state))
+        state['blank_ranges'] = {'water': {'min_C': -25., 'max_C': -8.}}
+        state['blank_after_first_freeze'] = True
+        before = copy.deepcopy(state)
+        for method in ('mle', 'average'):
+            state['method'] = method
+            for saved in (False, True):
+                args = cli_choices(state, saved=saved)
+                self.assertIn(BLANK_ONSET_FLAG, args)
+                self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]),
+                                 {'water': {'min_C': -25.}})
+            direct = cli_choices(individual_choices(state))
+            self.assertIn(BLANK_ONSET_FLAG, direct)
+            self.assertIn(BLANK_RANGE_FLAG, direct)
+            self.assertIn(BLANK_ONSET_FLAG, cli_choices(state, suggest=True))
+        self.assertEqual(state['blank_ranges'], before['blank_ranges'])
+        state['blank_after_first_freeze'] = False
+        args = cli_choices(state)
+        self.assertEqual(json.loads(args[args.index(BLANK_RANGE_FLAG) + 1]), state['blank_ranges'])
+        state['blank_correction'] = False
+        args = cli_choices(state)
+        self.assertNotIn(BLANK_RANGE_FLAG, args)
+        self.assertNotIn(BLANK_ONSET_FLAG, args)
 
     def test_full_freezing_range_ends_at_zero_and_keeps_explicit_limits(self):
         state = self.settings()
@@ -331,7 +358,8 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.inputs.item(p.input_row(keys[2]), 2).text(), '')
         self.assertEqual(p.inputs.item(p.input_row(keys[2])-1, 0).text(), 'Water blanks')
         self.assertIsNone(p.input_rows[p.input_row(keys[2])-1])
-        self.assertNotIn(keys[2], p.range_ids)
+        self.assertIn(keys[2], p.range_ids)
+        self.assertFalse(p.range_boundary_editable(keys[2], 0))
         self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
         self.assertNotIn(keys[2], {k for c in p.settings['curves'] for k in c['inputs']})
         catalog_model = w.sample_catalog_tree_model
@@ -582,7 +610,7 @@ class InpIntegrationTests(unittest.TestCase):
     def test_each_group_input_has_independent_handles_and_numeric_limits(self):
         keys = self.configure()
         self.panel.tabs.setCurrentIndex(1)
-        self.assertEqual(set(self.panel.range_items), set(keys[:2]))
+        self.assertEqual(set(self.panel.range_items), set(keys))
         first, second = [self.panel.range_items[key] for key in keys[:2]]
         self.assertEqual(first.span, (0, 1))
         self.assertEqual(first.brush.color().alpha(), 0)
@@ -611,11 +639,11 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(self.panel.range_items[keys[0]].getRegion(), (-7, 0))
         self.assertEqual(self.panel.range_items[keys[1]].getRegion(), (-8, 0))
         self.panel.curves.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
-        self.assertEqual(set(self.panel.range_items), {keys[0]})
+        self.assertEqual(set(self.panel.range_items), {keys[0], keys[2]})
         self.assertTrue(self.panel.ranges.isRowHidden(1))
         self.assertEqual(self.panel.range_ids[self.panel.ranges.currentRow()], keys[0])
         self.panel.curves.setCurrentRow(0, QItemSelectionModel.ClearAndSelect)
-        self.assertEqual(set(self.panel.range_items), set(keys[:2]))
+        self.assertEqual(set(self.panel.range_items), set(keys))
 
     def test_enter_commits_field_without_triggering_window_buttons(self):
         from PySide6.QtTest import QTest
@@ -994,6 +1022,97 @@ class InpIntegrationTests(unittest.TestCase):
             p.refresh_preview()
             self.wait(lambda:not p.operation and not p.client.busy)
             self.assertEqual(prepare.call_count, 1)
+
+    def test_method_controls_are_separate_and_unsupported_blank_options_stay_gray(self):
+        keys = self.configure(); p = self.panel
+        p.tabs.setCurrentIndex(1)
+        p.show_analysis()
+        self.assertFalse(p.blank_first_freeze.isEnabled())
+        self.assertFalse(p.blank_onset_status.isHidden())
+        self.assertEqual(p.method_options.title(), 'Average options')
+        self.assertTrue(p.method_options.isAncestorOf(p.suggest))
+        self.assertFalse(p.method_options.isAncestorOf(p.full_range))
+        self.assertFalse(p.method_options.isAncestorOf(p.ranges))
+        full_parent, range_parent = p.full_range.parent(), p.ranges.parent()
+        p.change_option('method', 'mle')
+        self.assertEqual(p.method_options.title(), 'MLE options')
+        self.assertFalse(p.suggest.isVisible())
+        self.assertTrue(p.method_options.isAncestorOf(p.method_help))
+        self.assertIs(p.full_range.parent(), full_parent)
+        self.assertIs(p.ranges.parent(), range_parent)
+        p.change_option('blank_after_first_freeze', True)
+        with patch.object(p, 'error') as error, patch.object(p.client, 'request') as request:
+            p.run_calculation(False)
+        request.assert_not_called()
+        self.assertIn('does not support', error.call_args.args[0])
+        p.undo_stack.undo()
+        self.assertFalse(p.settings['blank_after_first_freeze'])
+
+    def test_blank_ranges_only_appear_where_blank_is_plotted_and_lock_warm_handle(self):
+        keys = self.configure(); p = self.panel
+        blank = keys[2]
+        p.tabs.setCurrentIndex(1)
+        p.show_analysis()
+        raw_before = copy.deepcopy(p.preview['table'])
+        for quantity in ('Number frozen', 'Fraction frozen'):
+            p.quantity.setCurrentText(quantity)
+            self.assertIn(blank, p.visible_range_ids())
+            self.assertIn(blank, p.range_items)
+        self.assertFalse(p.range_boundary_editable(blank, 0))
+        capabilities = copy.deepcopy(p.client.capabilities)
+        for command in ('analyze', 'suggest-ranges'):
+            p.client.capabilities['commands'][command]['options'] += [
+                {'flags': [BLANK_ONSET_FLAG]}, {'flags': [BLANK_RANGE_FLAG]}]
+        self.addCleanup(setattr, p.client, 'capabilities', capabilities)
+        p.update_status(); p.draw_ranges()
+        self.assertTrue(p.blank_first_freeze.isEnabled())
+        p.ranges.selectRow(p.range_ids.index(blank))
+        sample_limits = copy.deepcopy(p.settings['ranges'])
+        p.ranges.item(p.range_ids.index(blank), 1).setText('-7')
+        self.assertEqual(p.settings['blank_ranges'][blank]['min_C'], -7.)
+        self.assertEqual(p.settings['ranges'], sample_limits)
+        with patch.object(p, 'error') as error:
+            p.blank_first_freeze.click()
+        self.assertTrue(error.called)
+        self.assertFalse(p.settings['blank_after_first_freeze'])
+        p.full_range.click()
+        p.blank_first_freeze.click()
+        warm_item = p.ranges.item(p.range_ids.index(blank), 2)
+        self.assertFalse(warm_item.flags() & Qt.ItemIsEditable)
+        self.assertEqual(float(warm_item.text()), -8.)
+        self.assertEqual(p.range_items[blank].getRegion()[1], -8.)
+        self.assertFalse(p.range_items[blank].lines[1].movable)
+        self.assertIn((blank, 1), p.range_tags.locked_boundaries)
+        before = copy.deepcopy(p.settings)
+        with patch.object(p, 'error') as error:
+            p.ranges.item(p.range_ids.index(blank), 1).setText('-7')
+        self.assertTrue(error.called)
+        self.assertEqual(p.settings, before)
+        from PySide6.QtTest import QTest
+        QTest.qWait(20)
+        target = next(target for target in p.range_tags.targets if target[1:3] == (blank, 1))
+        position = target[0].boundingRect().center().toPoint()
+        QTest.mousePress(p.range_tags, Qt.LeftButton, pos=position)
+        self.assertIsNone(p.range_tags.drag)
+        QTest.mouseRelease(p.range_tags, Qt.LeftButton, pos=position)
+        self.assertEqual(p.settings, before)
+        p.tag_moved(blank, 1, -5., True)
+        self.assertEqual(p.settings, before)
+        p.change_option('grid_step', '0.1')
+        self.assertEqual(float(p.ranges.item(p.range_ids.index(blank), 2).text()), -8.)
+        p.quantity.setCurrentText('Concentration')
+        self.assertNotIn(blank, p.visible_range_ids())
+        self.assertTrue(p.ranges.isRowHidden(p.range_ids.index(blank)))
+        self.assertNotIn(blank, p.range_items)
+        p.quantity.setCurrentText('Number frozen')
+        p.inputs.item(p.input_row(blank), 3).setCheckState(Qt.Unchecked)
+        self.assertNotIn(blank, p.visible_range_ids())
+        self.assertNotIn(blank, p.range_items)
+        self.assertEqual(p.preview['table'], raw_before)
+        saved = p.session_state()
+        p.restore_session(saved)
+        self.assertTrue(p.settings['blank_after_first_freeze'])
+        self.assertEqual(p.settings['blank_ranges'], saved['choices']['blank_ranges'])
 
     def test_full_range_uses_measured_placeholders_and_undo_restores_limits(self):
         p = self.panel

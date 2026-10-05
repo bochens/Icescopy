@@ -9,11 +9,12 @@ from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
 
 # Proposed external-toolkit option; the client enables it only when advertised.
 BLANK_ONSET_FLAG = "--water-blank-after-first-freeze"
+BLANK_RANGE_FLAG = "--water-blank-temperature-ranges"
 
 
 def new_settings():
     return {
-        "inputs": {}, "curves": [], "ranges": {}, "method": "mle",
+        "inputs": {}, "curves": [], "ranges": {}, "blank_ranges": {}, "method": "mle",
         "blank_correction": True, "blank_after_first_freeze": False, "basis": "suspension",
         "grid_step": "0.5", "grid_start": "0", "grid_end": "-35", "grid_method": "latest",
         "grid_window": "", "decrease_policy": "stop_at_decrease", "z": "1.96",
@@ -199,6 +200,19 @@ def cli_choices(settings, *, suggest=False, selected=None, include_individual=Fa
         args.append("--no-water-blank-correction")
     elif settings["blank_after_first_freeze"]:
         args.append(BLANK_ONSET_FLAG)
+    assigned_blanks = {key for blanks in blank_map.values() for key in blanks}
+    blank_ranges = {key: dict(limits) for key, limits in settings["blank_ranges"].items()
+                    if key in assigned_blanks and limits}
+    if settings["blank_after_first_freeze"]:
+        for limits in blank_ranges.values(): limits.pop("max_C", None)
+        blank_ranges = {key: limits for key, limits in blank_ranges.items() if limits}
+    if settings["blank_correction"] and blank_ranges:
+        for key, limits in blank_ranges.items():
+            if any(not math.isfinite(float(v)) for v in limits.values()):
+                raise ValueError(f"{key}: blank limits must be finite temperatures.")
+            if limits.get("min_C", -math.inf) > limits.get("max_C", math.inf):
+                raise ValueError(f"{key}: the blank cold limit must not exceed the warm limit.")
+        args += [BLANK_RANGE_FLAG, json.dumps(blank_ranges)]
     numeric = {"z": "--z"}
     if settings["grid_step"].strip():
         numeric.update(grid_step="--temperature-step-C", grid_start="--temperature-start-C",
