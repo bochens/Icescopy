@@ -173,7 +173,7 @@ class InpChoiceTests(unittest.TestCase):
         uploaded = upload_choices(source, state)
         blank = uploaded['metadata'][1]
         self.assertEqual(blank, {'measurement_id': 'water', 'sample_id': 'water', 'run_id': '1',
-                                'sample_type': 'other', 'dilution': 1., 'droplet_volume_uL': 20.})
+                                'sample_type': 'water blank', 'droplet_volume_uL': 20.})
         self.assertEqual(uploaded['counts']['n_frozen'], [0, 4, 0, 2])
         self.assertEqual(source, before)
         missing = prepare_source(headers, [[-5, 10, 0, 8, 0]], [
@@ -354,6 +354,50 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [])
         p.undo_stack.undo()
         self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
+
+    def test_csv_water_blank_input_matches_native_calculation_and_explicit_selection(self):
+        p, w = self.panel, self.window
+        w.sample_catalog[2].update(dilution='', well_volume_uL='20', air_volume_L='-1',
+                                   dry_mass_g='-3', suspension_volume_mL='0', filter_fraction_used='4')
+        keys = self.configure()
+        self.calculate()
+        source = self.fixture.root / 'catalog-water-blank.csv'
+        source.write_text(build_freeze_count_timeseries_csv_text(w.freeze_count_timeseries_headers,
+                          w.freeze_count_timeseries_rows, summary=w.freeze_count_timeseries_summary))
+        previews = []
+        p.client.request(['preview', str(source), '--format', 'icescopy'], previews.append)
+        self.wait(lambda: not p.client.busy)
+        self.assertFalse(self.errors)
+        blank = next(row for row in previews[0]['measurement_metadata'] if row['measurement_id'] == keys[2])
+        self.assertEqual(blank['sample_type'], 'water blank')
+        self.assertEqual(blank['dilution'], 1.)
+        self.assertEqual(blank['droplet_volume_uL'], 20.)
+        for field in ('air_volume_L', 'suspension_volume_mL', 'filter_fraction_used', 'dry_mass_g'):
+            self.assertIsNone(blank[field])
+        payload = upload_choices(p.source_cache, p.settings)
+        native_blank = next(row for row in payload['metadata'] if row['measurement_id'] == keys[2])
+        self.assertEqual(native_blank['sample_type'], 'water blank')
+        self.assertNotIn('dilution', native_blank)
+        for selected in (True, False):
+            if not selected:
+                p.inputs.item(p.input_row(keys[2]), 0).setCheckState(Qt.Unchecked)
+                self.calculate()
+            reference = '@csv-with-blank' if selected else '@csv-without-blank'
+            replies = []
+            p.client.request(['analyze', str(source), '--format', 'icescopy',
+                              *cli_choices(p.settings, include_individual=True), '--out', reference], replies.append)
+            self.wait(lambda: not p.client.busy)
+            self.assertFalse(self.errors)
+            tables = []
+            p.read_plot_tables(reference, replies[0], tables.append, self.errors.append)
+            self.wait(lambda: bool(tables) and not p.client.busy)
+            groups = [(curve['name'], curve['name']) for curve in p.settings['curves']]
+            self.assertEqual(concentration_csv(tables[0], groups), concentration_csv(p.group_result_tables(), groups))
+            for curve in replies[0]['curves'].values():
+                for member in curve['sources']:
+                    self.assertEqual(member['water_blank_ids'], [keys[2]] if selected else [])
+        self.assertEqual(w.sample_catalog[2]['sample_type'], 'water blank')
+        self.assertEqual(w.sample_catalog[2]['dilution'], '')
 
     def test_blank_catalog_type_does_not_depend_on_export_columns_or_stale_undo(self):
         p, w = self.panel, self.window

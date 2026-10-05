@@ -101,4 +101,4 @@ Stopping the toolkit or a process failure discards its unsaved native results. C
 
 Edits to freeze events or sample metadata update Icescopy's tables in memory. CSV files inside a `.icescopy` archive are written when you save that session; separate CSV files are written when you choose Export. An earlier CSV export is never automatically rewritten.
 
-These calculation descriptions follow **INP-toolkit 0.4.1**.
+These calculation descriptions follow **INP-toolkit 0.4.3**.

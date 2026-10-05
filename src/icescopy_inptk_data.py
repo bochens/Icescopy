@@ -115,11 +115,10 @@ def upload_choices(source, settings, *, selected=None):
         if key not in scope: continue
         record['sample_id'] = scope[key][0]
         if settings['inputs'][key]['blank']:
-            # The toolkit identifies water controls through water_blank_map. Its
-            # measurement schema requires neutral dilution/type values; unrelated
-            # air/soil fields must not validate or normalize a water background.
-            record['sample_type'] = 'other'
-            record['dilution'] = 1.0
+            # Preserve the catalog role. The toolkit supplies the neutral blank
+            # dilution; only the actual well volume and counts affect correction.
+            record['sample_type'] = WATER_BLANK_SAMPLE_TYPE
+            record.pop('dilution', None)
             for field in NORMALIZATION_FIELDS:
                 record.pop(field, None)
         records.append({key: value for key, value in record.items() if value is not None})
