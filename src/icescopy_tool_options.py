@@ -212,7 +212,8 @@ class ToolOptionsFormPage(QWidget):
         button.clicked.connect(handler)
         return button
 
-    def add_row(self, label_text, editor, shortcut_text=""):
+    def _new_row(self, label_text):
+        """A row widget, its layout, and the right-aligned label already in it."""
         row_widget = QWidget(self.column_widget)
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -222,6 +223,10 @@ class ToolOptionsFormPage(QWidget):
         label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         label.setFixedWidth(self.label_width)
         row_layout.addWidget(label)
+        return row_widget, row_layout, label
+
+    def add_row(self, label_text, editor, shortcut_text=""):
+        row_widget, row_layout, _ = self._new_row(label_text)
 
         self._configure_control(editor)
         row_layout.addWidget(editor)
@@ -241,15 +246,7 @@ class ToolOptionsFormPage(QWidget):
         return row_widget
 
     def add_row_with_button(self, label_text, editor, button_text, handler):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
-
-        label = QLabel(label_text, row_widget)
-        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        label.setFixedWidth(self.label_width)
-        row_layout.addWidget(label)
+        row_widget, row_layout, _ = self._new_row(label_text)
 
         self._configure_control(editor)
         row_layout.addWidget(editor)
@@ -282,15 +279,7 @@ class ToolOptionsFormPage(QWidget):
         return line
 
     def add_value_row(self, label_text, value_text="-"):
-        row_widget = QWidget(self.column_widget)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
-
-        label = QLabel(label_text, row_widget)
-        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        label.setFixedWidth(self.label_width)
-        row_layout.addWidget(label)
+        row_widget, row_layout, label = self._new_row(label_text)
 
         value_label = QLabel(str(value_text), row_widget)
         value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
