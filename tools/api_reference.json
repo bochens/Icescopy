@@ -757,7 +757,15 @@
         "serialize_sample_catalog_payload",
         "deserialize_sample_catalog_payload"
       ],
-      "classes": {}
+      "classes": {
+        "_SessionFingerprintWriter": {
+          "summary": "Hashes serialized session content without retaining another copy of the text.",
+          "details": "Accepts text writes from JSON and CSV serializers, updates a SHA-256 digest with UTF-8 bytes, and returns the number of characters consumed. Used by session_content_fingerprint to detect document changes.",
+          "methods": [
+            "write"
+          ]
+        }
+      }
     },
     "icescopy_stylesheet": {
       "summary": "Shared Qt stylesheet strings for the application interface.",
@@ -953,6 +961,317 @@
           ]
         }
       }
+    },
+    "icescopy_inptk_client": {
+      "summary": "Communicates with a separately installed INP toolkit process through queued requests.",
+      "details": "Starts the executable in serve mode and checks its advertised capabilities. Process I/O and JSON serialization run on a worker thread; callbacks return to the client thread. Request identifiers and connection generations keep replies associated with the operation that submitted them. Calculation code remains in the external toolkit.",
+      "functions": [
+        "close_transport"
+      ],
+      "classes": {
+        "ToolkitTransport": {
+          "summary": "Runs the toolkit process and exchanges newline-delimited JSON on a worker thread.",
+          "details": "Emits replies, process failures, and stderr diagnostics with a connection generation. Its compute slot also runs local jobs on the worker thread; these jobs must use snapshots and must not access Qt widgets.",
+          "methods": [
+            "start",
+            "send",
+            "feed",
+            "compute",
+            "close"
+          ]
+        },
+        "InptkClient": {
+          "summary": "Queues toolkit requests and delivers results to the analysis window.",
+          "details": "Owns the transport thread, connection test, pending requests, and local worker jobs. Supports asynchronous callbacks and blocking helpers used at save boundaries. Stopping invalidates pending work; shutdown also joins the worker thread.",
+          "methods": [
+            "connect_executable",
+            "supports_option",
+            "request",
+            "request_body",
+            "compute",
+            "request_wait",
+            "compute_wait",
+            "stop",
+            "shutdown"
+          ]
+        }
+      }
+    },
+    "icescopy_inptk_data": {
+      "summary": "Converts in-memory freeze counts and sample metadata into toolkit input records.",
+      "details": "Validates paired total/frozen columns, count values, and sample metadata. Uses each sample's corrected temperature when present, otherwise the shared temperature, and records rows skipped for missing temperature or cycle. Upload helpers select group members and assigned water blanks, omitting dilution and air/soil fields for blanks.",
+      "functions": [
+        "prepare_source",
+        "upload_scope",
+        "upload_choices"
+      ],
+      "classes": {}
+    },
+    "icescopy_inptk_export": {
+      "summary": "Arranges toolkit concentration and frozen-fraction tables for Icescopy CSV exports.",
+      "details": "Concentration exports use the returned cumulative tables without resampling, with temperature rows and concentration plus lower/upper bounds for each curve. Missing values become empty cells. Frozen-fraction export can follow the toolkit's selected observations. File writing refuses to overwrite an existing path.",
+      "functions": [
+        "concentration_csv",
+        "frozen_fraction_csv",
+        "write_csv"
+      ],
+      "classes": {}
+    },
+    "icescopy_inptk_panel": {
+      "summary": "Provides the INP analysis window, its preferences widget, and analysis history.",
+      "details": "Coordinates sample groups, blank selection, temperature limits, count previews, toolkit requests, plots, and exports. Combined calculations and direct individual concentrations are requested from the external toolkit. The window keeps separate undo/redo history and saves analysis choices and results with the Icescopy session.",
+      "functions": [
+        "concentration_unit"
+      ],
+      "classes": {
+        "InpSettingsCommand": {
+          "summary": "Restores before/after analysis choices through the panel's undo stack.",
+          "details": "The first redo does nothing because the edit has already been applied. Later undo and redo calls restore their respective choice snapshots.",
+          "methods": [
+            "undo",
+            "redo"
+          ]
+        },
+        "RangeLimitDelegate": {
+          "summary": "Displays available endpoints as placeholders in temperature-limit cells.",
+          "details": "Uses the cell's user-role text when no explicit limit is set. The placeholder does not become an analysis cutoff when the editor opens.",
+          "methods": [
+            "initStyleOption",
+            "createEditor"
+          ]
+        },
+        "InptkPreferencesWidget": {
+          "summary": "Lets users choose and test a separately installed toolkit executable.",
+          "details": "Keeps the path in a line edit and uses InptkClient to test the connection. Displays the reported toolkit version and stops the test process after a successful connection.",
+          "methods": [
+            "browse",
+            "connected"
+          ]
+        },
+        "InptkPanel": {
+          "summary": "Manages the analysis window and its current inputs, choices, and results.",
+          "details": "Uses a regular Qt window with application modality to block edits to the source session while analysis is open. Requests count and concentration tables from the toolkit, retains direct individual comparisons, and draws the selected groups. Native result data is captured at save/export boundaries; session restoration retains choices, plot data, and saved results.",
+          "methods": [
+            "show_analysis",
+            "refresh_preview",
+            "recalculate",
+            "suggest_ranges",
+            "draw",
+            "prepare_session_save",
+            "session_state",
+            "restore_session",
+            "export_result",
+            "export_csv",
+            "shutdown"
+          ]
+        }
+      }
+    },
+    "icescopy_inptk_plot": {
+      "summary": "Supplies axes, legends, and draggable temperature controls for INP plots.",
+      "details": "Keeps plot geometry and mouse handling separate from the analysis window. Temperature tags map between screen positions and the plot axis and emit edits for the panel to apply. Axis limits depend on the displayed quantity and finite values; these helpers do not calculate concentrations.",
+      "functions": [
+        "axis_limits"
+      ],
+      "classes": {
+        "_FixedLegend": {
+          "summary": "Prevents the plot legend from being moved by dragging.",
+          "details": "Overrides the inherited drag handler so the legend stays at its assigned position.",
+          "methods": [
+            "mouseDragEvent"
+          ]
+        },
+        "PlotLegend": {
+          "summary": "Places a compact, scrollable legend at the top right of the plot viewport.",
+          "details": "Wraps legend text, limits its displayed size, and schedules placement updates after resizing or view changes. Hides the view when there are no entries.",
+          "methods": [
+            "schedule",
+            "place"
+          ]
+        },
+        "TemperatureTags": {
+          "summary": "Draws and drags the active sample's temperature tags below the plot.",
+          "details": "Reserves a fixed-height lane, maps tags to the current plot coordinates, and honors locked boundaries. Movement signals identify the sample, boundary, temperature, and whether the drag has finished; the panel applies the edit.",
+          "methods": [
+            "set_entries",
+            "plot_x",
+            "temperature_at"
+          ]
+        },
+        "ConcentrationAxis": {
+          "summary": "Formats concentration ticks on a logarithmic plot axis.",
+          "details": "Chooses decade spacing from the visible span and available height, with intermediate ticks where space permits. Adjusts tick labels without changing plotted concentrations.",
+          "methods": [
+            "logTickValues",
+            "logTickStrings"
+          ]
+        },
+        "TemperatureRangeItem": {
+          "summary": "Allows temperature-boundary dragging while leaving the region interior available for plot navigation.",
+          "details": "Ignores mouse gestures on the region interior. Its boundary lines retain their own drag handling.",
+          "methods": [
+            "mouseDragEvent",
+            "mouseClickEvent"
+          ]
+        }
+      }
+    },
+    "icescopy_inptk_state": {
+      "summary": "Stores analysis choices and translates them into toolkit command arguments.",
+      "details": "Defines defaults, reconciles choices with the sample catalogue, validates group membership, and assigns selected water blanks. Builds commands for calculation and range suggestions. Direct individual comparisons use separate Average choices without combination limits. An absent manual boundary is left for the toolkit to resolve.",
+      "functions": [
+        "new_settings",
+        "copy_choices",
+        "reconcile_inputs",
+        "automatic_blank_assignments",
+        "available_concentration_bases",
+        "set_group_inputs",
+        "curve_specs",
+        "individual_choices",
+        "temperature_range",
+        "cli_choices"
+      ],
+      "classes": {}
+    },
+    "icescopy_droplet_detection": {
+      "summary": "Trains and runs a random-forest detector from marked droplet circles.",
+      "details": "Builds image features and training labels from complete circle annotations, augments images and circles together, and trains with scikit-learn. The detector reads validated numeric trees from JSON and predicts new circles with NumPy and OpenCV. This model format is separate from the neural detector's ONNX bundles.",
+      "functions": [
+        "preprocess_image",
+        "feature_field",
+        "transform_circles",
+        "training_labels",
+        "fit_model",
+        "validate_model",
+        "save_model",
+        "load_model"
+      ],
+      "classes": {
+        "CancelledError": {
+          "summary": "Signals that droplet training or detection was cancelled.",
+          "details": "Raised when a supplied cancellation callback requests that work stop.",
+          "methods": []
+        },
+        "Circle": {
+          "summary": "Stores a circle center and radius for random-forest detection and training.",
+          "details": "An immutable record with finite coordinates and a positive radius, expressed in image pixels.",
+          "methods": []
+        },
+        "RandomForestDetector": {
+          "summary": "Evaluates validated decision trees and converts predicted regions into circles.",
+          "details": "Averages tree probabilities over image features, then finds connected regions above the model threshold. Accepts up to two guidance circles to set image scale, or uses the model's default radius. Excludes detections that duplicate guidance or protected circles.",
+          "methods": [
+            "__init__",
+            "predict_scores",
+            "predict_field",
+            "predict"
+          ]
+        }
+      }
+    },
+    "icescopy_droplet_tools": {
+      "summary": "Connects neural droplet detection to the toolbar, frame state, and cell history.",
+      "details": "Copies original frame pixels and circle geometry before starting a worker. When detection finishes, checks that the source and cell state still match the snapshot, filters proposed circles, and inserts the accepted cells as one undoable edit.",
+      "functions": [
+        "qimage_to_rgb"
+      ],
+      "classes": {
+        "DetectionSnapshot": {
+          "summary": "Holds the frame pixels, guidance circles, and geometry captured for one detection run.",
+          "details": "Keeps a state token, protected circles, crop transform, and output size alongside the image so the result can be checked before insertion.",
+          "methods": []
+        },
+        "DetectionWorker": {
+          "summary": "Runs neural detection on a captured frame in a Qt worker thread.",
+          "details": "Loads the detector from its model configuration, passes the interruption check into prediction, and emits completion, cancellation, or failure signals.",
+          "methods": [
+            "run"
+          ]
+        },
+        "DropletDetectionTools": {
+          "summary": "Owns the detection action, model configuration, worker, and result insertion.",
+          "details": "Uses selected circles as guidance and existing circles as protected regions. Snapshot validation rejects results after relevant session changes. Accepted circles must fit the image and crop and are added together through the main window's cell history.",
+          "methods": [
+            "install_menu",
+            "snapshot_current_frame",
+            "start_detection",
+            "cancel_detection",
+            "add_results"
+          ]
+        }
+      }
+    },
+    "icescopy_droplet_training_io": {
+      "summary": "Reads annotated frames and linked images from Icescopy sessions for detector training.",
+      "details": "Reads bounded session JSON from the session archive and exposes saved current-frame and keyframe annotations. Resolves linked media relative to the session or a supplied relink folder, validates requested frames, and loads raw RGB pixels with their circles. Does not restore result CSV tables or modify the saved session.",
+      "functions": [
+        "load_training_session",
+        "resolved_source_payload",
+        "validate_training_sources",
+        "load_training_scenes"
+      ],
+      "classes": {
+        "TrainingSessionError": {
+          "summary": "Reports invalid training-session contents or unavailable linked media.",
+          "details": "Used when a session, frame selection, or media path cannot provide the annotated training data.",
+          "methods": []
+        },
+        "TrainingFrame": {
+          "summary": "Identifies one saved annotated frame and its circles.",
+          "details": "Records the frame index and whether the annotations came from the saved current frame. The label property supplies a frame-selection label.",
+          "methods": [
+            "label"
+          ]
+        },
+        "TrainingSession": {
+          "summary": "Holds parsed session metadata, available annotated frames, and an optional relink folder.",
+          "details": "Looks up only frames with saved annotations. Relinking returns a new record with the replacement folder and leaves the original session file unchanged.",
+          "methods": [
+            "frame",
+            "relinked"
+          ]
+        }
+      }
+    },
+    "icescopy_neural_detection": {
+      "summary": "Loads ONNX droplet models and runs CPU inference with optional guidance circles.",
+      "details": "Validates the model metadata and network files before loading them with OpenCV. Averages descriptors from the supplied guidance circles, or uses the model reference when none are given. Predicts circles over overlapping image tiles and removes duplicates and protected objects.",
+      "functions": [
+        "load_model",
+        "validate_model",
+        "same_object"
+      ],
+      "classes": {
+        "Circle": {
+          "summary": "Stores a circle center and radius for neural detection.",
+          "details": "An immutable record that converts its coordinates and radius to finite floats and requires a positive radius, in image pixels.",
+          "methods": []
+        },
+        "ModelConfig": {
+          "summary": "Holds validated model identity, network paths, and inference settings.",
+          "details": "Includes the default guidance descriptor and radius. For an unpacked model bundle, retains the temporary directory until the configuration is released.",
+          "methods": []
+        },
+        "NeuralDetector": {
+          "summary": "Uses reference and detector networks to predict new droplet circles.",
+          "details": "Runs OpenCV DNN inference on the CPU with raw RGB uint8 images. Accepts any number of guidance circles and returns circle/score records after duplicate suppression. Cancellation returns an empty result rather than partial detections.",
+          "methods": [
+            "__init__",
+            "predict"
+          ]
+        }
+      }
+    },
+    "icescopy_temperature_refresh": {
+      "summary": "Retains temperature-import inputs so freeze counts can be rebuilt after session edits.",
+      "details": "Encodes parsed input records, arrays, and timestamps into session-compatible values. A refresh context records the importer, options, and frame identity. Rebuilding checks that the same frames remain in the same order, then calls the matching standard, .dat, TAMU, or PKU count builder.",
+      "functions": [
+        "encode_temperature_input",
+        "decode_temperature_input",
+        "make_temperature_refresh_context",
+        "rebuild_temperature_counts"
+      ],
+      "classes": {}
     }
   },
   "replaced_classes": {
