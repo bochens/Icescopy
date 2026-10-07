@@ -595,6 +595,9 @@ class InptkPanel(QWidget):
         self.concentration_export_action.setToolTip("Temperature rows with concentration and lower/upper uncertainty bounds per combined group. Includes all calculated groups, using their saved units.")
         self.individual_export_action = menu.addAction("Export individual sample concentrations CSV…", lambda: self.export_csv('individual'))
         self.individual_export_action.setToolTip("Direct blank-corrected concentrations and lower/upper binomial uncertainty bounds for every sample/dilution, on temperature rows in the saved units.")
+        menu.addSeparator()
+        self.toolkit_export_action = menu.addAction("Export INP-toolkit concentration CSV…", lambda: self.export_csv('toolkit_cumulative'))
+        self.toolkit_export_action.setToolTip("The toolkit's default CSV, unchanged: all curves in its saved analysis, with full metadata and uncertainty columns.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
         for widget in (self.calculate, self.cancel, self.export): bottom.addWidget(widget)
@@ -2229,24 +2232,27 @@ class InptkPanel(QWidget):
             self.error('Analysis inputs or settings changed. Calculate before exporting CSV results.'); return
         if kind == 'individual' and not self.result.get('references', {}).get('by_input'):
             self.error('Individual sample concentrations are unavailable. Calculate before exporting.'); return
-        if kind == 'frozen_fraction' and not self.client.capabilities:
+        native_csv = kind == 'toolkit_cumulative'
+        if (kind == 'frozen_fraction' or native_csv) and not self.client.capabilities:
             self.ensure_connected(after=lambda: self.export_csv(kind)); return
         labels = {'frozen_fraction': 'frozen fractions', 'cumulative': 'combined concentrations',
-                  'individual': 'individual sample concentrations'}
+                  'individual': 'individual sample concentrations',
+                  'toolkit_cumulative': 'INP-toolkit concentrations'}
         label = labels[kind]
-        unit = self.export_concentration_unit() if kind != 'frozen_fraction' else ''
+        unit = self.export_concentration_unit() if kind in ('cumulative', 'individual', 'toolkit_cumulative') else ''
         title = f"Export {label} CSV" + (f" ({unit})" if unit else '')
         if not self.current_hash(): title += ' — saved calculation'
-        filename = f"inp_{label.replace(' ', '_')}.csv"
+        filename = 'inptk_concentrations.csv' if native_csv else f"inp_{label.replace(' ', '_')}.csv"
         path, _ = QFileDialog.getSaveFileName(self, title, filename, 'CSV (*.csv)')
         if not path: return
         if Path(path).suffix.lower() != '.csv': path += '.csv'
         if Path(path).exists(): self.error('Choose a new filename; existing outputs are preserved.'); return
         result = self.result
         self.last_error = ''; self.operation = True; self.update_status()
-        def done(row_count):
+        def done(row_count=None):
             self.operation = False; self.update_status()
-            message = f'Exported {label}: {row_count} rows ({Path(path).name})'
+            detail = f'{row_count} rows ({Path(path).name})' if row_count is not None else Path(path).name
+            message = f'Exported {label}: {detail}'
             self.export_notice = (result['key'], message)
             self.update_status()
             self.window.log(message + f' ({path})')
@@ -2255,7 +2261,12 @@ class InptkPanel(QWidget):
             headers, rows = layout
             write_csv(path, headers, rows)
             return len(rows)
-        if kind == 'frozen_fraction':
+        if native_csv:
+            def ready(reference):
+                self.client.request(['export-csv', reference, '--out', path],
+                                    lambda _reply: done(), self.error)
+            self.ensure_result_reference(result, ready)
+        elif kind == 'frozen_fraction':
             selection_result = result.get('references') or result
             def ready(reference):
                 def received(reply):

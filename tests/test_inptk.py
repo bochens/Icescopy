@@ -471,6 +471,55 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertNotIn('Export frozen count CSV…', actions)
         self.assertFalse(any('JSON' in label or 'excluded' in label or 'Diagnostics' in label for label in actions))
 
+    def test_toolkit_export_matches_default_cli_csv_for_both_methods(self):
+        self.configure(); p = self.panel
+        p.change_option('grid_step', '0.5')
+        for method in ('average', 'mle'):
+            with self.subTest(method=method):
+                p.change_option('method', method)
+                self.calculate()
+                expected = self.fixture.root / f'{method}-cli.csv'
+                replies = []
+                p.client.request(['export-csv', p.result['reference'], '--out', str(expected)], replies.append)
+                self.wait(lambda: bool(replies) and not p.client.busy)
+                actual = self.fixture.root / f'{method}-client.csv'
+                actions = p.export.menu().actions()
+                self.assertTrue(actions[actions.index(p.toolkit_export_action)-1].isSeparator())
+                with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(actual), '')):
+                    p.toolkit_export_action.trigger()
+                    self.wait(lambda: not p.operation and not p.client.busy)
+                self.assertFalse(p.last_error, p.last_error)
+                self.assertEqual(actual.read_bytes(), expected.read_bytes())
+                self.assertIn('lower_error', actual.read_text().splitlines()[0])
+                self.assertIn('Exported INP-toolkit concentrations', p.status.text())
+                # An existing output must not be replaced.
+                actual.write_text('keep this output')
+                with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(actual), '')):
+                    p.export_csv('toolkit_cumulative')
+                self.assertEqual(actual.read_text(), 'keep this output')
+                self.assertIn('existing outputs are preserved', p.last_error)
+
+    def test_native_csv_restores_saved_result_without_counts_or_refitting(self):
+        self.configure(); self.calculate(); p = self.panel
+        expected = self.fixture.root / 'original.csv'
+        replies = []
+        p.client.request(['export-csv', p.result['reference'], '--out', str(expected)], replies.append)
+        self.wait(lambda: bool(replies) and not p.client.busy)
+        p.prepare_session_save(require_native=True)
+        saved = copy.deepcopy(p.session_state())
+        p.restore_session(saved)
+        self.window.freeze_count_timeseries_headers = []
+        self.window.freeze_count_timeseries_rows = []
+        target = self.fixture.root / 'restored-native.csv'
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+                p.export_csv('toolkit_cumulative')
+                self.wait(lambda: target.exists() and not p.operation and not p.client.busy)
+            self.assertFalse(any(call.args[0][0] == 'analyze' for call in requests.call_args_list))
+        self.assertFalse(p.last_error, p.last_error)
+        self.assertEqual(target.read_bytes(), expected.read_bytes())
+        self.assertEqual(list(Path(p.cache.name).iterdir()), [])
+
     def test_both_concentration_exports_use_the_default_grid_and_only_requested_columns(self):
         import csv
         keys = self.configure(); p = self.panel
