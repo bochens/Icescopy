@@ -31,6 +31,55 @@ from icescopy_temperature_import import (
 )
 
 
+def interpolate_frame_temperatures(image_elapsed_seconds, timeseries_seconds, temperature_values):
+    """Log temperature at each frame time; None without a time or outside the log."""
+    temperatures = []
+    in_range_count = 0
+    out_of_range_count = 0
+    for elapsed_seconds in image_elapsed_seconds:
+        if elapsed_seconds is None:
+            temperatures.append(None)
+            continue
+        temperature = np.interp(
+            elapsed_seconds,
+            timeseries_seconds,
+            temperature_values,
+            left=np.nan,
+            right=np.nan,
+        )
+        if np.isnan(temperature):
+            out_of_range_count += 1
+            temperatures.append(None)
+        else:
+            in_range_count += 1
+            temperatures.append(float(temperature))
+    return temperatures, in_range_count, out_of_range_count
+
+
+def cycle_start_seconds(timeseries_seconds, cycle_start_indexes):
+    """Log times of the cycle start rows; [0.0] when there are none."""
+    return [
+        float(timeseries_seconds[index])
+        for index in cycle_start_indexes
+        if 0 <= int(index) < len(timeseries_seconds)
+    ] or [0.0]
+
+
+def frame_elapsed_seconds_and_cycles(window, frame_timestamps, origin, cycle_starts):
+    """Seconds from the log origin and cycle for each frame; None without a time."""
+    image_elapsed_seconds = []
+    image_cycle_ids = []
+    for image_timestamp in frame_timestamps:
+        if image_timestamp is None or origin is None:
+            image_elapsed_seconds.append(None)
+            image_cycle_ids.append(None)
+            continue
+        elapsed_seconds = float((image_timestamp - origin).total_seconds())
+        image_elapsed_seconds.append(elapsed_seconds)
+        image_cycle_ids.append(window.cycle_index_for_position(elapsed_seconds, cycle_starts))
+    return image_elapsed_seconds, image_cycle_ids
+
+
 class FreezeCountTimeseriesMixin:
     def freeze_review_cycle_ids(self):
         """Imported zero-based cycles in frame order, or empty when unavailable."""
@@ -255,37 +304,30 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        parsed_image_count = 0
-        unparsed_images = []
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = parse_tamu_image_timestamp(basename)
-            if image_timestamp is None or start_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                if image_timestamp is None:
-                    unparsed_images.append(basename)
-                continue
-            parsed_image_count += 1
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
+        basenames = [
+            os.path.basename(str(self.frame_name(image_index) or ""))
+            for image_index in range(self.frame_count())
+        ]
+        parsed_image_timestamps = [parse_tamu_image_timestamp(basename) for basename in basenames]
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            getattr(parsed_timeseries, "start_timestamp", None),
+            cycle_starts,
+        )
         return {
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "cycle_start_indexes": cycle_start_indexes,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(parsed_image_count),
-            "unparsed_images": list(unparsed_images),
+            "parsed_image_count": int(sum(value is not None for value in image_elapsed_seconds)),
+            "unparsed_images": [
+                basename
+                for basename, value in zip(basenames, parsed_image_timestamps)
+                if value is None
+            ],
+            "parsed_image_timestamps": parsed_image_timestamps,
         }
 
     def build_pku_linksys32_image_timing_context(self, parsed_timeseries, reset_temperature=None):
@@ -322,22 +364,15 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
 
         start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
         if start_timestamp is None:
             start_timestamp = timeseries_datetimes[0]
 
-        image_elapsed_seconds = []
-        image_cycle_ids = []
         parsed_image_timestamps = []
         image_record_temperatures = []
         for image_record in image_records:
-            image_timestamp = getattr(image_record, "timestamp", None)
             try:
                 image_temperature = float(getattr(image_record, "temperature_value", None))
             except (TypeError, ValueError):
@@ -348,20 +383,19 @@ class FreezeCountTimeseriesMixin:
                 raise TemperatureImportError(
                     f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
                 )
-            parsed_image_timestamps.append(image_timestamp)
+            parsed_image_timestamps.append(getattr(image_record, "timestamp", None))
             image_record_temperatures.append(image_temperature)
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            start_timestamp,
+            cycle_starts,
+        )
 
         return {
             "timeseries_seconds": timeseries_seconds,
             "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(sum(1 for value in parsed_image_timestamps if value is not None)),
@@ -484,11 +518,7 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
 
         if self.is_video_source():
             start_timestamp = parse_timestamp_text(generated_start_text, image_timestamp_style)
@@ -529,24 +559,18 @@ class FreezeCountTimeseriesMixin:
             parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
             unparsed_images = list(resolved_timestamps.unparsed_images)
             parsed_count = int(resolved_timestamps.parsed_count)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        for image_timestamp in parsed_image_timestamps:
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - timeseries_origin).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(
-                self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds)
-            )
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            timeseries_origin,
+            cycle_starts,
+        )
 
         return {
             "timeseries_origin": timeseries_origin,
             "timeseries_seconds": timeseries_seconds,
             "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(parsed_count),
