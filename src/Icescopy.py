@@ -80,6 +80,7 @@ from icescopy_image_edit import (
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_panel import InptkPanel
 from icescopy_paths import preferences_read_path
+from icescopy_preferences import DEFAULT_PREFERENCE_VALUES, read_preference_values
 from icescopy_save_access import is_save_access_error, prompt_save_access
 from icescopy_version import __version__
 from icescopy_cell_controller import CellEditController
@@ -262,13 +263,13 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.radius_wheel_step = 1.0
         self.grid_pitch_wheel_step = 1.0
         self.grid_tilt_wheel_step = 1.0
-        self.freeze_finder_width = 10.0
-        self.freeze_finder_prominence = 100.0
-        self.freeze_finder_head_extend_points = 0
-        self.freeze_finder_tail_extend_points = 5
-        self.convolution_half_window_points = 0
-        self.convolution_ramp_points = 0
-        self.freeze_finder_detect_brightening = False
+        self.freeze_finder_width = DEFAULT_PREFERENCE_VALUES["FreezeFinderWidth"]
+        self.freeze_finder_prominence = DEFAULT_PREFERENCE_VALUES["FreezeFinderProminence"]
+        self.freeze_finder_head_extend_points = DEFAULT_PREFERENCE_VALUES["FreezeFinderHeadExtendPoints"]
+        self.freeze_finder_tail_extend_points = DEFAULT_PREFERENCE_VALUES["FreezeFinderTailExtendPoints"]
+        self.convolution_half_window_points = DEFAULT_PREFERENCE_VALUES["ConvolutionHalfWindowPoints"]
+        self.convolution_ramp_points = DEFAULT_PREFERENCE_VALUES["ConvolutionRampPoints"]
+        self.freeze_finder_detect_brightening = DEFAULT_PREFERENCE_VALUES["FreezeFinderDetectBrightening"]
         self.video_grayscale_mode = DEFAULT_VIDEO_GRAYSCALE_MODE
         self.temperature_cycle_warmup_hysteresis_c = 0.02
         self.timeseries_palette = "bright"
@@ -344,8 +345,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.mark_session_clean()
 
     def set_preferences(self, preserve_session_tool_state=False):
-        preferences = {}
-        # use .get() method on a dictionary to specify a default value if a key is not found.
+        preferences = copy.deepcopy(DEFAULT_PREFERENCE_VALUES)
         try:
             preferences = self.load_preferences_from_xml()
         except (OSError, ET.ParseError, TypeError, ValueError) as err:
@@ -7701,6 +7701,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                     f"{frame_label} without readable timestamps: {unparsed_image_count}"
                 )
 
+        for warning in summary.get("warnings", []):
+            message_lines.append(warning)
+            self.log(warning)
+
         self.show_detailed_information_dialog(
             "Standard temperature CSV import",
             temperature_import_summary_text(summary, len(rows), video_mode=video_mode),
@@ -7826,6 +7830,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count} ({preview})")
             else:
                 message_lines.append(f"{frame_label} without readable timestamps: {unparsed_image_count}")
+
+        for warning in summary.get("warnings", []):
+            message_lines.append(warning)
+            self.log(warning)
 
         self.show_detailed_information_dialog(
             "UTK CSV import",
@@ -8052,6 +8060,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             else:
                 message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
 
+        for warning in summary.get("warnings", []):
+            message_lines.append(warning)
+            self.log(warning)
+
         self.show_detailed_information_dialog(
             "TAMU Linkam .xlsx import",
             temperature_import_summary_text(summary, len(rows)),
@@ -8147,6 +8159,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 message_lines.append(f"Images without readable timestamps: {unparsed_image_count} ({preview})")
             else:
                 message_lines.append(f"Images without readable timestamps: {unparsed_image_count}")
+
+        for warning in summary.get("warnings", []):
+            message_lines.append(warning)
+            self.log(warning)
 
         self.show_detailed_information_dialog(
             "PKU Linksys32 .iml import",
@@ -11431,109 +11447,10 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         super().closeEvent(event)
 
     def load_preferences_from_xml(self):
-        tree = ET.parse(preferences_read_path(resources_dir))
-        root = tree.getroot()
-        if root.tag != "Preferences":
-            raise ValueError("The settings file must contain a Preferences element.")
-
-        preferences = {}
-        warnings = []
-        # Keep these limits aligned with the controls in PreferencesDialog.
-        numeric_fields = {
-            "InptkSampleLineWidth": (float, 1.0, 12.0),
-            "InptkCombinedLineWidth": (float, 1.0, 12.0),
-            "InptkMarkerSize": (float, 0.0, 16.0),
-            "InptkOutsideOpacity": (float, 10.0, 80.0),
-            "InptkUncertaintyOpacity": (float, 5.0, 50.0),
-            "InptkGridOpacity": (float, 0.0, 40.0),
-            "InptkLegendFontSize": (float, 8.0, 20.0),
-            "DefaultCircleRadius": (float, 0.1, 100000.0),
-            "MaximumZoom": (float, 0.1, 1000.0),
-            "PenWidth": (float, 0.1, 100.0),
-            "SliderMaxZoomPixelInterval": (float, 1.0, 1000.0),
-            "SliderTickPixelInterval": (float, 1.0, 1000.0),
-            "UndoLimit": (int, 1, 1000),
-            "ViewerImageCount": (int, 1, 3),
-            "GridRows": (int, 1, 100),
-            "GridColumns": (int, 1, 100),
-            "GridHorizontalPitch": (float, 0.1, 100000.0),
-            "GridVerticalPitch": (float, 0.1, 100000.0),
-            "GridRotationDegrees": (float, -180.0, 180.0),
-            "RadiusWheelStep": (float, 0.1, 1000.0),
-            "GridPitchWheelStep": (float, 0.1, 1000.0),
-            "GridTiltWheelStep": (float, 0.1, 90.0),
-            "FreezeFinderWidth": (float, 0.1, 100000.0),
-            "FreezeFinderProminence": (float, 0.1, 1000000.0),
-            "FreezeFinderHeadExtendPoints": (int, 0, 1000),
-            "FreezeFinderTailExtendPoints": (int, 0, 1000),
-            "ConvolutionHalfWindowPoints": (int, 0, 100000),
-            "ConvolutionRampPoints": (int, 0, 1000),
-            "TemperatureCycleWarmupHysteresisC": (float, 0.0, 10.0),
-            "TimeseriesLineWidth": (float, 0.1, 20.0),
-            "TimeseriesConvolutionLineWidth": (float, 0.1, 20.0),
-            "TimeseriesFreezeLineWidth": (float, 0.1, 20.0),
-            "TimeseriesCurrentFrameLineWidth": (float, 0.1, 20.0),
-            "PreviewHandleSize": (float, 2.0, 100.0),
-            "CircleLabelFontSize": (float, 1.0, 200.0),
-            "CircleLabelOffsetX": (float, -500.0, 500.0),
-            "CircleLabelOffsetY": (float, -500.0, 500.0),
-        }
-        for key, (converter, minimum, maximum) in numeric_fields.items():
-            element = root.find(key)
-            if element is None or element.text is None:
-                continue
-            try:
-                # Older settings may store integer controls as e.g. "20.0".
-                value = float(element.text)
-                if not math.isfinite(value) or not minimum <= value <= maximum:
-                    raise ValueError("outside the supported range")
-                preferences[key] = converter(value)
-            except (TypeError, ValueError, OverflowError):
-                warnings.append(
-                    f"{key}: ignored {element.text!r}; expected a finite number "
-                    f"from {minimum:g} to {maximum:g}."
-                )
-
-        text_fields = (
-            "InptkExecutablePath",
-            "SampleNamePattern", "SortMode", "GridCellIdDirection",
-            "TimeseriesPalette", "TimeseriesFreezeLineColor",
-            "TimeseriesCurrentFrameColor", *DEFAULT_VISUAL_COLORS,
-        )
-        for key in text_fields:
-            element = root.find(key)
-            if element is not None and element.text is not None:
-                preferences[key] = element.text
-
-        for key in ("InptkSampleColumns", "InptkRangeColumns"):
-            inp_columns_element = root.find(key)
-            if inp_columns_element is not None:
-                preferences[key] = inp_columns_element.text or ""
-
-        droplet_model_element = root.find("DropletModelPath")
-        preferences["DropletModelPath"] = (
-            (droplet_model_element.text or "").strip() if droplet_model_element is not None else ""
-        )
-
-        try:
-            preferences["SampleMetadataSchema"] = sample_metadata_schema_from_xml(root)
-        except (TypeError, ValueError) as err:
-            preferences["SampleMetadataSchema"] = default_sample_metadata_schema()
-            warnings.append(f"SampleMetadataSchema: {err}; using the default fields.")
-
-        for key in ("FreezeFinderDetectBrightening", "InptkLogConcentration"):
-            element = root.find(key)
-            if element is not None and element.text is not None:
-                preferences[key] = element.text.strip().lower() in {"1", "true", "yes", "on"}
-        grayscale_element = root.find("VideoGrayscaleMode")
-        if grayscale_element is not None and grayscale_element.text is not None:
-            preferences["VideoGrayscaleMode"] = normalize_video_grayscale_mode(
-                grayscale_element.text
-            )
-
-        if warnings:
-            preferences["_load_warnings"] = warnings
+        preferences = copy.deepcopy(DEFAULT_PREFERENCE_VALUES)
+        preferences.update(read_preference_values(preferences_read_path(resources_dir)))
         return preferences
+
 
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)

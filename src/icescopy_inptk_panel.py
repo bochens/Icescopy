@@ -1477,6 +1477,10 @@ class InptkPanel(QWidget):
             if generation != self.generation or revision != self.source_revision:
                 self.update_status(); return
             self.source_cache = source
+            skipped = source['skipped_images']
+            if skipped:
+                self.window.log(f'INP analysis: {len(skipped)} images without a temperature or cycle '
+                                f'were not used (first: {skipped[0]}).')
             self.preview, self.preview_hash = source['preview'], source['hash']
             self.observations_cache = self.limits_cache = None
             state = reconcile_inputs(self.settings, self.preview)

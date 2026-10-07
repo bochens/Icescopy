@@ -8,6 +8,8 @@ In **Settings → INP toolkit client**, browse to the executable, choose **Test 
 
 After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. It has a normal window title bar, while editing in other Icescopy windows is blocked until analysis closes. Enter commits the field being edited without activating an unrelated button. Closing it retains your analysis choices and results.
 
+For TAMU imports with calibration, analysis uses each sample’s corrected temperature. Images without a usable temperature or cycle are omitted from INP analysis and reported in the console; they remain in Freeze Count Timeseries.
+
 ## Group samples and assign blanks
 
 A **sample group** contains the independent samples or dilutions you want to combine into one concentration curve. Start with the **Sample groups** list on the left. That same selection controls the settings and plot; there is no separate plot selector.

@@ -138,6 +138,27 @@ class TemperatureRefreshTests(unittest.TestCase):
         self.assertEqual([row[headers.index("Sample_0 number frozen")] for row in rows], ["0", "0", "1"])
         self.assertEqual([row[1] for row in rows], ["-1.000", "-2.000", "-3.000"])
 
+    def test_backwards_image_timestamps_warn_for_standard_tamu_and_pku(self):
+        start = datetime(2026, 1, 1)
+        names = [f'2026-01-01-00-00-0{i}-000000.png' for i in (0, 2, 1)]
+        window = self.window(names)
+        standard = StandardTemperatureTimeseries('/missing.csv', [start, start + timedelta(seconds=2)],
+                                                ['2026-01-01', '2026-01-01'], [-1, -3], 2)
+        tamu = TAMULinkamTimeseries('/missing.xlsx', start, '2026-01-01', [0, 2], [-1, -3], 1, 2)
+        pku = SimpleNamespace(file_path='/missing.iml', start_timestamp=start,
+                              timeseries_datetimes=[start, start + timedelta(seconds=2)],
+                              timeseries_seconds=[0, 2], temperature_values=[-1, -3],
+                              image_records=[SimpleNamespace(timestamp=start + timedelta(seconds=i),
+                                                             temperature_value=-10-i) for i in (0, 2, 1)])
+        for builder, parsed in ((window.build_standard_freeze_count_timeseries_results, standard),
+                                (window.build_tamu_freeze_count_timeseries_results, tamu),
+                                (window.build_pku_linksys32_freeze_count_timeseries_results, pku)):
+            with self.subTest(builder=builder.__name__):
+                headers, rows, summary = builder(parsed)
+                self.assertEqual(len(rows), 3)
+                self.assertEqual(len(summary['warnings']), 1)
+                self.assertIn(names[2], summary['warnings'][0])
+
     def test_tamu_calibration_survives_json_round_trip(self):
         names = [f"2026-01-01-00-00-0{i}-000000.png" for i in range(3)]
         window = self.window(names)

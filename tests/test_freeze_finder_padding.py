@@ -81,7 +81,7 @@ class FreezeFinderPaddingTests(unittest.TestCase):
             prominence=1.0,
             head_extend_points=0,
             tail_extend_points=0,
-            convolution_half_window_points=2,
+            convolution_half_window_points=2, convolution_ramp_points=0,
         )
         front_padding_rows, front_padding_peaks = compute_freeze_result_rows(
             frame_names,
@@ -91,7 +91,7 @@ class FreezeFinderPaddingTests(unittest.TestCase):
             prominence=1.0,
             head_extend_points=2,
             tail_extend_points=0,
-            convolution_half_window_points=2,
+            convolution_half_window_points=2, convolution_ramp_points=0,
         )
 
         self.assertEqual(no_padding_rows, [])
@@ -110,7 +110,7 @@ class FreezeFinderPaddingTests(unittest.TestCase):
             prominence=1.0,
             head_extend_points=2,
             tail_extend_points=0,
-            convolution_half_window_points=2,
+            convolution_half_window_points=2, convolution_ramp_points=0,
             frame_indexes=[20, 21, 22, 23, 24, 25],
         )
 
@@ -128,7 +128,7 @@ class FreezeFinderPaddingTests(unittest.TestCase):
             prominence=1.0,
             head_extend_points=2,
             tail_extend_points=0,
-            convolution_half_window_points=2,
+            convolution_half_window_points=2, convolution_ramp_points=0,
             frame_indexes=[30, 31, 32, 33, 34, 35, 36],
         )
 
@@ -147,7 +147,7 @@ class FreezeFinderPaddingTests(unittest.TestCase):
             prominence=1.0,
             head_extend_points=2,
             tail_extend_points=2,
-            convolution_half_window_points=2,
+            convolution_half_window_points=2, convolution_ramp_points=0,
         )
 
         self.assertEqual(rows, [])

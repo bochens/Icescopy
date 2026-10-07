@@ -21,6 +21,7 @@ import Icescopy as icescopy_module  # noqa: E402
 from Icescopy import IceScopy  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit  # noqa: E402
+from icescopy_sample_metadata import default_sample_metadata_schema
 from icescopy_aux import SortImagesDialog  # noqa: E402
 from icescopy_temperature_import import (  # noqa: E402
     StandardTemperatureTimeseries,
@@ -1627,6 +1628,7 @@ class SessionIoTests(unittest.TestCase):
 
     def test_missing_metadata_report_lists_session_and_sample_gaps(self):
         fake_window = SimpleNamespace(
+            active_sample_metadata_schema=default_sample_metadata_schema,
             serialize_session_metadata=lambda: {
                 "project_name": "",
                 "user_name": "User",
@@ -1664,7 +1666,7 @@ class SessionIoTests(unittest.TestCase):
         self.assertIn("- project_name", report_lines)
         self.assertIn("- institution", report_lines)
         self.assertIn(
-            "- Sample 1 (Sample A): sample_long_name, sampling_site, collection_start, collection_end, well_volume_uL, dilution, air_volume_L, suspension_volume_mL, dry_mass_g",
+            "- Sample 1 (Sample A): sample_long_name, sampling_site, collection_start, collection_end, well_volume_uL, dilution, air_volume_L, suspension_volume_mL",
             report_lines,
         )
 

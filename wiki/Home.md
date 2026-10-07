@@ -53,4 +53,4 @@ The API reference describes internal Python code. It is not a promise that every
 
 Report reproducible problems through [GitHub Issues](https://github.com/bochens/Icescopy/issues). Include the application version, operating system, steps, and relevant error text. [Report a problem](Troubleshooting.md#report-a-problem) explains what to include without sharing private experiment files.
 
-The dated [Windows save-recovery notes](Windows-Save-Recovery.md) and [Windows Preferences investigation](Windows-Preferences-Investigation.md) preserve evidence behind earlier fixes. They are historical maintenance records, not installation instructions or a list of current defects.
+The [Windows save-recovery notes](Windows-Save-Recovery.md) document recovery from earlier Windows save failures.
