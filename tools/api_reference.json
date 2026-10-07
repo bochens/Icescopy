@@ -454,8 +454,8 @@
       "classes": {}
     },
     "icescopy_freezfinder": {
-      "summary": "Numerical freeze-event detection and a separate CSV-oriented dialog.",
-      "details": "Detection filters a grayscale series, searches peaks with the configured width/prominence, and refines event positions against the raw signal. Finite runs are processed separately so missing values do not bridge unmeasured gaps. The main application uses these functions through the analysis worker. The legacy dialog is a separate file-based route, not the current temperature/count import workflow. `compute_freeze_result_rows()` returns event rows and per-cell event-index arrays. Its legacy temperature/correction arguments are not used by the current detection implementation; temperature matching occurs later in the import workflow.",
+      "summary": "Numerical freeze-event detection.",
+      "details": "Detection filters a grayscale series, searches peaks with the configured width/prominence, and refines event positions against the raw signal. Finite runs are processed separately so missing values do not bridge unmeasured gaps. The main application uses these functions through the analysis worker. `compute_freeze_result_rows()` returns event rows and per-cell event-index arrays. Its legacy temperature/correction arguments are not used by the current detection implementation; temperature matching occurs later in the import workflow.",
       "functions": [
         "compute_freeze_result_rows",
         "compute_freeze_event_indexes",
@@ -464,16 +464,7 @@
         "compute_convolution_timeseries",
         "refine_event_index_from_raw_timeseries"
       ],
-      "classes": {
-        "FreezeFinderDialog": {
-          "summary": "A legacy dialog that reads grayscale CSV input and writes freeze-event CSV output.",
-          "details": "Do not use this dialog as the specification for the main app’s temperature-import workflow. The current result rows identify cell, frame, and image.",
-          "methods": [
-            "__init__",
-            "run_freeze_finder_script"
-          ]
-        }
-      }
+      "classes": {}
     },
     "icescopy_image_edit": {
       "summary": "Shared image adjustments, rotated-crop geometry, and editing overlays.",

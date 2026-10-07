@@ -22,7 +22,7 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_frameslider`](API-Module-icescopy-frameslider.md) | Timeline navigation, zoom, and marker drawing. |
 | [`icescopy_freeze_count_timeseries`](API-Module-icescopy-freeze-count-timeseries.md) | Build sample-group freeze counts matched to temperature records. |
 | [`icescopy_freeze_cycles`](API-Module-icescopy-freeze-cycles.md) | Preserve and validate imported cooling-cycle assignments for freeze-event review. |
-| [`icescopy_freezfinder`](API-Module-icescopy-freezfinder.md) | Numerical freeze-event detection and a separate CSV-oriented dialog. |
+| [`icescopy_freezfinder`](API-Module-icescopy-freezfinder.md) | Numerical freeze-event detection. |
 | [`icescopy_image_edit`](API-Module-icescopy-image-edit.md) | Shared image adjustments, rotated-crop geometry, and editing overlays. |
 | [`icescopy_paths`](API-Module-icescopy-paths.md) | Find and atomically save per-user preference files. |
 | [`icescopy_save_access`](API-Module-icescopy-save-access.md) | Recognize save-access failures and present retry/save-copy recovery choices. |
