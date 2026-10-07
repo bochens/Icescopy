@@ -8,7 +8,7 @@ Fixed a serious display bug that could change concentration-axis numbers by a fa
 
 ## Changes
 
-For INP concentration analysis, install [INP-toolkit 0.4.5](https://github.com/bochens/inptk/releases/tag/v0.4.5) separately and select its executable in **Preferences → INP toolkit client**.
+For INP concentration analysis, install [INP-toolkit 0.4.6](https://github.com/bochens/inptk/releases/tag/v0.4.6) separately and select its executable in **Preferences → INP toolkit client**.
 
 - Added **Export INP-toolkit concentration CSV** below a divider in the export menu. It preserves the toolkit’s full table format and uncertainty columns; compact CSV exports remain available.
 - INP analysis now uses each sample’s calibrated TAMU temperatures and skips observations without usable temperatures.
