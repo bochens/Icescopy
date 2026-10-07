@@ -145,6 +145,44 @@ def reset_temperature_row(dialog, initial_reset_temperature):
     return spinbox, row_widget
 
 
+def reset_temperature_value(spinbox):
+    """The reset temperature, or None when the box shows Off (-999 °C)."""
+    reset_temperature = float(spinbox.value())
+    if reset_temperature <= -999.0:
+        reset_temperature = None
+    return reset_temperature
+
+
+def start_dir(dialog, path_edit, use_frame_source=False):
+    """Folder to open: the current path's, else the last temperature import's,
+    else (optionally) the frame source's, else the first image's."""
+    main_window = dialog.main_window
+    existing_path = path_edit.text().strip()
+    if existing_path:
+        return os.path.dirname(existing_path)
+    if getattr(main_window, "last_temperature_import_path", None):
+        return os.path.dirname(main_window.last_temperature_import_path)
+    if use_frame_source and getattr(main_window, "active_frame_source", None):
+        source_path = str(main_window.active_frame_source().source_path() or "")
+        return source_path if os.path.isdir(source_path) else os.path.dirname(source_path)
+    if getattr(main_window, "imagePaths", None):
+        return os.path.dirname(main_window.imagePaths[0])
+    return ""
+
+
+def choose_file(dialog, path_edit, title, file_filter, initial_dir):
+    """Ask for a file and put the chosen path in path_edit."""
+    file_path, _ = QFileDialog.getOpenFileName(
+        dialog,
+        title,
+        initial_dir,
+        file_filter,
+        options=dialog.main_window.file_dialog_options(),
+    )
+    if file_path:
+        path_edit.setText(file_path)
+
+
 def _setup_fixed_width_scrolling_dialog(dialog, *, width, initial_height, minimum_height):
     dialog.resize(width, initial_height)
     dialog.setMinimumWidth(width)
@@ -336,26 +374,10 @@ class CSUTemperatureImportDialog(QDialog):
         )
 
     def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "active_frame_source", None):
-            source_path = str(self.main_window.active_frame_source().source_path() or "")
-            initial_dir = source_path if os.path.isdir(source_path) else os.path.dirname(source_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import CSU .dat file",
-            initial_dir,
-            "CSU Data Files (*.dat);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        initial_dir = start_dir(self, self.file_path_edit, use_frame_source=True)
+        choose_file(
+            self, self.file_path_edit, "Import CSU .dat file",
+            "CSU Data Files (*.dat);;All Files (*)", initial_dir)
 
     def accept(self):
         file_path = self.file_path_edit.text().strip()
@@ -376,9 +398,7 @@ class CSUTemperatureImportDialog(QDialog):
         super().accept()
 
     def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
+        reset_temperature = reset_temperature_value(self.reset_temperature_spinbox)
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
@@ -448,26 +468,10 @@ class UTKTemperatureImportDialog(QDialog):
         layout.addWidget(button_box)
 
     def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "active_frame_source", None):
-            source_path = str(self.main_window.active_frame_source().source_path() or "")
-            initial_dir = source_path if os.path.isdir(source_path) else os.path.dirname(source_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import UTK CSV file",
-            initial_dir,
-            "CSV Files (*.csv);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        initial_dir = start_dir(self, self.file_path_edit, use_frame_source=True)
+        choose_file(
+            self, self.file_path_edit, "Import UTK CSV file",
+            "CSV Files (*.csv);;All Files (*)", initial_dir)
 
     def accept(self):
         file_path = self.file_path_edit.text().strip()
@@ -488,9 +492,7 @@ class UTKTemperatureImportDialog(QDialog):
         super().accept()
 
     def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
+        reset_temperature = reset_temperature_value(self.reset_temperature_spinbox)
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
@@ -565,23 +567,10 @@ class TAMUTemperatureImportDialog(QDialog):
         layout.addWidget(button_box)
 
     def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import TAMU Linkam .xlsx file",
-            initial_dir,
-            "Excel Files (*.xlsx);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        initial_dir = start_dir(self, self.file_path_edit, use_frame_source=False)
+        choose_file(
+            self, self.file_path_edit, "Import TAMU Linkam .xlsx file",
+            "Excel Files (*.xlsx);;All Files (*)", initial_dir)
 
     def browse_calibration_file(self):
         initial_dir = ""
@@ -592,15 +581,9 @@ class TAMUTemperatureImportDialog(QDialog):
             initial_dir = os.path.dirname(self.file_path_edit.text().strip())
         elif getattr(self.main_window, "imagePaths", None):
             initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select calibration CSV",
-            initial_dir,
-            "CSV Files (*.csv);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.calibration_path_edit.setText(file_path)
+        choose_file(
+            self, self.calibration_path_edit, "Select calibration CSV",
+            "CSV Files (*.csv);;All Files (*)", initial_dir)
 
     def accept(self):
         file_path = self.file_path_edit.text().strip()
@@ -629,9 +612,7 @@ class TAMUTemperatureImportDialog(QDialog):
         super().accept()
 
     def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
+        reset_temperature = reset_temperature_value(self.reset_temperature_spinbox)
         return {
             "file_path": self.file_path_edit.text().strip(),
             "calibration_path": self.calibration_path_edit.text().strip(),
@@ -700,23 +681,10 @@ class PKUTemperatureImportDialog(QDialog):
         layout.addWidget(button_box)
 
     def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import PKU Linksys32 .iml file",
-            initial_dir,
-            "Linksys32 Data Files (*.iml);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        initial_dir = start_dir(self, self.file_path_edit, use_frame_source=False)
+        choose_file(
+            self, self.file_path_edit, "Import PKU Linksys32 .iml file",
+            "Linksys32 Data Files (*.iml);;All Files (*)", initial_dir)
 
     def accept(self):
         file_path = self.file_path_edit.text().strip()
@@ -737,9 +705,7 @@ class PKUTemperatureImportDialog(QDialog):
         super().accept()
 
     def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
+        reset_temperature = reset_temperature_value(self.reset_temperature_spinbox)
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
@@ -980,23 +946,10 @@ class StandardTemperatureImportDialog(QDialog):
         self.refresh_dynamic_state()
 
     def browse_file(self):
-        initial_dir = ""
-        existing_path = self.file_path_edit.text().strip()
-        if existing_path:
-            initial_dir = os.path.dirname(existing_path)
-        elif getattr(self.main_window, "last_temperature_import_path", None):
-            initial_dir = os.path.dirname(self.main_window.last_temperature_import_path)
-        elif getattr(self.main_window, "imagePaths", None):
-            initial_dir = os.path.dirname(self.main_window.imagePaths[0])
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import temperature CSV",
-            initial_dir,
-            "CSV Files (*.csv);;All Files (*)",
-            options=self.main_window.file_dialog_options(),
-        )
-        if file_path:
-            self.file_path_edit.setText(file_path)
+        initial_dir = start_dir(self, self.file_path_edit, use_frame_source=False)
+        choose_file(
+            self, self.file_path_edit, "Import temperature CSV",
+            "CSV Files (*.csv);;All Files (*)", initial_dir)
 
     def selected_image_timestamp_source(self):
         return str(
@@ -1146,9 +1099,7 @@ class StandardTemperatureImportDialog(QDialog):
         super().accept()
 
     def get_values(self):
-        reset_temperature = float(self.reset_temperature_spinbox.value())
-        if reset_temperature <= -999.0:
-            reset_temperature = None
+        reset_temperature = reset_temperature_value(self.reset_temperature_spinbox)
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
