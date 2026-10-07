@@ -39,6 +39,7 @@ from icescopy_temperature_import import (  # noqa: E402
     reconcile_cumulative_counts,
     write_linksys32_iml_temperature_csv,
 )
+from icescopy_freeze_count_timeseries import cycle_reset_counts, output_samples  # noqa: E402
 
 
 class FreezeCountTimeseriesLogicTests(unittest.TestCase):
@@ -193,6 +194,26 @@ class FreezeCountTimeseriesLogicTests(unittest.TestCase):
             3,
         )
         self.assertEqual(corrected, [0, 2, 2, 2])
+
+    def test_cycle_reset_counts_restart_each_cycle(self):
+        # Frames 0-2 are cycle 0, frame 3 has no cycle, frames 4-5 are cycle 1.
+        cycles = [0, 0, 0, None, 1, 1]
+        events = [(0, [1, 5]), (1, ["bad", 2, 99]), (2, [3])]
+        self.assertEqual(
+            cycle_reset_counts(events, cycles, 6),
+            {0: 0, 1: 1, 2: 2, 3: 0, 4: 0, 5: 1},
+        )
+
+    def test_output_samples_sort_by_name_with_unassigned_last(self):
+        groups = {
+            "__unassigned_cells__": {"group_role": "unassigned_cells", "sample_name": "Unassigned cells"},
+            "2": {"sample_id": "2", "sample_name": "beta", "total_cells": 3},
+            "1": {"sample_id": "1", "sample_name": "Alpha", "notes": "x"},
+        }
+        samples = output_samples(groups, ["sample_name", "notes"])
+        self.assertEqual([sample["group_key"] for sample in samples], ["1", "2", "__unassigned_cells__"])
+        self.assertEqual(samples[0]["notes"], "x")
+        self.assertEqual(samples[1]["total_cells"], 3)
 
     def test_cycle_detection_ignores_small_threshold_jitter(self):
         cycle_starts = detect_cycle_start_indexes_from_temperatures(

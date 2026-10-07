@@ -187,6 +187,81 @@ def count_summary_unparsed_fields(window, timing_context):
     }
 
 
+def output_samples(sample_groups, metadata_field_names):
+    """Sample groups as output columns: samples by name, unassigned cells last."""
+    matched_samples = []
+    for group_key, group in sample_groups.items():
+        group_key_text = str(group_key)
+        sample_id_text = str(group.get("sample_id", "") or "")
+        normalized_name = normalize_sample_name(group.get("sample_name", ""))
+        matched_samples.append(
+            {
+                "group_key": group_key_text,
+                "group_role": str(group.get("group_role", "sample") or "sample"),
+                "sample_id": sample_id_text,
+                "normalized_name": normalized_name,
+                "sample_name": str(group.get("sample_name", "")),
+                **{
+                    field_name: str(group.get(field_name, "") or "")
+                    for field_name in metadata_field_names
+                    if field_name != "sample_name"
+                },
+                "total_cells": int(group.get("total_cells", 0)),
+                "cell_ids": list(group.get("cell_ids", [])),
+                "sort_index": int(group.get("sort_index", 0) or 0),
+            }
+        )
+    matched_samples.sort(
+        key=lambda sample: (
+            1 if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"} else 0,
+            ""
+            if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
+            else str(sample["sample_name"]).casefold(),
+            int(sample.get("sort_index", 0) or 0)
+            if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
+            else 0,
+            str(sample.get("sample_id", "") or ""),
+            str(sample.get("group_key", "")),
+        )
+    )
+    return matched_samples
+
+
+def cycle_reset_counts(freeze_events_by_cell, image_cycle_ids, total_image_count):
+    """Frozen cells at each frame, counting each cell's first freeze in that frame's cycle.
+
+    freeze_events_by_cell holds (cell_id, freeze frame values) pairs.
+    """
+    first_freeze_frame_by_cell_cycle = {}
+    for cell_id, freeze_event_indices in freeze_events_by_cell:
+        cycle_first_frames = {}
+        resolved_frames = []
+        for frame_value in freeze_event_indices:
+            try:
+                frame_index = int(frame_value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= frame_index < total_image_count:
+                resolved_frames.append(frame_index)
+        for frame_index in sorted(set(resolved_frames)):
+            cycle_id = image_cycle_ids[frame_index] if frame_index < len(image_cycle_ids) else None
+            if cycle_id is None or cycle_id in cycle_first_frames:
+                continue
+            cycle_first_frames[cycle_id] = int(frame_index)
+        first_freeze_frame_by_cell_cycle[int(cell_id)] = cycle_first_frames
+
+    cycle_counts = {}
+    for image_index in range(total_image_count):
+        cycle_id = image_cycle_ids[image_index] if image_index < len(image_cycle_ids) else None
+        frozen_count = 0
+        for cycle_first_frames in first_freeze_frame_by_cell_cycle.values():
+            first_frame = cycle_first_frames.get(cycle_id)
+            if first_frame is not None and first_frame <= image_index:
+                frozen_count += 1
+        cycle_counts[image_index] = int(frozen_count)
+    return cycle_counts
+
+
 class FreezeCountTimeseriesMixin:
     def freeze_review_cycle_ids(self):
         """Imported zero-based cycles in frame order, or empty when unavailable."""
@@ -348,42 +423,7 @@ class FreezeCountTimeseriesMixin:
         metadata_field_names = export_sample_metadata_field_keys(
             getattr(self, "sample_metadata_schema", None)
         )
-        matched_samples = []
-        for group_key, group in sample_groups.items():
-            group_key_text = str(group_key)
-            sample_id_text = str(group.get("sample_id", "") or "")
-            normalized_name = normalize_sample_name(group.get("sample_name", ""))
-            matched_samples.append(
-                {
-                    "group_key": group_key_text,
-                    "group_role": str(group.get("group_role", "sample") or "sample"),
-                    "sample_id": sample_id_text,
-                    "normalized_name": normalized_name,
-                    "sample_name": str(group.get("sample_name", "")),
-                    **{
-                        field_name: str(group.get(field_name, "") or "")
-                        for field_name in metadata_field_names
-                        if field_name != "sample_name"
-                    },
-                    "total_cells": int(group.get("total_cells", 0)),
-                    "cell_ids": list(group.get("cell_ids", [])),
-                    "sort_index": int(group.get("sort_index", 0) or 0),
-                }
-            )
-        matched_samples.sort(
-            key=lambda sample: (
-                1 if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"} else 0,
-                ""
-                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
-                else str(sample["sample_name"]).casefold(),
-                int(sample.get("sort_index", 0) or 0)
-                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
-                else 0,
-                str(sample.get("sample_id", "") or ""),
-                str(sample.get("group_key", "")),
-            )
-        )
-        return matched_samples
+        return output_samples(sample_groups, metadata_field_names)
 
     def normalize_temperature_reset_threshold(self, reset_temperature):
         return normalize_temperature_reset_threshold_value(reset_temperature)
@@ -520,37 +560,17 @@ class FreezeCountTimeseriesMixin:
         image_counts_by_sample = {}
         total_image_count = self.frame_count()
         for group_key, group in sample_groups.items():
-            first_freeze_frame_by_cell_cycle = {}
+            freeze_events_by_cell = []
             for cell_id in group["cell_ids"]:
                 record = self.ensure_cell_record(cell_id)
                 if record is None:
                     continue
-                cycle_first_frames = {}
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        frame_index = int(frame_value)
-                    except (TypeError, ValueError):
-                        continue
-                    if 0 <= frame_index < total_image_count:
-                        resolved_frames.append(frame_index)
-                for frame_index in sorted(set(resolved_frames)):
-                    cycle_id = image_cycle_ids[frame_index] if frame_index < len(image_cycle_ids) else None
-                    if cycle_id is None or cycle_id in cycle_first_frames:
-                        continue
-                    cycle_first_frames[cycle_id] = int(frame_index)
-                first_freeze_frame_by_cell_cycle[int(cell_id)] = cycle_first_frames
-
-            cycle_counts = {}
-            for image_index in range(total_image_count):
-                cycle_id = image_cycle_ids[image_index] if image_index < len(image_cycle_ids) else None
-                frozen_count = 0
-                for cycle_first_frames in first_freeze_frame_by_cell_cycle.values():
-                    first_frame = cycle_first_frames.get(cycle_id)
-                    if first_frame is not None and first_frame <= image_index:
-                        frozen_count += 1
-                cycle_counts[image_index] = int(frozen_count)
-            image_counts_by_sample[group_key] = cycle_counts
+                freeze_events_by_cell.append((cell_id, getattr(record, "freeze_event_indices", [])))
+            image_counts_by_sample[group_key] = cycle_reset_counts(
+                freeze_events_by_cell,
+                image_cycle_ids,
+                total_image_count,
+            )
         return image_counts_by_sample
 
     def reconcile_counts_by_cycle(self, raw_counts, anchor_counts, maximum_count, cycle_ids):
