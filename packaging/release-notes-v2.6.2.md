@@ -19,4 +19,4 @@ For INP concentration analysis, install [INP-toolkit 0.4.5](https://github.com/b
 
 **[macOS, Apple Silicon](https://github.com/bochens/Icescopy/releases/download/v2.6.2/Icescopy-macos-arm64.zip):** save your work and close Icescopy, unzip the download, then replace **Icescopy.app** in Applications. See [installation help](https://github.com/bochens/Icescopy/blob/main/wiki/Installation-and-Setup.md) if macOS blocks opening it.
 
-The latest Windows installer is available on the [2.6.1 release](https://github.com/bochens/Icescopy/releases/tag/v2.6.1).
+**[Windows, x64](https://github.com/bochens/Icescopy/releases/download/v2.6.2/Icescopy-windows-installer.exe):** save your work and close Icescopy, then run the installer.
