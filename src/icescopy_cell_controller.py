@@ -1,7 +1,7 @@
 import numpy as np
 import shiboken6
 from PySide6.QtCore import QPointF, QRectF, Qt, QSignalBlocker
-from PySide6.QtGui import QColor, QBrush, QPen
+from PySide6.QtGui import QBrush, QPen
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsView
 
 from icescopy_cell_items import CellCircle

@@ -10,7 +10,6 @@ import zipfile
 from icescopy_cell_items import CellCircle
 from icescopy_freeze_cycles import normalize_cycle_metadata
 from icescopy_sample_metadata import (
-    ALLOWED_SAMPLE_TYPES,
     default_sample_metadata_schema,
     export_sample_metadata_field_keys,
     normalize_sample_catalog_record,

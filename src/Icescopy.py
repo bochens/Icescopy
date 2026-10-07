@@ -1,11 +1,11 @@
 from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
                                QWidget, QGraphicsScene, QLineEdit, QLabel,
-                               QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
+                               QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
-                               QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
+                               QListView, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
                                QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory,
                                QCheckBox)
-from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QActionGroup, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QTransform, QFont, QAction, QActionGroup, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
@@ -21,7 +21,6 @@ import time
 from functools import partial
 import copy
 from collections import OrderedDict
-from datetime import datetime, timedelta
 import numpy as np
 import shiboken6
 import re
@@ -67,7 +66,6 @@ from icescopy_image_edit import (
     ImageHistogramWidget,
     ImageRectOverlayItem,
     apply_affine_to_point,
-    apply_image_adjustments_to_uint8,
     apply_image_adjustments_to_qimage,
     build_rotated_crop_affine,
     compute_histogram_bins,
@@ -126,12 +124,10 @@ from icescopy_session_io import (
 )
 from icescopy_sample_metadata import (
     default_sample_metadata_schema,
-    dropped_sample_metadata_keys,
     export_sample_metadata_field_keys,
     migrate_sample_catalog_for_schema,
     same_for_all_sample_metadata_values,
     sample_metadata_schema_from_payload,
-    sample_metadata_schema_from_xml,
     sample_metadata_schema_to_payload,
     sample_metadata_field_is_relevant,
 )
@@ -139,11 +135,6 @@ from icescopy_tool_options import (
     TOOL_OPTIONS_BUTTON_SPACING,
     TOOL_OPTIONS_CONTENT_WIDTH,
     TOOL_OPTIONS_CONTROL_QSS,
-    TOOL_OPTIONS_FIELD_WIDTH,
-    TOOL_OPTIONS_LABEL_WIDTH,
-    TOOL_OPTIONS_PANEL_DEFAULT_WIDTH,
-    TOOL_OPTIONS_SHORTCUT_WIDTH,
-    TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT,
     ToolOptionsFormPage,
     ToolOptionsInfoPage,
 )

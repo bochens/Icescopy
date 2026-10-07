@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QFormLayout,
-    QGroupBox,
     QListWidget,
     QListWidgetItem,
     QStackedWidget,
@@ -30,11 +29,10 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QColor
-from PySide6.QtCore import QRectF, QThread, Signal, QTimer
-from xml.etree.ElementTree import Element, SubElement, ElementTree, ParseError, parse
+from PySide6.QtCore import QThread, Signal, QTimer
+from xml.etree.ElementTree import Element, SubElement, ElementTree, ParseError
 import numpy as np
 import cv2
-import darkdetect
 import multiprocessing
 import os
 from pathlib import Path

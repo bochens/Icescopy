@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from PySide6.QtWidgets import QGraphicsEllipseItem
-from PySide6.QtGui import QPen, QPainter, Qt, QFont, QColor, QStaticText
+from PySide6.QtGui import QPen, Qt, QFont, QStaticText
 from PySide6.QtCore import QPointF
 import copy
 
