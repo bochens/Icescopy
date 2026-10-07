@@ -1086,7 +1086,33 @@
     "img6.bmp"
    ],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "sample_period_seconds",
+   "image_record_count",
+   "linksys32_version",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "temperature_source",
+   "tagged_temperature_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "refresh_context"
+  ]
  },
  "standard_filenames": {
   "headers": [
@@ -2049,7 +2075,34 @@
     "notes.png"
    ],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "in_range_image_count",
+   "out_of_range_image_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "image_timestamp_source",
+   "image_timestamp_style",
+   "temperature_timestamp_style",
+   "temperature_unit",
+   "refresh_context"
+  ]
  },
  "standard_video_generated_no_reset": {
   "headers": [
@@ -3048,7 +3101,34 @@
    "unparsed_image_count": 0,
    "unparsed_images_preview": [],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "in_range_image_count",
+   "out_of_range_image_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "image_timestamp_source",
+   "image_timestamp_style",
+   "temperature_timestamp_style",
+   "temperature_unit",
+   "refresh_context"
+  ]
  },
  "standard_video_pts": {
   "headers": [
@@ -4046,7 +4126,34 @@
     "frame 0003"
    ],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "in_range_image_count",
+   "out_of_range_image_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "image_timestamp_source",
+   "image_timestamp_style",
+   "temperature_timestamp_style",
+   "temperature_unit",
+   "refresh_context"
+  ]
  },
  "tamu_all_cells": {
   "headers": [
@@ -4413,7 +4520,33 @@
     "notes.png"
    ],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "sample_period_seconds",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "in_range_image_count",
+   "out_of_range_image_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "calibration_path",
+   "calibrated_cell_count",
+   "refresh_context"
+  ]
  },
  "tamu_calibrated": {
   "headers": [
@@ -5306,6 +5439,32 @@
     "notes.png"
    ],
    "warnings": []
-  }
+  },
+  "summary_keys": [
+   "source_path",
+   "source_type",
+   "matched_samples",
+   "total_cell_count",
+   "sample_total_cells",
+   "sample_column_metadata",
+   "grouping_mode",
+   "count_mode",
+   "timeseries_start_timestamp",
+   "timeseries_row_count",
+   "sample_period_seconds",
+   "cycle_count",
+   "freeze_review_cycle_metadata",
+   "reset_temperature",
+   "total_images",
+   "parsed_image_count",
+   "in_range_image_count",
+   "out_of_range_image_count",
+   "unparsed_image_count",
+   "unparsed_images_preview",
+   "warnings",
+   "calibration_path",
+   "calibrated_cell_count",
+   "refresh_context"
+  ]
  }
 }

@@ -175,6 +175,8 @@ def current_outputs():
             "headers": headers,
             "rows": rows,
             "summary": summary,
+            # Sessions save the summary with json.dumps and no key sorting.
+            "summary_keys": list(summary),
             "prepare_source": prepared_source(headers, rows),
         })))
     return outputs
@@ -202,8 +204,9 @@ class CountBuilderCharacterizationTests(unittest.TestCase):
 
     def test_summary(self):
         for name in CASES:
-            with self.subTest(case=name):
-                self.check(name, "summary")
+            for part in ("summary", "summary_keys"):
+                with self.subTest(case=name, part=part):
+                    self.check(name, part)
 
     def test_prepare_source(self):
         for name in CASES:
