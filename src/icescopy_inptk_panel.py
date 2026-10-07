@@ -244,6 +244,46 @@ class InptkPanel(QWidget):
         outer.setSpacing(8)
         self.connection = QLabel()
         self.splitter = splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.make_sidebar())
+        splitter.setChildrenCollapsible(False)
+        self.add_control_tab(self.make_samples_tab(), "Samples")
+        help_font = QFont(self.font())
+        if help_font.pointSizeF() > 0:
+            help_font.setPointSizeF(max(10, help_font.pointSizeF() - 1))
+        self.add_control_tab(self.make_combine_tab(help_font), "Combine")
+        advanced, concentration_form = self.make_advanced_tab()
+        self.add_control_tab(advanced, "Advanced")
+        splitter.addWidget(self.make_plot_area(help_font))
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([340, 720])
+        outer.addWidget(splitter, 1)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.connection)
+        outer.addLayout(status_row)
+        bottom = self.make_bottom_bar()
+        # Enter commits a field; it must not accidentally run or close analysis.
+        for button in self.findChildren(QPushButton):
+            button.setAutoDefault(False)
+            button.setDefault(False)
+        outer.addLayout(bottom)
+        self.tabs.currentChanged.connect(self.draw_ranges)
+        for form in (self.combine_form, self.thresholds, self.grid_form, concentration_form):
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        # Longer scientific choices get a full row, consistently, rather than
+        # wrapping some labels but not others as the sidebar changes width.
+        concentration_form.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        for combo in self.tabs.findChildren(QComboBox):
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(9)
+        self.restore_choices(self.settings)
+
+    def make_sidebar(self):
+        """Sample group list above the tabbed controls."""
         sidebar = QWidget()
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(0, 0, 0, 0)
@@ -284,8 +324,10 @@ class InptkPanel(QWidget):
         controls_layout.addWidget(self.tabs)
         self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
         side.addWidget(controls_card, 1)
-        splitter.addWidget(sidebar)
-        splitter.setChildrenCollapsible(False)
+        return sidebar
+
+    def make_samples_tab(self):
+        """Samples tab: inputs, cycle, blank correction."""
         samples = QWidget()
         layout = QVBoxLayout(samples)
         help_text = self.sample_help = QLabel()
@@ -355,8 +397,10 @@ class InptkPanel(QWidget):
             "Close this window to edit physical metadata. Your INP analysis is retained.")
         catalog.clicked.connect(self.edit_metadata)
         layout.addWidget(catalog, alignment=Qt.AlignLeft)
-        self.add_control_tab(samples, "Samples")
+        return samples
 
+    def make_combine_tab(self, help_font):
+        """Combine tab: method, basis, limits, method help."""
         combine = QWidget()
         layout = QVBoxLayout(combine)
         layout.addWidget(self.heading("Calculation"))
@@ -414,6 +458,12 @@ class InptkPanel(QWidget):
         self.full_range.clicked.connect(self.reset_ranges)
         layout.addWidget(self.full_range)
         layout.addSpacing(8)
+        self.make_method_options(layout, help_font)
+        layout.addStretch(1)
+        return combine
+
+    def make_method_options(self, layout, help_font):
+        """Method options box: auto-range thresholds, method help and equations."""
         self.method_options = QGroupBox()
         method_layout = QVBoxLayout(self.method_options)
         layout.addWidget(self.method_options)
@@ -438,9 +488,6 @@ class InptkPanel(QWidget):
         self.suggestion_status = QLabel(
             "Automatic limits are available for Average; MLE limits are manual.")
         self.suggestion_status.setWordWrap(True)
-        help_font = QFont(self.font())
-        if help_font.pointSizeF() > 0:
-            help_font.setPointSizeF(max(10, help_font.pointSizeF() - 1))
         self.suggestion_status.setFont(help_font)
         method_layout.addWidget(self.suggestion_status)
         method_layout.addSpacing(6)
@@ -478,9 +525,9 @@ class InptkPanel(QWidget):
         self.method_details.hide()
         self.method_details_button.toggled.connect(self.toggle_method_details)
         method_layout.addWidget(self.method_details)
-        layout.addStretch(1)
-        self.add_control_tab(combine, "Combine")
 
+    def make_advanced_tab(self):
+        """Advanced tab: count grid and concentration options."""
         advanced = QWidget()
         layout = QVBoxLayout(advanced)
         layout.addWidget(self.heading("Count selection"))
@@ -537,8 +584,10 @@ class InptkPanel(QWidget):
         form.addRow(note)
         layout.addLayout(form)
         layout.addStretch(1)
-        self.add_control_tab(advanced, "Advanced")
+        return advanced, form
 
+    def make_plot_area(self, help_font):
+        """Plot card: plotted quantity, plot, range tags."""
         view = self.section()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -602,16 +651,10 @@ class InptkPanel(QWidget):
         self.plot_note.setWordWrap(True)
         plot_layout.addWidget(self.plot_note)
         layout.addWidget(plot_page, 1)
-        splitter.addWidget(view)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([340, 720])
-        outer.addWidget(splitter, 1)
-        self.status = QLabel()
-        self.status.setWordWrap(True)
-        status_row = QHBoxLayout()
-        status_row.addWidget(self.status, 1)
-        status_row.addWidget(self.connection)
-        outer.addLayout(status_row)
+        return view
+
+    def make_bottom_bar(self):
+        """Console, undo/redo, calculate, export and close buttons."""
         bottom = QHBoxLayout()
         self.console_button = QPushButton("Show console")
         self.console_button.clicked.connect(self.show_console)
@@ -626,6 +669,16 @@ class InptkPanel(QWidget):
         self.cancel = QPushButton("Stop")
         self.cancel.clicked.connect(self.cancel_operation)
         self.cancel.hide()
+        self.make_export_menu()
+        for widget in (self.calculate, self.cancel, self.export):
+            bottom.addWidget(widget)
+        close = QPushButton("Close")
+        close.clicked.connect(self.close)
+        bottom.addWidget(close)
+        return bottom
+
+    def make_export_menu(self):
+        """Export results button and its menu."""
         self.export = QPushButton("Export results")
         menu = QMenu(self.export)
         menu.setToolTipsVisible(True)
@@ -665,28 +718,6 @@ class InptkPanel(QWidget):
             "metadata and uncertainty columns.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
-        for widget in (self.calculate, self.cancel, self.export):
-            bottom.addWidget(widget)
-        close = QPushButton("Close")
-        close.clicked.connect(self.close)
-        bottom.addWidget(close)
-        # Enter commits a field; it must not accidentally run or close analysis.
-        for button in self.findChildren(QPushButton):
-            button.setAutoDefault(False)
-            button.setDefault(False)
-        outer.addLayout(bottom)
-        self.tabs.currentChanged.connect(self.draw_ranges)
-        for form in (self.combine_form, self.thresholds, self.grid_form, form):
-            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
-            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        # Longer scientific choices get a full row, consistently, rather than
-        # wrapping some labels but not others as the sidebar changes width.
-        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
-        for combo in self.tabs.findChildren(QComboBox):
-            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(9)
-        self.restore_choices(self.settings)
 
     @staticmethod
     def section():
