@@ -528,6 +528,9 @@ class InptkPanel(QWidget):
         self.plot.setBackground(self.palette().color(QPalette.Base))
         self.plot.getAxis('left').setWidth(100)
         for side in ("left", "bottom"):
+            # Set this once, before labels or data. Repeating it during redraw
+            # can recalculate an SI multiplier even while disabling prefixes.
+            self.plot.getAxis(side).enableAutoSIPrefix(False)
             self.plot.getAxis(side).setStyle(maxTickLevel=1)
             self.plot.getAxis(side).setTickDensity(.6)
         self.plot.setLabel("bottom", "Temperature", units="°C")
@@ -1977,7 +1980,6 @@ class InptkPanel(QWidget):
         for side in ("left", "bottom"):
             self.plot.getAxis(side).setTextPen(foreground)
             self.plot.getAxis(side).setPen(foreground)
-            self.plot.getAxis(side).enableAutoSIPrefix(False)
         if legend:
             legend.setLabelTextColor(foreground)
             legend.setLabelTextSize(f"{self.window.inptk_legend_font_size:g}pt")
