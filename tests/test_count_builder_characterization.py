@@ -1,14 +1,14 @@
 """Pin the exact output of the standard, TAMU and PKU count builders.
 
 Each case builds a small synthetic session, runs one builder and then
-prepare_source on its table. The expected results in
-characterization/count_builders.json were recorded from the code at main
-e8a7b1e. A difference means the output changed.
+prepare_source on its table. EXPECTED_SHA256 holds a hash of each part,
+recorded from the code at main e8a7b1e. A different hash means the output
+changed; the failure message prints the new output.
 """
+import hashlib
 import json
 import unittest
 from datetime import datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 from test_csu_count_sources import CountWindow  # adds src/ to sys.path
@@ -24,7 +24,6 @@ from icescopy_temperature_import import (
 from icescopy_temperature_refresh import encode_temperature_input
 
 
-EXPECTED_PATH = Path(__file__).resolve().parent / "characterization" / "count_builders.json"
 START = datetime(2026, 1, 1, 12, 0, 0)
 
 # Temperatures for a log sampled every 10 s: cool, warm above 0 C, cool again.
@@ -182,19 +181,68 @@ def current_outputs():
     return outputs
 
 
-class CountBuilderCharacterizationTests(unittest.TestCase):
-    maxDiff = None
+EXPECTED_SHA256 = {
+    "pku": {
+        "headers": "ffc561fec07ad0d367315aa8d7f68210e9e071fbacf91ef0f384ce6354eb6290",
+        "rows": "fb76deaf0befc09344deaf892c733d56235b6fca64afcbbcd8d83a9f6e037c21",
+        "summary": "1351f819b74e7b206e6ca828e347fc63c6b322f4bf0966b5f5d24dd85f7af4c4",
+        "summary_keys": "48cfac5e42a9b602fa9fdc0f1ab781c278779c5f24bd00513bce226953224ac2",
+        "prepare_source": "8c9abbee283d9e6552c689aa3b18e756b9402646ca5c3c77c391af9be6c53fc9",
+    },
+    "standard_filenames": {
+        "headers": "ffc561fec07ad0d367315aa8d7f68210e9e071fbacf91ef0f384ce6354eb6290",
+        "rows": "3086a6c6920f439d00309ae27d8529171f95e0fedd0bf5473ebde63bcabe5d42",
+        "summary": "8f9463450d6ecd30ec5c6ab0285093e469dd1b024cda0603f73a10ed9d2164c6",
+        "summary_keys": "5ee8db475aa73b89bf9bf1bf9c66bbdff0283a7aa6110d65a38d1186f6dcb4c4",
+        "prepare_source": "ecd0024f4f2a118caae89a8196428f486b2bd5277f6f82cebba0bc77338028bd",
+    },
+    "standard_video_generated_no_reset": {
+        "headers": "ffc561fec07ad0d367315aa8d7f68210e9e071fbacf91ef0f384ce6354eb6290",
+        "rows": "85fc2cbb264c8fa386f3fd8984c5a0a91f8d4c214e470317773a8a1e765dc726",
+        "summary": "fde0db025a91a53ba70154b128e84b721651e3dd6221d257ef639d5cc30e442b",
+        "summary_keys": "5ee8db475aa73b89bf9bf1bf9c66bbdff0283a7aa6110d65a38d1186f6dcb4c4",
+        "prepare_source": "4faad5eba1e1b3c92199eb2302b2f15ea94dd91e48e38f23e3a8a1a72436b03c",
+    },
+    "standard_video_pts": {
+        "headers": "ffc561fec07ad0d367315aa8d7f68210e9e071fbacf91ef0f384ce6354eb6290",
+        "rows": "4800cd730dde92fe920200feb8c9a0c315d7a12c0843f7dde451afef98f4d103",
+        "summary": "dac363b4d966612b3180f805c10b21084845e8c93c529fc24e874a39f21bec94",
+        "summary_keys": "5ee8db475aa73b89bf9bf1bf9c66bbdff0283a7aa6110d65a38d1186f6dcb4c4",
+        "prepare_source": "641840d30fd15f5be5f67f2c831d9df3acfc473dab8caf3c3b30447e83d54dcf",
+    },
+    "tamu_all_cells": {
+        "headers": "2c04af2c6d06884098723e098303c3c177cc907b392c2fecb49204c2495f41f7",
+        "rows": "b72a11e6c388b651ad1ac2102afa5f3eeb4670359d0460e63b41c5849f9cd3ef",
+        "summary": "b0750646db9ab4be52dd46603ee098fbbee4a60830baefdd0937636ef6577fe8",
+        "summary_keys": "809ec139c2d37c93bddbf04e867133b45522e3c8ea9789ec6f85b7c89d1fd5b0",
+        "prepare_source": "e2e7bc8356a40920c7b63c8af88f3a331579a12dcc6061de58a879cf21a26f39",
+    },
+    "tamu_calibrated": {
+        "headers": "2ed0203f2882ba0553bc1fc139c1577608967cbba2590945756adb35e539001f",
+        "rows": "6802ab3d49816922c838235717f06cbb2d868f05bb45501a0bbe21ccb7ee0012",
+        "summary": "95605d37e0379c73a4d6d49e30478be603f507ea29acb8dc04e056ab06a1f8b8",
+        "summary_keys": "809ec139c2d37c93bddbf04e867133b45522e3c8ea9789ec6f85b7c89d1fd5b0",
+        "prepare_source": "8d232aecd1a6bb14a5664b609670f168f2f3da78c577a556e3463da31c54872c",
+    },
+}
 
+
+def output_text(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+class CountBuilderCharacterizationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.expected = json.loads(EXPECTED_PATH.read_text(encoding="utf-8"))
         cls.actual = current_outputs()
 
     def test_cases_match_recorded_cases(self):
-        self.assertEqual(sorted(self.actual), sorted(self.expected))
+        self.assertEqual(sorted(self.actual), sorted(EXPECTED_SHA256))
 
     def check(self, name, part):
-        self.assertEqual(self.actual[name][part], self.expected[name][part])
+        text = output_text(self.actual[name][part])
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        self.assertEqual(digest, EXPECTED_SHA256[name][part], f"{name} {part} changed:\n{text}")
 
     def test_headers_and_rows(self):
         for name in CASES:
