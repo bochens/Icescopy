@@ -37,7 +37,7 @@ def set_analysis_marker(self, marker_kind, frame_index, is_marked):
 
 ### `sliderPositionToX`
 
-[Source](../src/icescopy_frameslider.py#L460)
+[Source](../src/icescopy_frameslider.py#L408)
 
 ```python
 def sliderPositionToX(self, position):
@@ -45,7 +45,7 @@ def sliderPositionToX(self, position):
 
 ### `xToSliderPosition`
 
-[Source](../src/icescopy_frameslider.py#L594)
+[Source](../src/icescopy_frameslider.py#L542)
 
 ```python
 def xToSliderPosition(self, x):

@@ -3,7 +3,7 @@
 
 Decodes a single video, exposes frame metadata, and manages video preview caching.
 
-[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L250) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L247) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_frame_source.py#L257)
+[Source](../src/icescopy_frame_source.py#L254)
 
 ```python
 def __init__(self, video_path, *, cache_size=24, preview_cache_dir=None, frame_metadata=None, frame_size=None):
@@ -23,7 +23,7 @@ def __init__(self, video_path, *, cache_size=24, preview_cache_dir=None, frame_m
 
 ### `available`
 
-[Source](../src/icescopy_frame_source.py#L307)
+[Source](../src/icescopy_frame_source.py#L304)
 
 ```python
 @staticmethod
@@ -32,7 +32,7 @@ def available() -> bool:
 
 ### `get_qimage`
 
-[Source](../src/icescopy_frame_source.py#L623)
+[Source](../src/icescopy_frame_source.py#L617)
 
 ```python
 def get_qimage(self, index: int) -> QImage:
@@ -40,7 +40,7 @@ def get_qimage(self, index: int) -> QImage:
 
 ### `get_preview_qimage`
 
-[Source](../src/icescopy_frame_source.py#L534)
+[Source](../src/icescopy_frame_source.py#L528)
 
 ```python
 def get_preview_qimage(self, index: int) -> QImage:
@@ -48,7 +48,7 @@ def get_preview_qimage(self, index: int) -> QImage:
 
 ### `get_gray_array`
 
-[Source](../src/icescopy_frame_source.py#L640)
+[Source](../src/icescopy_frame_source.py#L634)
 
 ```python
 def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
@@ -56,7 +56,7 @@ def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
 
 ### `iter_gray_arrays`
 
-[Source](../src/icescopy_frame_source.py#L735)
+[Source](../src/icescopy_frame_source.py#L729)
 
 ```python
 def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
@@ -64,7 +64,7 @@ def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
 
 ### `close`
 
-[Source](../src/icescopy_frame_source.py#L295)
+[Source](../src/icescopy_frame_source.py#L292)
 
 ```python
 def close(self):
@@ -72,7 +72,7 @@ def close(self):
 
 ### `to_session_payload`
 
-[Source](../src/icescopy_frame_source.py#L772)
+[Source](../src/icescopy_frame_source.py#L766)
 
 ```python
 def to_session_payload(self) -> dict:

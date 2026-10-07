@@ -3,7 +3,7 @@
 
 Collects a CSU Ice Spectrometer input file and import options.
 
-[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L148) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L282) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L149)
+[Source](../src/icescopy_dialogs.py#L283)
 
 ```python
 def __init__(self, main_window, initial_path, initial_reset_temperature=None, parent=None, *, initial_count_source=CSU_COUNT_SOURCE_COMBINED):
@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, initial_reset_temperature=None, pa
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L295)
+[Source](../src/icescopy_dialogs.py#L382)
 
 ```python
 def accept(self):
@@ -29,7 +29,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L313)
+[Source](../src/icescopy_dialogs.py#L400)
 
 ```python
 def get_values(self):

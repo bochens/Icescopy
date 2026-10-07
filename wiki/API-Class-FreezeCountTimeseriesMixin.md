@@ -3,7 +3,7 @@
 
 Adds temperature/count result construction methods to the main window.
 
-[Module](API-Module-icescopy-freeze-count-timeseries.md) | [Source](../src/icescopy_freeze_count_timeseries.py#L31) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-freeze-count-timeseries.md) | [Source](../src/icescopy_freeze_count_timeseries.py#L265) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `freeze_review_cycle_ids`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L32)
+[Source](../src/icescopy_freeze_count_timeseries.py#L266)
 
 ```python
 def freeze_review_cycle_ids(self):
@@ -23,7 +23,7 @@ def freeze_review_cycle_ids(self):
 
 ### `build_freeze_count_timeseries_sample_groups`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L40)
+[Source](../src/icescopy_freeze_count_timeseries.py#L270)
 
 ```python
 def build_freeze_count_timeseries_sample_groups(self, grouping_mode='samples'):
@@ -31,15 +31,15 @@ def build_freeze_count_timeseries_sample_groups(self, grouping_mode='samples'):
 
 ### `build_standard_freeze_count_timeseries_results`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L554)
+[Source](../src/icescopy_freeze_count_timeseries.py#L646)
 
 ```python
-def build_standard_freeze_count_timeseries_results(self, parsed_timeseries, image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME, image_timestamp_style=TIMESTAMP_STYLE_AUTO, generated_start_text='', frame_interval_seconds=None, temperature_timestamp_style=TIMESTAMP_STYLE_AUTO, temperature_unit=TEMPERATURE_UNIT_CELSIUS, reset_temperature=None):
+def build_standard_freeze_count_timeseries_results(self, parsed_timeseries, image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_FILENAME, image_timestamp_style=TIMESTAMP_STYLE_AUTO, generated_start_text='', frame_interval_seconds=None, temperature_timestamp_style=TIMESTAMP_STYLE_AUTO, temperature_unit=TEMPERATURE_UNIT_CELSIUS, reset_temperature=None, timing_context=None):
 ```
 
 ### `build_csu_freeze_count_timeseries_results`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L698)
+[Source](../src/icescopy_freeze_count_timeseries.py#L738)
 
 ```python
 def build_csu_freeze_count_timeseries_results(self, parsed_data, reset_temperature=None, count_source=CSU_COUNT_SOURCE_COMBINED):
@@ -47,7 +47,7 @@ def build_csu_freeze_count_timeseries_results(self, parsed_data, reset_temperatu
 
 ### `build_tamu_freeze_count_timeseries_results`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L1023)
+[Source](../src/icescopy_freeze_count_timeseries.py#L1076)
 
 ```python
 def build_tamu_freeze_count_timeseries_results(self, parsed_timeseries, calibration_by_well=None, reset_temperature=None):
@@ -55,7 +55,7 @@ def build_tamu_freeze_count_timeseries_results(self, parsed_timeseries, calibrat
 
 ### `build_pku_linksys32_freeze_count_timeseries_results`
 
-[Source](../src/icescopy_freeze_count_timeseries.py#L1143)
+[Source](../src/icescopy_freeze_count_timeseries.py#L1142)
 
 ```python
 def build_pku_linksys32_freeze_count_timeseries_results(self, parsed_timeseries, reset_temperature=None):

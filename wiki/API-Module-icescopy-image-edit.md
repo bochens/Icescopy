@@ -35,7 +35,7 @@ def contrast_gain(contrast_percent):
 
 ### `normalize_rotated_crop_state`
 
-[Source](../src/icescopy_image_edit.py#L123)
+[Source](../src/icescopy_image_edit.py#L131)
 
 ```python
 def normalize_rotated_crop_state(image_width, image_height, crop_state=None):
@@ -43,7 +43,7 @@ def normalize_rotated_crop_state(image_width, image_height, crop_state=None):
 
 ### `build_rotated_crop_affine`
 
-[Source](../src/icescopy_image_edit.py#L189)
+[Source](../src/icescopy_image_edit.py#L191)
 
 ```python
 def build_rotated_crop_affine(image_width, image_height, crop_state=None):
@@ -51,7 +51,7 @@ def build_rotated_crop_affine(image_width, image_height, crop_state=None):
 
 ### `apply_affine_to_point`
 
-[Source](../src/icescopy_image_edit.py#L203)
+[Source](../src/icescopy_image_edit.py#L205)
 
 ```python
 def apply_affine_to_point(matrix, x_value, y_value):
@@ -59,7 +59,7 @@ def apply_affine_to_point(matrix, x_value, y_value):
 
 ### `invert_affine_matrix`
 
-[Source](../src/icescopy_image_edit.py#L208)
+[Source](../src/icescopy_image_edit.py#L210)
 
 ```python
 def invert_affine_matrix(matrix):
@@ -67,7 +67,7 @@ def invert_affine_matrix(matrix):
 
 ### `apply_image_adjustments_to_uint8`
 
-[Source](../src/icescopy_image_edit.py#L313)
+[Source](../src/icescopy_image_edit.py#L315)
 
 ```python
 def apply_image_adjustments_to_uint8(image_array, exposure_stops=0.0, contrast_percent=0.0, crop_state=None, apply_crop=True):
@@ -75,7 +75,7 @@ def apply_image_adjustments_to_uint8(image_array, exposure_stops=0.0, contrast_p
 
 ### `apply_image_adjustments_to_qimage`
 
-[Source](../src/icescopy_image_edit.py#L330)
+[Source](../src/icescopy_image_edit.py#L332)
 
 ```python
 def apply_image_adjustments_to_qimage(q_image, exposure_stops=0.0, contrast_percent=0.0, crop_state=None, apply_crop=True):
@@ -83,7 +83,7 @@ def apply_image_adjustments_to_qimage(q_image, exposure_stops=0.0, contrast_perc
 
 ### `qimage_to_grayscale_array`
 
-[Source](../src/icescopy_image_edit.py#L358)
+[Source](../src/icescopy_image_edit.py#L360)
 
 ```python
 def qimage_to_grayscale_array(q_image):
@@ -91,7 +91,7 @@ def qimage_to_grayscale_array(q_image):
 
 ### `compute_histogram_bins`
 
-[Source](../src/icescopy_image_edit.py#L374)
+[Source](../src/icescopy_image_edit.py#L376)
 
 ```python
 def compute_histogram_bins(image_gray, bin_count=IMAGE_EDIT_HISTOGRAM_BIN_COUNT):

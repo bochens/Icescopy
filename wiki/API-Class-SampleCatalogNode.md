@@ -3,7 +3,7 @@
 
 Internal tree node for a sample or one of its metadata fields.
 
-[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L53) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L52) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_sample_catalog.py#L54)
+[Source](../src/icescopy_sample_catalog.py#L53)
 
 ```python
 def __init__(self, *, kind, parent=None, sample_id=None, field_key=''):
@@ -21,7 +21,7 @@ def __init__(self, *, kind, parent=None, sample_id=None, field_key=''):
 
 ### `row`
 
-[Source](../src/icescopy_sample_catalog.py#L61)
+[Source](../src/icescopy_sample_catalog.py#L60)
 
 ```python
 def row(self):

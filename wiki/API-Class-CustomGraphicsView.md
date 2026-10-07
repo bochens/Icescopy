@@ -3,7 +3,7 @@
 
 Routes scene mouse, wheel, and keyboard events to the active drawing, selection, or image-edit workflow.
 
-[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L211) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L157) | [API index](API-Reference.md)
 
 **Bases:** `LinkedGraphicsView`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_aux.py#L275)
+[Source](../src/icescopy_aux.py#L221)
 
 ```python
 def mousePressEvent(self, event):
@@ -23,7 +23,7 @@ def mousePressEvent(self, event):
 
 ### `mouseMoveEvent`
 
-[Source](../src/icescopy_aux.py#L309)
+[Source](../src/icescopy_aux.py#L255)
 
 ```python
 def mouseMoveEvent(self, event):
@@ -31,7 +31,7 @@ def mouseMoveEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_aux.py#L341)
+[Source](../src/icescopy_aux.py#L287)
 
 ```python
 def mouseReleaseEvent(self, event):
@@ -39,7 +39,7 @@ def mouseReleaseEvent(self, event):
 
 ### `keyPressEvent`
 
-[Source](../src/icescopy_aux.py#L378)
+[Source](../src/icescopy_aux.py#L324)
 
 ```python
 def keyPressEvent(self, event):

@@ -3,7 +3,7 @@
 
 Displays a short tool-options message.
 
-[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L58) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L57) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_tool_options.py#L59)
+[Source](../src/icescopy_tool_options.py#L58)
 
 ```python
 def __init__(self, parent=None, content_width=TOOL_OPTIONS_CONTENT_WIDTH):
@@ -21,7 +21,7 @@ def __init__(self, parent=None, content_width=TOOL_OPTIONS_CONTENT_WIDTH):
 
 ### `set_message`
 
-[Source](../src/icescopy_tool_options.py#L94)
+[Source](../src/icescopy_tool_options.py#L93)
 
 ```python
 def set_message(self, text):

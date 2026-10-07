@@ -3,7 +3,7 @@
 
 One Linksys32 image record with image number, timestamp, and temperature.
 
-[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L218) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-temperature-import.md) | [Source](../src/icescopy_temperature_import.py#L213) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 

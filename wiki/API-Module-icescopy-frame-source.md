@@ -37,7 +37,7 @@ def normalize_frame_ranges(frame_ranges, frame_count: int) -> list[tuple[int, in
 
 ### `frame_source_from_session_payload`
 
-[Source](../src/icescopy_frame_source.py#L1034)
+[Source](../src/icescopy_frame_source.py#L1028)
 
 ```python
 def frame_source_from_session_payload(payload) -> FrameSource:
@@ -45,7 +45,7 @@ def frame_source_from_session_payload(payload) -> FrameSource:
 
 ### `frame_source_from_preview_payload`
 
-[Source](../src/icescopy_frame_source.py#L1044)
+[Source](../src/icescopy_frame_source.py#L1038)
 
 ```python
 def frame_source_from_preview_payload(payload, *, preview_cache_dir=None) -> FrameSource:

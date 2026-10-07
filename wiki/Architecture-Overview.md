@@ -15,7 +15,9 @@ This page explains where state lives and how a recording becomes results. Use th
 | Drawing and editing | [Controller](API-Module-icescopy-cell-controller.md), [scene items](API-Module-icescopy-cell-items.md) | A floating or pinned preview is not yet a saved edit. |
 | Sample fields | [Metadata schema](API-Module-icescopy-sample-metadata.md), [catalog panel](API-Module-icescopy-sample-catalog.md) | Field definitions and sample values are separate. |
 | Analysis | [Worker](API-Class-Image-analysis-thread.md), [freeze detection](API-Module-icescopy-freezfinder.md), [frame windows](API-Module-icescopy-analysis-windows.md) | The window installs completed worker results. |
-| Temperature/count matching | [Parsers](API-Module-icescopy-temperature-import.md), [count builders](API-Module-icescopy-freeze-count-timeseries.md) | The import workflow joins parsed records to cell events. |
+| Temperature/count matching | [Parsers](API-Module-icescopy-temperature-import.md), [count builders](API-Module-icescopy-freeze-count-timeseries.md), [count refresh](API-Module-icescopy-temperature-refresh.md) | The import workflow joins parsed records to cell events. |
+| Droplet detection | [Toolbar tools](API-Module-icescopy-droplet-tools.md), [neural detector](API-Module-icescopy-neural-detection.md), [random forest](API-Module-icescopy-droplet-detection.md), [training sessions](API-Module-icescopy-droplet-training-io.md) | Detection runs on a snapshot; results are checked against the current frame before insertion. |
+| INP analysis | [Analysis window](API-Module-icescopy-inptk-panel.md), [choices](API-Module-icescopy-inptk-state.md), [input records](API-Module-icescopy-inptk-data.md), [toolkit client](API-Module-icescopy-inptk-client.md), [plots](API-Module-icescopy-inptk-plot.md), [CSV export](API-Module-icescopy-inptk-export.md) | Calculations run in the separately installed toolkit process. |
 | Persistence and history | [Session I/O](API-Module-icescopy-session-io.md), [commands](API-Module-icescopy-session.md) | Saved bundles and in-memory undo history have different lifetimes. |
 
 ## From media to results

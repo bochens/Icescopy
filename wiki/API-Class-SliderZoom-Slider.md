@@ -3,7 +3,7 @@
 
 A slider used to adjust timeline zoom.
 
-[Module](API-Module-icescopy-frameslider.md) | [Source](../src/icescopy_frameslider.py#L639) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-frameslider.md) | [Source](../src/icescopy_frameslider.py#L587) | [API index](API-Reference.md)
 
 **Bases:** `QSlider`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_frameslider.py#L640)
+[Source](../src/icescopy_frameslider.py#L588)
 
 ```python
 def __init__(self, orientation=Qt.Horizontal, main_window=None, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, orientation=Qt.Horizontal, main_window=None, parent=None):
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_frameslider.py#L653)
+[Source](../src/icescopy_frameslider.py#L601)
 
 ```python
 def mousePressEvent(self, event):

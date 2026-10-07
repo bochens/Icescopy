@@ -17,6 +17,10 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_cell_items`](API-Module-icescopy-cell-items.md) | Geometry snapshots and interactive graphics items for cell circles. |
 | [`icescopy_dialogs`](API-Module-icescopy-dialogs.md) | Input dialogs for session metadata, temperature import, and export selection. |
 | [`icescopy_dock`](API-Module-icescopy-dock.md) | Custom title bar for movable and floating dock panels. |
+| [`icescopy_droplet_detection`](API-Module-icescopy-droplet-detection.md) | Trains and runs a random-forest detector from marked droplet circles. |
+| [`icescopy_droplet_tools`](API-Module-icescopy-droplet-tools.md) | Connects neural droplet detection to the toolbar, frame state, and cell history. |
+| [`icescopy_droplet_training_io`](API-Module-icescopy-droplet-training-io.md) | Reads annotated frames and linked images from Icescopy sessions for detector training. |
+| [`icescopy_neural_detection`](API-Module-icescopy-neural-detection.md) | Loads ONNX droplet models and runs CPU inference with optional guidance circles. |
 | [`icescopy_event_navigation`](API-Module-icescopy-event-navigation.md) | Provide shared freeze-event buttons and a Cells selector that retains the chosen cooling cycle. |
 | [`icescopy_frame_source`](API-Module-icescopy-frame-source.md) | A shared frame interface for images, video, and ordered video clips. |
 | [`icescopy_frameslider`](API-Module-icescopy-frameslider.md) | Timeline navigation, zoom, and marker drawing. |
@@ -33,6 +37,13 @@ The module inventory follows `pyproject.toml`. Explanations are curated; declara
 | [`icescopy_session_io`](API-Module-icescopy-session-io.md) | Serialize session bundles and prepare validated restore state. |
 | [`icescopy_stylesheet`](API-Module-icescopy-stylesheet.md) | Shared Qt stylesheet strings for the application interface. |
 | [`icescopy_temperature_import`](API-Module-icescopy-temperature-import.md) | Parse temperature files and resolve timestamps and cooling cycles. |
+| [`icescopy_temperature_refresh`](API-Module-icescopy-temperature-refresh.md) | Retains temperature-import inputs so freeze counts can be rebuilt after session edits. |
+| [`icescopy_inptk_client`](API-Module-icescopy-inptk-client.md) | Communicates with a separately installed INP toolkit process through queued requests. |
+| [`icescopy_inptk_data`](API-Module-icescopy-inptk-data.md) | Converts in-memory freeze counts and sample metadata into toolkit input records. |
+| [`icescopy_inptk_export`](API-Module-icescopy-inptk-export.md) | Arranges toolkit concentration and frozen-fraction tables for Icescopy CSV exports. |
+| [`icescopy_inptk_state`](API-Module-icescopy-inptk-state.md) | Stores analysis choices and translates them into toolkit command arguments. |
+| [`icescopy_inptk_panel`](API-Module-icescopy-inptk-panel.md) | Provides the INP analysis window, its preferences widget, and analysis history. |
+| [`icescopy_inptk_plot`](API-Module-icescopy-inptk-plot.md) | Supplies axes, legends, and draggable temperature controls for INP plots. |
 | [`icescopy_tool_options`](API-Module-icescopy-tool-options.md) | Reusable widgets for tool-option forms and information pages. |
 | [`icescopy_validate`](API-Module-icescopy-validate.md) | Command-line checks for the installed package, dependencies, and required resources. |
 | [`icescopy_version`](API-Module-icescopy-version.md) | The version value used by the application and Python package. |

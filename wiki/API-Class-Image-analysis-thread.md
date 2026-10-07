@@ -3,7 +3,7 @@
 
 Measures per-frame circular regions and builds grayscale and freeze-event tables in a Qt worker thread.
 
-[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L416) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-aux.md) | [Source](../src/icescopy_aux.py#L362) | [API index](API-Reference.md)
 
 **Bases:** `QThread`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_aux.py#L421)
+[Source](../src/icescopy_aux.py#L367)
 
 ```python
 def __init__(self, filePath, imagePaths, imageNames, list_of_cell_items, image_edit_exposure=0.0, image_edit_contrast=0.0, image_edit_uniform_exposure_offsets=None, image_edit_crop_state=None, freeze_finder_width=DEFAULT_FREEZE_FINDER_WIDTH, freeze_finder_prominence=DEFAULT_FREEZE_FINDER_PROMINENCE, freeze_finder_head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS, freeze_finder_tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS, convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS, convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS, freeze_finder_detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING, video_grayscale_mode=DEFAULT_VIDEO_GRAYSCALE_MODE, frame_source=None, analysis_frame_ranges=None):
@@ -23,7 +23,7 @@ def __init__(self, filePath, imagePaths, imageNames, list_of_cell_items, image_e
 
 ### `run`
 
-[Source](../src/icescopy_aux.py#L478)
+[Source](../src/icescopy_aux.py#L424)
 
 ```python
 def run(self):
@@ -31,7 +31,7 @@ def run(self):
 
 ### `gray_scale_mean_from_array`
 
-[Source](../src/icescopy_aux.py#L691)
+[Source](../src/icescopy_aux.py#L637)
 
 ```python
 def gray_scale_mean_from_array(self, frame_index, image_gray, circle_pixel_positions, circle_sizes):

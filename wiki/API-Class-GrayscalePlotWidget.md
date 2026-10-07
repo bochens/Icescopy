@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `update_plot_data`
 
-[Source](../src/icescopy_plot.py#L195)
+[Source](../src/icescopy_plot.py#L190)
 
 ```python
 def update_plot_data(self, grayscale_headers, grayscale_rows, freeze_rows, cell_ids, current_image_index=None, head_extend_points=0, tail_extend_points=0, convolution_half_window_points=0, convolution_ramp_points=0, timeseries_palette='bright', timeseries_line_width=2.0, convolution_line_width=1.0, freeze_line_color=(220, 20, 60, 180), freeze_line_width=1.0, current_frame_color=(255, 204, 0, 170), current_frame_width=1.5, current_image_name=None):
@@ -23,7 +23,7 @@ def update_plot_data(self, grayscale_headers, grayscale_rows, freeze_rows, cell_
 
 ### `set_current_image_index`
 
-[Source](../src/icescopy_plot.py#L276)
+[Source](../src/icescopy_plot.py#L271)
 
 ```python
 def set_current_image_index(self, current_image_index, current_image_name=None, force=False):
@@ -31,7 +31,7 @@ def set_current_image_index(self, current_image_index, current_image_name=None, 
 
 ### `update_freeze_rows`
 
-[Source](../src/icescopy_plot.py#L776)
+[Source](../src/icescopy_plot.py#L771)
 
 ```python
 def update_freeze_rows(self, freeze_rows):
@@ -39,7 +39,7 @@ def update_freeze_rows(self, freeze_rows):
 
 ### `invalidate_render_cache`
 
-[Source](../src/icescopy_plot.py#L190)
+[Source](../src/icescopy_plot.py#L185)
 
 ```python
 def invalidate_render_cache(self):
@@ -47,7 +47,7 @@ def invalidate_render_cache(self):
 
 ### `refresh_plot`
 
-[Source](../src/icescopy_plot.py#L798)
+[Source](../src/icescopy_plot.py#L793)
 
 ```python
 def refresh_plot(self):

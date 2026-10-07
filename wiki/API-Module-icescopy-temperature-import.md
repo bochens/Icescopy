@@ -23,7 +23,7 @@ Independent parsers cover standard CSV, UTK CSV, CSU `.dat`, TAMU Linkam `.xlsx`
 
 ### `parse_standard_temperature_csv`
 
-[Source](../src/icescopy_temperature_import.py#L651)
+[Source](../src/icescopy_temperature_import.py#L683)
 
 ```python
 def parse_standard_temperature_csv(file_path, timestamp_style=TIMESTAMP_STYLE_AUTO, temperature_unit=TEMPERATURE_UNIT_CELSIUS):
@@ -31,7 +31,7 @@ def parse_standard_temperature_csv(file_path, timestamp_style=TIMESTAMP_STYLE_AU
 
 ### `parse_utk_temperature_csv`
 
-[Source](../src/icescopy_temperature_import.py#L744)
+[Source](../src/icescopy_temperature_import.py#L749)
 
 ```python
 def parse_utk_temperature_csv(file_path):
@@ -39,7 +39,7 @@ def parse_utk_temperature_csv(file_path):
 
 ### `parse_utk_video_start_timestamp`
 
-[Source](../src/icescopy_temperature_import.py#L727)
+[Source](../src/icescopy_temperature_import.py#L744)
 
 ```python
 def parse_utk_video_start_timestamp(video_path):
@@ -47,7 +47,7 @@ def parse_utk_video_start_timestamp(video_path):
 
 ### `parse_csu_is_dat`
 
-[Source](../src/icescopy_temperature_import.py#L1134)
+[Source](../src/icescopy_temperature_import.py#L1124)
 
 ```python
 def parse_csu_is_dat(file_path):
@@ -55,7 +55,7 @@ def parse_csu_is_dat(file_path):
 
 ### `parse_tamu_linkam_xlsx`
 
-[Source](../src/icescopy_temperature_import.py#L1041)
+[Source](../src/icescopy_temperature_import.py#L1031)
 
 ```python
 def parse_tamu_linkam_xlsx(file_path):
@@ -63,7 +63,7 @@ def parse_tamu_linkam_xlsx(file_path):
 
 ### `parse_ice_array_calibration_csv`
 
-[Source](../src/icescopy_temperature_import.py#L1111)
+[Source](../src/icescopy_temperature_import.py#L1101)
 
 ```python
 def parse_ice_array_calibration_csv(file_path):
@@ -71,7 +71,7 @@ def parse_ice_array_calibration_csv(file_path):
 
 ### `parse_linksys32_iml`
 
-[Source](../src/icescopy_temperature_import.py#L803)
+[Source](../src/icescopy_temperature_import.py#L793)
 
 ```python
 def parse_linksys32_iml(file_path):
@@ -79,7 +79,7 @@ def parse_linksys32_iml(file_path):
 
 ### `resolve_image_timestamps`
 
-[Source](../src/icescopy_temperature_import.py#L617)
+[Source](../src/icescopy_temperature_import.py#L629)
 
 ```python
 def resolve_image_timestamps(image_paths, image_names, source=IMAGE_TIMESTAMP_SOURCE_FILENAME, timestamp_style=TIMESTAMP_STYLE_AUTO, generated_start_text='', frame_interval_seconds=None):
@@ -87,7 +87,7 @@ def resolve_image_timestamps(image_paths, image_names, source=IMAGE_TIMESTAMP_SO
 
 ### `parse_timestamp_text`
 
-[Source](../src/icescopy_temperature_import.py#L449)
+[Source](../src/icescopy_temperature_import.py#L465)
 
 ```python
 def parse_timestamp_text(text, style=TIMESTAMP_STYLE_AUTO):
@@ -95,7 +95,7 @@ def parse_timestamp_text(text, style=TIMESTAMP_STYLE_AUTO):
 
 ### `detect_cycle_start_indexes_from_temperatures`
 
-[Source](../src/icescopy_temperature_import.py#L1319)
+[Source](../src/icescopy_temperature_import.py#L1309)
 
 ```python
 def detect_cycle_start_indexes_from_temperatures(temperatures, reset_temperature, warmup_hysteresis_c=0.02):
@@ -103,7 +103,7 @@ def detect_cycle_start_indexes_from_temperatures(temperatures, reset_temperature
 
 ### `reconcile_counts_by_cycle`
 
-[Source](../src/icescopy_temperature_import.py#L1391)
+[Source](../src/icescopy_temperature_import.py#L1381)
 
 ```python
 def reconcile_counts_by_cycle(raw_counts, anchor_counts, maximum_count, cycle_ids):

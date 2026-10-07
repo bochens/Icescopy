@@ -3,7 +3,7 @@
 
 Builds tool-option rows, numeric controls, lists, hints, and action buttons.
 
-[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L98) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-tool-options.md) | [Source](../src/icescopy_tool_options.py#L97) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_tool_options.py#L99)
+[Source](../src/icescopy_tool_options.py#L98)
 
 ```python
 def __init__(self, parent=None, *, content_width=TOOL_OPTIONS_CONTENT_WIDTH, label_width=TOOL_OPTIONS_LABEL_WIDTH, field_width=TOOL_OPTIONS_FIELD_WIDTH, shortcut_width=TOOL_OPTIONS_SHORTCUT_WIDTH):
@@ -21,7 +21,7 @@ def __init__(self, parent=None, *, content_width=TOOL_OPTIONS_CONTENT_WIDTH, lab
 
 ### `create_combo_box`
 
-[Source](../src/icescopy_tool_options.py#L170)
+[Source](../src/icescopy_tool_options.py#L169)
 
 ```python
 def create_combo_box(self, *, index_handler=None):
@@ -29,7 +29,7 @@ def create_combo_box(self, *, index_handler=None):
 
 ### `create_spin_box`
 
-[Source](../src/icescopy_tool_options.py#L182)
+[Source](../src/icescopy_tool_options.py#L181)
 
 ```python
 def create_spin_box(self, minimum, maximum, *, step=1, value_handler=None):
@@ -37,7 +37,7 @@ def create_spin_box(self, minimum, maximum, *, step=1, value_handler=None):
 
 ### `create_double_spin_box`
 
-[Source](../src/icescopy_tool_options.py#L191)
+[Source](../src/icescopy_tool_options.py#L190)
 
 ```python
 def create_double_spin_box(self, minimum, maximum, *, decimals=1, step=0.5, value_handler=None):
@@ -45,7 +45,7 @@ def create_double_spin_box(self, minimum, maximum, *, decimals=1, step=0.5, valu
 
 ### `add_row`
 
-[Source](../src/icescopy_tool_options.py#L216)
+[Source](../src/icescopy_tool_options.py#L228)
 
 ```python
 def add_row(self, label_text, editor, shortcut_text=''):
@@ -53,7 +53,7 @@ def add_row(self, label_text, editor, shortcut_text=''):
 
 ### `add_action_row`
 
-[Source](../src/icescopy_tool_options.py#L315)
+[Source](../src/icescopy_tool_options.py#L303)
 
 ```python
 def add_action_row(self, apply_handler, float_handler, cancel_handler):

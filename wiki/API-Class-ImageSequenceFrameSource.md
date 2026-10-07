@@ -3,7 +3,7 @@
 
 Reads individual image files and exposes their order as frames.
 
-[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L188) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L185) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_frame_source.py#L191)
+[Source](../src/icescopy_frame_source.py#L188)
 
 ```python
 def __init__(self, image_paths=None):
@@ -23,7 +23,7 @@ def __init__(self, image_paths=None):
 
 ### `get_qimage`
 
-[Source](../src/icescopy_frame_source.py#L218)
+[Source](../src/icescopy_frame_source.py#L215)
 
 ```python
 def get_qimage(self, index: int) -> QImage:
@@ -31,7 +31,7 @@ def get_qimage(self, index: int) -> QImage:
 
 ### `get_gray_array`
 
-[Source](../src/icescopy_frame_source.py#L221)
+[Source](../src/icescopy_frame_source.py#L218)
 
 ```python
 def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
@@ -39,7 +39,7 @@ def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
 
 ### `frame_key`
 
-[Source](../src/icescopy_frame_source.py#L215)
+[Source](../src/icescopy_frame_source.py#L212)
 
 ```python
 def frame_key(self, index: int) -> str:
@@ -47,7 +47,7 @@ def frame_key(self, index: int) -> str:
 
 ### `to_session_payload`
 
-[Source](../src/icescopy_frame_source.py#L243)
+[Source](../src/icescopy_frame_source.py#L240)
 
 ```python
 def to_session_payload(self) -> dict:

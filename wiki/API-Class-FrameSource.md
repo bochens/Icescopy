@@ -31,7 +31,7 @@ def frame_key(self, index: int) -> str:
 
 ### `frame_time_seconds`
 
-[Source](../src/icescopy_frame_source.py#L142)
+[Source](../src/icescopy_frame_source.py#L139)
 
 ```python
 def frame_time_seconds(self, index: int) -> float | None:
@@ -39,7 +39,7 @@ def frame_time_seconds(self, index: int) -> float | None:
 
 ### `get_qimage`
 
-[Source](../src/icescopy_frame_source.py#L145)
+[Source](../src/icescopy_frame_source.py#L142)
 
 ```python
 def get_qimage(self, index: int) -> QImage:
@@ -47,7 +47,7 @@ def get_qimage(self, index: int) -> QImage:
 
 ### `get_gray_array`
 
-[Source](../src/icescopy_frame_source.py#L148)
+[Source](../src/icescopy_frame_source.py#L145)
 
 ```python
 def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
@@ -55,7 +55,7 @@ def get_gray_array(self, index: int, grayscale_mode=None) -> np.ndarray:
 
 ### `iter_gray_arrays`
 
-[Source](../src/icescopy_frame_source.py#L151)
+[Source](../src/icescopy_frame_source.py#L148)
 
 ```python
 def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
@@ -63,7 +63,7 @@ def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
 
 ### `source_paths`
 
-[Source](../src/icescopy_frame_source.py#L165)
+[Source](../src/icescopy_frame_source.py#L162)
 
 ```python
 def source_paths(self) -> list[str]:
@@ -71,7 +71,7 @@ def source_paths(self) -> list[str]:
 
 ### `to_session_payload`
 
-[Source](../src/icescopy_frame_source.py#L184)
+[Source](../src/icescopy_frame_source.py#L181)
 
 ```python
 def to_session_payload(self) -> dict:
