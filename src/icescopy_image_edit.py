@@ -60,17 +60,33 @@ def rotated_crop_corners(crop_state):
     return (local_points @ rotation.T) + np.array([center_x, center_y], dtype=float)
 
 
+def _empty_crop_state():
+    """Crop state for an image with no size."""
+    return {
+        "center_x": 0.0,
+        "center_y": 0.0,
+        "width": 1.0,
+        "height": 1.0,
+        "angle": 0.0,
+    }
+
+
+def _crop_corner_bounds(state):
+    """(min_x, max_x, min_y, max_y) of the rotated crop's corners."""
+    corners = rotated_crop_corners(state)
+    return (
+        float(np.min(corners[:, 0])),
+        float(np.max(corners[:, 0])),
+        float(np.min(corners[:, 1])),
+        float(np.max(corners[:, 1])),
+    )
+
+
 def fit_rotated_crop_state_to_bounds(image_width, image_height, crop_state):
     image_width = float(max(0, image_width))
     image_height = float(max(0, image_height))
     if image_width <= 0 or image_height <= 0:
-        return {
-            "center_x": 0.0,
-            "center_y": 0.0,
-            "width": 1.0,
-            "height": 1.0,
-            "angle": 0.0,
-        }
+        return _empty_crop_state()
 
     state = {
         "center_x": float(crop_state["center_x"]),
@@ -81,11 +97,7 @@ def fit_rotated_crop_state_to_bounds(image_width, image_height, crop_state):
     }
 
     for _ in range(3):
-        corners = rotated_crop_corners(state)
-        min_x = float(np.min(corners[:, 0]))
-        max_x = float(np.max(corners[:, 0]))
-        min_y = float(np.min(corners[:, 1]))
-        max_y = float(np.max(corners[:, 1]))
+        min_x, max_x, min_y, max_y = _crop_corner_bounds(state)
         span_width = max_x - min_x
         span_height = max_y - min_y
 
@@ -97,11 +109,7 @@ def fit_rotated_crop_state_to_bounds(image_width, image_height, crop_state):
             )
             state["width"] = max(1.0, state["width"] * scale)
             state["height"] = max(1.0, state["height"] * scale)
-            corners = rotated_crop_corners(state)
-            min_x = float(np.min(corners[:, 0]))
-            max_x = float(np.max(corners[:, 0]))
-            min_y = float(np.min(corners[:, 1]))
-            max_y = float(np.max(corners[:, 1]))
+            min_x, max_x, min_y, max_y = _crop_corner_bounds(state)
 
         shift_x = 0.0
         shift_y = 0.0
@@ -124,13 +132,7 @@ def normalize_rotated_crop_state(image_width, image_height, crop_state=None):
     image_width = float(max(0, image_width))
     image_height = float(max(0, image_height))
     if image_width <= 0 or image_height <= 0:
-        return {
-            "center_x": 0.0,
-            "center_y": 0.0,
-            "width": 1.0,
-            "height": 1.0,
-            "angle": 0.0,
-        }
+        return _empty_crop_state()
 
     crop_state = crop_state or {}
     default_state = {
