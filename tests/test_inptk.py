@@ -1113,6 +1113,41 @@ class InpIntegrationTests(unittest.TestCase):
         p.fit_button.click()
         self.assertLess(p.plot.viewRange()[1][0], 0)
 
+    def test_repeated_air_calculation_keeps_tick_values_in_labelled_units(self):
+        import numpy as np
+        self.configure(); p = self.panel; w = self.window
+        p.change_option('basis', 'sampled_air')
+        for volume in ('0.1', '100000000'):
+            for record in w.sample_catalog.values():
+                if record['sample_type'] == 'air': record['air_volume_L'] = volume
+            w.refresh_freeze_count_timeseries_metadata_from_sample_catalog()
+            p.refresh_preview(); self.wait(lambda: not p.operation and not p.client.busy)
+            for method in ('mle', 'average'):
+                with self.subTest(volume=volume, method=method):
+                    p.change_option('method', method); self.calculate()
+                    original = copy.deepcopy(p.result['tables'])
+                    view = copy.deepcopy(p.plot.viewRange())
+                    self.calculate()
+                    self.assertEqual(p.result['tables'], original)
+                    np.testing.assert_allclose(p.plot.viewRange(), view)
+                    axis = p.plot.getAxis('left')
+                    self.assertEqual(axis.labelUnits, 'INP/L air')
+                    self.assertEqual(axis.labelUnitPrefix, '')
+                    scale = axis.autoSIPrefixScale * axis.scale
+                    self.assertEqual(scale, 1.)
+                    self.assertEqual(axis.tickStrings([-2., 0., 2.], scale, 1.), ['0.01', '1', '10²'])
+                    # Redraws also occur without a new calculation.
+                    for show in (False, True):
+                        p.show_uncertainty.setChecked(show)
+                        self.assertEqual(axis.autoSIPrefixScale * axis.scale, 1.)
+                    w.inptk_log_concentration = False; p.draw(); self.calculate()
+                    self.assertEqual(p.result['tables'], original)
+                    scale = axis.autoSIPrefixScale * axis.scale
+                    self.assertEqual(scale, 1.)
+                    self.assertEqual([float(v) for v in axis.tickStrings([.01, 1., 100.], scale, .01)],
+                                     [.01, 1., 100.])
+                    w.inptk_log_concentration = True; p.draw()
+
     def test_open_connects_automatically_and_calculate_restarts_after_stop(self):
         self.configure()
         p = self.panel
