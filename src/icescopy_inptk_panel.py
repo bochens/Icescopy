@@ -1,6 +1,5 @@
 """INP analysis window. All calculations run in the external CLI."""
 import hashlib
-import json
 import math
 import shutil
 from pathlib import Path
@@ -25,7 +24,7 @@ from icescopy_inptk_plot import (
     ConcentrationAxis, PlotLegend, TemperatureRangeItem, TemperatureTags, axis_limits)
 from icescopy_inptk_state import (
     BLANK_ONSET_FLAG, BLANK_RANGE_FLAG, automatic_blank_assignments, available_concentration_bases,
-    cli_choices, concentration_curves, copy_choices, individual_choices, fingerprint, new_settings,
+    cli_choices, copy_choices, individual_choices, fingerprint, new_settings,
     number, reconcile_inputs, set_group_inputs, temperature_range)
 from icescopy_plot import GrayscalePlotWidget
 from icescopy_inptk_data import prepare_source, upload_choices, upload_scope, PLOT_COLUMNS
