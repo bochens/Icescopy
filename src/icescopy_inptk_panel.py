@@ -340,15 +340,7 @@ class InptkPanel(QWidget):
             "Show this sample in the plot. Does not change calculation membership or exports.")
         self.inputs.horizontalHeaderItem(0).setToolTip(
             "Samples: move into the selected group. Water blanks: include in blank correction.")
-        self.inputs.verticalHeader().hide()
-        self.inputs.setShowGrid(False)
-        self.inputs.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.inputs.setAlternatingRowColors(True)
-        self.inputs.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.inputs.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.inputs.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.inputs.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.inputs.setColumnWidth(1, 130)
+        self.setup_table(self.inputs, 1, 130)
         self.inputs.itemChanged.connect(self.input_changed)
         self.inputs.itemSelectionChanged.connect(self.select_input)
         layout.addWidget(self.inputs, 1)
@@ -436,15 +428,7 @@ class InptkPanel(QWidget):
             "can also type limits here.")
         for col in (1, 2):
             self.ranges.setItemDelegateForColumn(col, RangeLimitDelegate(self.ranges))
-        self.ranges.verticalHeader().hide()
-        self.ranges.setShowGrid(False)
-        self.ranges.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.ranges.setAlternatingRowColors(True)
-        self.ranges.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.ranges.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
-        self.ranges.setColumnWidth(0, 160)
-        self.ranges.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.ranges.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setup_table(self.ranges, 0, 160)
         self.ranges.itemChanged.connect(self.range_changed)
         self.ranges.itemSelectionChanged.connect(self.draw_ranges)
         layout.addWidget(self.ranges, 1)
@@ -717,6 +701,19 @@ class InptkPanel(QWidget):
             "metadata and uncertainty columns.")
         menu.aboutToShow.connect(self.update_export_menu)
         self.export.setMenu(menu)
+
+    @staticmethod
+    def setup_table(table, name_column, name_width):
+        """One selectable row at a time, no grid; only the name column is user-resizable."""
+        table.verticalHeader().hide()
+        table.setShowGrid(False)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(name_column, QHeaderView.Interactive)
+        table.setColumnWidth(name_column, name_width)
 
     @staticmethod
     def section():
