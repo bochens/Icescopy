@@ -7,11 +7,17 @@ Serialize session bundles and prepare validated restore state.
 
 A `.icescopy` file is a ZIP with `session.json` and any populated result tables as CSV members. Media are external references. Imported frame-to-cycle assignments for event review are stored separately from result tables in `freeze_review_cycle_metadata`. `load_session_bundle` reads the members; `build_restore_state` migrates the payload and constructs window-ready objects. Saving builds serialized content, verifies a temporary ZIP, then atomically replaces the destination. This prevents a failed serialization from truncating the previous session; it does not promise that missing external media can be recovered. `load_session_bundle()` returns `(payload, grayscale_table, freeze_table, freeze_count_table)`; each table is a `(headers, rows)` pair, empty when its member is absent. Loading the archive alone does not migrate or apply window state. `build_restore_state()` needs a main-window context to construct cell items. The session schema version is separate from the application release version.
 
+## Classes
+
+| Class | Role |
+| --- | --- |
+| [`_SessionFingerprintWriter`](API-Class--SessionFingerprintWriter.md) | Hashes serialized session content without retaining another copy of the text. |
+
 ## Selected functions
 
 ### `build_session_payload`
 
-[Source](../src/icescopy_session_io.py#L160)
+[Source](../src/icescopy_session_io.py#L150)
 
 ```python
 def build_session_payload(main_window):
@@ -19,7 +25,7 @@ def build_session_payload(main_window):
 
 ### `migrate_session_payload`
 
-[Source](../src/icescopy_session_io.py#L299)
+[Source](../src/icescopy_session_io.py#L290)
 
 ```python
 def migrate_session_payload(payload):
@@ -27,7 +33,7 @@ def migrate_session_payload(payload):
 
 ### `build_restore_state`
 
-[Source](../src/icescopy_session_io.py#L373)
+[Source](../src/icescopy_session_io.py#L364)
 
 ```python
 def build_restore_state(main_window, payload, grayscale_table, freeze_table, freeze_count_timeseries_table):
@@ -35,7 +41,7 @@ def build_restore_state(main_window, payload, grayscale_table, freeze_table, fre
 
 ### `save_session_bundle`
 
-[Source](../src/icescopy_session_io.py#L476)
+[Source](../src/icescopy_session_io.py#L468)
 
 ```python
 def save_session_bundle(file_path, payload, grayscale_headers, grayscale_rows, freeze_headers, freeze_rows, freeze_count_timeseries_headers, freeze_count_timeseries_rows):
@@ -43,7 +49,7 @@ def save_session_bundle(file_path, payload, grayscale_headers, grayscale_rows, f
 
 ### `load_session_bundle`
 
-[Source](../src/icescopy_session_io.py#L555)
+[Source](../src/icescopy_session_io.py#L547)
 
 ```python
 def load_session_bundle(file_path):
@@ -51,7 +57,7 @@ def load_session_bundle(file_path):
 
 ### `build_freeze_count_timeseries_csv_text`
 
-[Source](../src/icescopy_session_io.py#L90)
+[Source](../src/icescopy_session_io.py#L80)
 
 ```python
 def build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=None, summary=None):
@@ -59,7 +65,7 @@ def build_freeze_count_timeseries_csv_text(headers, rows, *, session_metadata=No
 
 ### `serialize_sample_catalog_payload`
 
-[Source](../src/icescopy_session_io.py#L65)
+[Source](../src/icescopy_session_io.py#L55)
 
 ```python
 def serialize_sample_catalog_payload(catalog, sample_metadata_schema=None):
@@ -67,7 +73,7 @@ def serialize_sample_catalog_payload(catalog, sample_metadata_schema=None):
 
 ### `deserialize_sample_catalog_payload`
 
-[Source](../src/icescopy_session_io.py#L77)
+[Source](../src/icescopy_session_io.py#L67)
 
 ```python
 def deserialize_sample_catalog_payload(payload, sample_metadata_schema=None):

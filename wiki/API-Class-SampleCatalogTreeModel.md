@@ -3,7 +3,7 @@
 
 Maps sample IDs and schema fields into an editable two-column Qt model.
 
-[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L67) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L66) | [API index](API-Reference.md)
 
 **Bases:** `QAbstractItemModel`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_sample_catalog.py#L74)
+[Source](../src/icescopy_sample_catalog.py#L73)
 
 ```python
 def __init__(self, main_window, parent=None):
@@ -23,7 +23,7 @@ def __init__(self, main_window, parent=None):
 
 ### `refresh`
 
-[Source](../src/icescopy_sample_catalog.py#L85)
+[Source](../src/icescopy_sample_catalog.py#L84)
 
 ```python
 def refresh(self):
@@ -31,7 +31,7 @@ def refresh(self):
 
 ### `sample_record`
 
-[Source](../src/icescopy_sample_catalog.py#L159)
+[Source](../src/icescopy_sample_catalog.py#L158)
 
 ```python
 def sample_record(self, sample_id):
@@ -39,7 +39,7 @@ def sample_record(self, sample_id):
 
 ### `field_is_relevant`
 
-[Source](../src/icescopy_sample_catalog.py#L167)
+[Source](../src/icescopy_sample_catalog.py#L166)
 
 ```python
 def field_is_relevant(self, sample_id, field_key):
@@ -47,7 +47,7 @@ def field_is_relevant(self, sample_id, field_key):
 
 ### `data`
 
-[Source](../src/icescopy_sample_catalog.py#L205)
+[Source](../src/icescopy_sample_catalog.py#L204)
 
 ```python
 def data(self, index, role=Qt.DisplayRole):

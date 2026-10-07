@@ -3,7 +3,7 @@
 
 Owns the active desktop session and coordinates helper modules.
 
-[Module](API-Module-Icescopy.md) | [Source](../src/Icescopy.py#L239) | [API index](API-Reference.md)
+[Module](API-Module-Icescopy.md) | [Source](../src/Icescopy.py#L233) | [API index](API-Reference.md)
 
 **Bases:** `QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `active_frame_source`
 
-[Source](../src/Icescopy.py#L1953)
+[Source](../src/Icescopy.py#L1929)
 
 ```python
 def active_frame_source(self):
@@ -23,7 +23,7 @@ def active_frame_source(self):
 
 ### `set_frame_source`
 
-[Source](../src/Icescopy.py#L2064)
+[Source](../src/Icescopy.py#L2040)
 
 ```python
 def set_frame_source(self, frame_source, *, reset_frame_ids=True):
@@ -31,7 +31,7 @@ def set_frame_source(self, frame_source, *, reset_frame_ids=True):
 
 ### `outputData`
 
-[Source](../src/Icescopy.py#L10710)
+[Source](../src/Icescopy.py#L10744)
 
 ```python
 def outputData(self):
@@ -39,7 +39,7 @@ def outputData(self):
 
 ### `out_put_interpolation`
 
-[Source](../src/Icescopy.py#L10794)
+[Source](../src/Icescopy.py#L10828)
 
 ```python
 def out_put_interpolation(self, analysis_frame_ranges=None):
@@ -47,7 +47,7 @@ def out_put_interpolation(self, analysis_frame_ranges=None):
 
 ### `onThreadFinished`
 
-[Source](../src/Icescopy.py#L10833)
+[Source](../src/Icescopy.py#L10867)
 
 ```python
 def onThreadFinished(self):
@@ -55,7 +55,7 @@ def onThreadFinished(self):
 
 ### `apply_manual_freeze_event_indices`
 
-[Source](../src/Icescopy.py#L1122)
+[Source](../src/Icescopy.py#L1096)
 
 ```python
 def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refresh_tables=True, refresh_freeze_markers=True, refresh_freeze_count_table=True):
@@ -63,7 +63,7 @@ def apply_manual_freeze_event_indices(self, cell_id, freeze_event_indices, refre
 
 ### `apply_image_edit_state`
 
-[Source](../src/Icescopy.py#L2129)
+[Source](../src/Icescopy.py#L2105)
 
 ```python
 def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_display=True, sync_controls=True):
@@ -71,7 +71,7 @@ def apply_image_edit_state(self, state, *, invalidate_results=False, refresh_dis
 
 ### `capture_session_state`
 
-[Source](../src/Icescopy.py#L5752)
+[Source](../src/Icescopy.py#L5814)
 
 ```python
 def capture_session_state(self):
@@ -79,15 +79,15 @@ def capture_session_state(self):
 
 ### `restore_session_state`
 
-[Source](../src/Icescopy.py#L6359)
+[Source](../src/Icescopy.py#L6423)
 
 ```python
-def restore_session_state(self, state, preserve_active_tool=False):
+def restore_session_state(self, state, preserve_active_tool=False, *, restore_inp_analysis=True):
 ```
 
 ### `cell_selection_bounds`
 
-[Source](../src/Icescopy.py#L1456)
+[Source](../src/Icescopy.py#L1430)
 
 ```python
 def cell_selection_bounds(self):
@@ -95,7 +95,7 @@ def cell_selection_bounds(self):
 
 ### `center_on_cell_selection`
 
-[Source](../src/Icescopy.py#L1476)
+[Source](../src/Icescopy.py#L1450)
 
 ```python
 def center_on_cell_selection(self):
@@ -103,7 +103,7 @@ def center_on_cell_selection(self):
 
 ### `cell_list_navigation_state`
 
-[Source](../src/Icescopy.py#L1484)
+[Source](../src/Icescopy.py#L1458)
 
 ```python
 def cell_list_navigation_state(self):
@@ -111,7 +111,7 @@ def cell_list_navigation_state(self):
 
 ### `cancel_cell_list_navigation`
 
-[Source](../src/Icescopy.py#L1506)
+[Source](../src/Icescopy.py#L1480)
 
 ```python
 def cancel_cell_list_navigation(self):
@@ -119,7 +119,7 @@ def cancel_cell_list_navigation(self):
 
 ### `apply_cell_list_navigation`
 
-[Source](../src/Icescopy.py#L1580)
+[Source](../src/Icescopy.py#L1554)
 
 ```python
 def apply_cell_list_navigation(self):
@@ -127,7 +127,7 @@ def apply_cell_list_navigation(self):
 
 ### `handle_cell_list_navigation_option_clicked`
 
-[Source](../src/Icescopy.py#L1576)
+[Source](../src/Icescopy.py#L1550)
 
 ```python
 def handle_cell_list_navigation_option_clicked(self, checked):
@@ -135,7 +135,7 @@ def handle_cell_list_navigation_option_clicked(self, checked):
 
 ### `navigate_after_cell_list_selection`
 
-[Source](../src/Icescopy.py#L1566)
+[Source](../src/Icescopy.py#L1540)
 
 ```python
 def navigate_after_cell_list_selection(self, before, *, reapply=False):
@@ -143,7 +143,7 @@ def navigate_after_cell_list_selection(self, before, *, reapply=False):
 
 ### `freeze_event_navigation_context`
 
-[Source](../src/Icescopy.py#L1515)
+[Source](../src/Icescopy.py#L1489)
 
 ```python
 def freeze_event_navigation_context(self):
@@ -151,7 +151,7 @@ def freeze_event_navigation_context(self):
 
 ### `freeze_event_navigation_target`
 
-[Source](../src/Icescopy.py#L1525)
+[Source](../src/Icescopy.py#L1499)
 
 ```python
 @staticmethod
@@ -160,7 +160,7 @@ def freeze_event_navigation_target(context, direction):
 
 ### `update_freeze_event_navigation_controls`
 
-[Source](../src/Icescopy.py#L1534)
+[Source](../src/Icescopy.py#L1508)
 
 ```python
 def update_freeze_event_navigation_controls(self):
@@ -168,7 +168,7 @@ def update_freeze_event_navigation_controls(self):
 
 ### `remember_freeze_event_button_context`
 
-[Source](../src/Icescopy.py#L1546)
+[Source](../src/Icescopy.py#L1520)
 
 ```python
 def remember_freeze_event_button_context(self, direction):
@@ -176,7 +176,7 @@ def remember_freeze_event_button_context(self, direction):
 
 ### `navigate_from_freeze_event_button`
 
-[Source](../src/Icescopy.py#L1549)
+[Source](../src/Icescopy.py#L1523)
 
 ```python
 def navigate_from_freeze_event_button(self, direction):
@@ -184,7 +184,7 @@ def navigate_from_freeze_event_button(self, direction):
 
 ### `navigate_to_freeze_event`
 
-[Source](../src/Icescopy.py#L1556)
+[Source](../src/Icescopy.py#L1530)
 
 ```python
 def navigate_to_freeze_event(self, direction):
@@ -192,7 +192,7 @@ def navigate_to_freeze_event(self, direction):
 
 ### `update_freeze_event_button_appearance`
 
-[Source](../src/Icescopy.py#L11054)
+[Source](../src/Icescopy.py#L11088)
 
 ```python
 def update_freeze_event_button_appearance(self):
@@ -200,7 +200,7 @@ def update_freeze_event_button_appearance(self):
 
 ### `open_session_file_path`
 
-[Source](../src/Icescopy.py#L9223)
+[Source](../src/Icescopy.py#L9260)
 
 ```python
 def open_session_file_path(self, file_path, *, next_action_label='opening another session'):
@@ -208,7 +208,7 @@ def open_session_file_path(self, file_path, *, next_action_label='opening anothe
 
 ### `persist_session_to_path`
 
-[Source](../src/Icescopy.py#L9504)
+[Source](../src/Icescopy.py#L9541)
 
 ```python
 def persist_session_to_path(self, file_path, *, show_errors=True):
@@ -216,7 +216,7 @@ def persist_session_to_path(self, file_path, *, show_errors=True):
 
 ### `push_cell_history`
 
-[Source](../src/Icescopy.py#L6966)
+[Source](../src/Icescopy.py#L7034)
 
 ```python
 def push_cell_history(self, text, before_state, include_analysis=False):
@@ -224,7 +224,7 @@ def push_cell_history(self, text, before_state, include_analysis=False):
 
 ### `closeEvent`
 
-[Source](../src/Icescopy.py#L11245)
+[Source](../src/Icescopy.py#L11271)
 
 ```python
 def closeEvent(self, event):

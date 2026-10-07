@@ -3,7 +3,7 @@
 
 Builds the catalog panel and coordinates sample creation, deletion, and editor refresh.
 
-[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L522) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L526) | [API index](API-Reference.md)
 
 **Bases:** `object`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `build_sample_catalog_panel`
 
-[Source](../src/icescopy_sample_catalog.py#L523)
+[Source](../src/icescopy_sample_catalog.py#L527)
 
 ```python
 def build_sample_catalog_panel(self):
@@ -21,7 +21,7 @@ def build_sample_catalog_panel(self):
 
 ### `refresh_sample_catalog_tree`
 
-[Source](../src/icescopy_sample_catalog.py#L639)
+[Source](../src/icescopy_sample_catalog.py#L638)
 
 ```python
 def refresh_sample_catalog_tree(self, select_sample_id=None, preserve_selection=True):
@@ -29,7 +29,7 @@ def refresh_sample_catalog_tree(self, select_sample_id=None, preserve_selection=
 
 ### `add_sample_catalog_entry`
 
-[Source](../src/icescopy_sample_catalog.py#L680)
+[Source](../src/icescopy_sample_catalog.py#L679)
 
 ```python
 def add_sample_catalog_entry(self):
@@ -37,7 +37,7 @@ def add_sample_catalog_entry(self):
 
 ### `delete_selected_sample_catalog_entry`
 
-[Source](../src/icescopy_sample_catalog.py#L690)
+[Source](../src/icescopy_sample_catalog.py#L689)
 
 ```python
 def delete_selected_sample_catalog_entry(self):

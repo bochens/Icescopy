@@ -3,7 +3,7 @@
 
 Interactive rotated crop outline with move, size, and angle handles.
 
-[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L656) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L658) | [API index](API-Reference.md)
 
 **Bases:** `QGraphicsObject`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_image_edit.py#L666)
+[Source](../src/icescopy_image_edit.py#L668)
 
 ```python
 def __init__(self, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, parent=None):
 
 ### `sync_from_state`
 
-[Source](../src/icescopy_image_edit.py#L684)
+[Source](../src/icescopy_image_edit.py#L686)
 
 ```python
 def sync_from_state(self, image_rect, crop_state):
@@ -29,7 +29,7 @@ def sync_from_state(self, image_rect, crop_state):
 
 ### `mousePressEvent`
 
-[Source](../src/icescopy_image_edit.py#L780)
+[Source](../src/icescopy_image_edit.py#L779)
 
 ```python
 def mousePressEvent(self, event):
@@ -37,7 +37,7 @@ def mousePressEvent(self, event):
 
 ### `mouseMoveEvent`
 
-[Source](../src/icescopy_image_edit.py#L799)
+[Source](../src/icescopy_image_edit.py#L798)
 
 ```python
 def mouseMoveEvent(self, event):
@@ -45,7 +45,7 @@ def mouseMoveEvent(self, event):
 
 ### `mouseReleaseEvent`
 
-[Source](../src/icescopy_image_edit.py#L863)
+[Source](../src/icescopy_image_edit.py#L862)
 
 ```python
 def mouseReleaseEvent(self, event):

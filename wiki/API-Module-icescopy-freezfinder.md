@@ -11,7 +11,7 @@ Detection filters a grayscale series, searches peaks with the configured width/p
 
 ### `compute_freeze_result_rows`
 
-[Source](../src/icescopy_freezfinder.py#L73)
+[Source](../src/icescopy_freezfinder.py#L22)
 
 ```python
 def compute_freeze_result_rows(filename_array, image_datetime_array, image_grayscale_data, width=DEFAULT_FREEZE_FINDER_WIDTH, prominence=DEFAULT_FREEZE_FINDER_PROMINENCE, head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS, tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS, convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS, convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS, detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING, cell_ids=None, interpolated_image_temps=None, correction_func=None, frame_indexes=None):
@@ -19,7 +19,7 @@ def compute_freeze_result_rows(filename_array, image_datetime_array, image_grays
 
 ### `compute_freeze_event_indexes`
 
-[Source](../src/icescopy_freezfinder.py#L172)
+[Source](../src/icescopy_freezfinder.py#L121)
 
 ```python
 def compute_freeze_event_indexes(raw_grayscale, width=DEFAULT_FREEZE_FINDER_WIDTH, prominence=DEFAULT_FREEZE_FINDER_PROMINENCE, head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS, tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS, convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS, convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS, detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING):
@@ -27,7 +27,7 @@ def compute_freeze_event_indexes(raw_grayscale, width=DEFAULT_FREEZE_FINDER_WIDT
 
 ### `contiguous_finite_runs`
 
-[Source](../src/icescopy_freezfinder.py#L151)
+[Source](../src/icescopy_freezfinder.py#L100)
 
 ```python
 def contiguous_finite_runs(values):
@@ -35,7 +35,7 @@ def contiguous_finite_runs(values):
 
 ### `build_convolution_kernel`
 
-[Source](../src/icescopy_freezfinder.py#L291)
+[Source](../src/icescopy_freezfinder.py#L240)
 
 ```python
 def build_convolution_kernel(signal_length, convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS, convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS):
@@ -43,7 +43,7 @@ def build_convolution_kernel(signal_length, convolution_half_window_points=DEFAU
 
 ### `compute_convolution_timeseries`
 
-[Source](../src/icescopy_freezfinder.py#L339)
+[Source](../src/icescopy_freezfinder.py#L294)
 
 ```python
 def compute_convolution_timeseries(grayscale_values, head_extend_points=DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS, tail_extend_points=DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS, convolution_half_window_points=DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS, convolution_ramp_points=DEFAULT_CONVOLUTION_RAMP_POINTS):
@@ -51,7 +51,7 @@ def compute_convolution_timeseries(grayscale_values, head_extend_points=DEFAULT_
 
 ### `refine_event_index_from_raw_timeseries`
 
-[Source](../src/icescopy_freezfinder.py#L224)
+[Source](../src/icescopy_freezfinder.py#L173)
 
 ```python
 def refine_event_index_from_raw_timeseries(raw_grayscale, peak_index, left_ip, right_ip, center_offset, max_frame_index, onset_diff_fraction=DEFAULT_ONSET_DIFF_FRACTION, detect_brightening=DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING):

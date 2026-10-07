@@ -3,7 +3,7 @@
 
 Customizes the catalog tree’s branch drawing.
 
-[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L494) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-sample-catalog.md) | [Source](../src/icescopy_sample_catalog.py#L498) | [API index](API-Reference.md)
 
 **Bases:** `QTreeView`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `drawBranches`
 
-[Source](../src/icescopy_sample_catalog.py#L495)
+[Source](../src/icescopy_sample_catalog.py#L499)
 
 ```python
 def drawBranches(self, painter, rect, index):

@@ -3,7 +3,7 @@
 
 Presents several ordered video clips as one frame sequence.
 
-[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L780) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-frame-source.md) | [Source](../src/icescopy_frame_source.py#L774) | [API index](API-Reference.md)
 
 **Bases:** `FrameSource`.
 
@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_frame_source.py#L783)
+[Source](../src/icescopy_frame_source.py#L777)
 
 ```python
 def __init__(self, video_paths, *, cache_size=24, preview_cache_dir=None, segment_payloads=None):
@@ -23,7 +23,7 @@ def __init__(self, video_paths, *, cache_size=24, preview_cache_dir=None, segmen
 
 ### `frame_reference`
 
-[Source](../src/icescopy_frame_source.py#L900)
+[Source](../src/icescopy_frame_source.py#L894)
 
 ```python
 def frame_reference(self, index: int) -> tuple[str, int]:
@@ -31,7 +31,7 @@ def frame_reference(self, index: int) -> tuple[str, int]:
 
 ### `global_index_for_reference`
 
-[Source](../src/icescopy_frame_source.py#L904)
+[Source](../src/icescopy_frame_source.py#L898)
 
 ```python
 def global_index_for_reference(self, video_path, local_index):
@@ -39,7 +39,7 @@ def global_index_for_reference(self, video_path, local_index):
 
 ### `frame_time_seconds`
 
-[Source](../src/icescopy_frame_source.py#L942)
+[Source](../src/icescopy_frame_source.py#L936)
 
 ```python
 def frame_time_seconds(self, index: int) -> float | None:
@@ -47,7 +47,7 @@ def frame_time_seconds(self, index: int) -> float | None:
 
 ### `iter_gray_arrays`
 
-[Source](../src/icescopy_frame_source.py#L961)
+[Source](../src/icescopy_frame_source.py#L955)
 
 ```python
 def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
@@ -55,7 +55,7 @@ def iter_gray_arrays(self, grayscale_mode=None, frame_ranges=None):
 
 ### `close`
 
-[Source](../src/icescopy_frame_source.py#L843)
+[Source](../src/icescopy_frame_source.py#L837)
 
 ```python
 def close(self):
@@ -63,7 +63,7 @@ def close(self):
 
 ### `to_session_payload`
 
-[Source](../src/icescopy_frame_source.py#L1013)
+[Source](../src/icescopy_frame_source.py#L1007)
 
 ```python
 def to_session_payload(self) -> dict:

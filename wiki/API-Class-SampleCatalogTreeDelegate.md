@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `createEditor`
 
-[Source](../src/icescopy_sample_catalog.py#L375)
+[Source](../src/icescopy_sample_catalog.py#L379)
 
 ```python
 def createEditor(self, parent, option, index):
@@ -21,7 +21,7 @@ def createEditor(self, parent, option, index):
 
 ### `setEditorData`
 
-[Source](../src/icescopy_sample_catalog.py#L427)
+[Source](../src/icescopy_sample_catalog.py#L431)
 
 ```python
 def setEditorData(self, editor, index):
@@ -29,7 +29,7 @@ def setEditorData(self, editor, index):
 
 ### `setModelData`
 
-[Source](../src/icescopy_sample_catalog.py#L471)
+[Source](../src/icescopy_sample_catalog.py#L475)
 
 ```python
 def setModelData(self, editor, model, index):

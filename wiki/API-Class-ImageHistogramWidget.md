@@ -3,7 +3,7 @@
 
 Displays intensity histogram bins supplied by the image-edit workflow.
 
-[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L387) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L389) | [API index](API-Reference.md)
 
 **Bases:** `QWidget`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `clear_histogram`
 
-[Source](../src/icescopy_image_edit.py#L397)
+[Source](../src/icescopy_image_edit.py#L399)
 
 ```python
 def clear_histogram(self):
@@ -21,7 +21,7 @@ def clear_histogram(self):
 
 ### `set_histogram`
 
-[Source](../src/icescopy_image_edit.py#L404)
+[Source](../src/icescopy_image_edit.py#L406)
 
 ```python
 def set_histogram(self, histogram, *, overlay_histogram=None, scale_max=None, overlay_scale_max=None):

@@ -15,7 +15,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `enter_edit_mode`
 
-[Source](../src/icescopy_cell_controller.py#L610)
+[Source](../src/icescopy_cell_controller.py#L573)
 
 ```python
 def enter_edit_mode(self, restored_mode=None):
@@ -23,7 +23,7 @@ def enter_edit_mode(self, restored_mode=None):
 
 ### `start_single_edit`
 
-[Source](../src/icescopy_cell_controller.py#L656)
+[Source](../src/icescopy_cell_controller.py#L619)
 
 ```python
 def start_single_edit(self, cell_item):
@@ -31,7 +31,7 @@ def start_single_edit(self, cell_item):
 
 ### `start_group_edit`
 
-[Source](../src/icescopy_cell_controller.py#L660)
+[Source](../src/icescopy_cell_controller.py#L623)
 
 ```python
 def start_group_edit(self, selected_items, preserve_preview=False):
@@ -39,7 +39,7 @@ def start_group_edit(self, selected_items, preserve_preview=False):
 
 ### `pin_current_preview`
 
-[Source](../src/icescopy_cell_controller.py#L986)
+[Source](../src/icescopy_cell_controller.py#L949)
 
 ```python
 def pin_current_preview(self, log_change=False):
@@ -47,7 +47,7 @@ def pin_current_preview(self, log_change=False):
 
 ### `move_pinned_preview_to_scene_pos`
 
-[Source](../src/icescopy_cell_controller.py#L872)
+[Source](../src/icescopy_cell_controller.py#L835)
 
 ```python
 def move_pinned_preview_to_scene_pos(self, scene_pos):
@@ -55,7 +55,7 @@ def move_pinned_preview_to_scene_pos(self, scene_pos):
 
 ### `cancel_preview`
 
-[Source](../src/icescopy_cell_controller.py#L907)
+[Source](../src/icescopy_cell_controller.py#L870)
 
 ```python
 def cancel_preview(self, log_message=True):
@@ -63,7 +63,7 @@ def cancel_preview(self, log_message=True):
 
 ### `apply_single_add`
 
-[Source](../src/icescopy_cell_controller.py#L1237)
+[Source](../src/icescopy_cell_controller.py#L1197)
 
 ```python
 def apply_single_add(self):
@@ -71,7 +71,7 @@ def apply_single_add(self):
 
 ### `apply_grid_add`
 
-[Source](../src/icescopy_cell_controller.py#L1207)
+[Source](../src/icescopy_cell_controller.py#L1167)
 
 ```python
 def apply_grid_add(self):
@@ -79,7 +79,7 @@ def apply_grid_add(self):
 
 ### `apply_single_edit`
 
-[Source](../src/icescopy_cell_controller.py#L1257)
+[Source](../src/icescopy_cell_controller.py#L1217)
 
 ```python
 def apply_single_edit(self):
@@ -87,7 +87,7 @@ def apply_single_edit(self):
 
 ### `apply_group_edit`
 
-[Source](../src/icescopy_cell_controller.py#L1283)
+[Source](../src/icescopy_cell_controller.py#L1243)
 
 ```python
 def apply_group_edit(self):

@@ -17,7 +17,7 @@ A schema is an ordered list of field definitions: key, label, type, export choic
 
 ### `default_sample_metadata_schema`
 
-[Source](../src/icescopy_sample_metadata.py#L156)
+[Source](../src/icescopy_sample_metadata.py#L142)
 
 ```python
 def default_sample_metadata_schema():
@@ -25,7 +25,7 @@ def default_sample_metadata_schema():
 
 ### `normalize_sample_metadata_schema`
 
-[Source](../src/icescopy_sample_metadata.py#L230)
+[Source](../src/icescopy_sample_metadata.py#L216)
 
 ```python
 def normalize_sample_metadata_schema(schema=None):
@@ -33,7 +33,7 @@ def normalize_sample_metadata_schema(schema=None):
 
 ### `validate_sample_metadata_key`
 
-[Source](../src/icescopy_sample_metadata.py#L180)
+[Source](../src/icescopy_sample_metadata.py#L166)
 
 ```python
 def validate_sample_metadata_key(key):
@@ -41,7 +41,7 @@ def validate_sample_metadata_key(key):
 
 ### `sample_metadata_schema_to_payload`
 
-[Source](../src/icescopy_sample_metadata.py#L261)
+[Source](../src/icescopy_sample_metadata.py#L247)
 
 ```python
 def sample_metadata_schema_to_payload(schema=None):
@@ -49,7 +49,7 @@ def sample_metadata_schema_to_payload(schema=None):
 
 ### `sample_metadata_schema_from_payload`
 
-[Source](../src/icescopy_sample_metadata.py#L265)
+[Source](../src/icescopy_sample_metadata.py#L251)
 
 ```python
 def sample_metadata_schema_from_payload(payload):
@@ -57,7 +57,7 @@ def sample_metadata_schema_from_payload(payload):
 
 ### `normalize_sample_catalog_record`
 
-[Source](../src/icescopy_sample_metadata.py#L362)
+[Source](../src/icescopy_sample_metadata.py#L352)
 
 ```python
 def normalize_sample_catalog_record(value, schema=None):
@@ -65,7 +65,7 @@ def normalize_sample_catalog_record(value, schema=None):
 
 ### `migrate_sample_catalog_for_schema`
 
-[Source](../src/icescopy_sample_metadata.py#L395)
+[Source](../src/icescopy_sample_metadata.py#L385)
 
 ```python
 def migrate_sample_catalog_for_schema(catalog, old_schema, new_schema, rename_map=None):
@@ -73,7 +73,7 @@ def migrate_sample_catalog_for_schema(catalog, old_schema, new_schema, rename_ma
 
 ### `dropped_sample_metadata_keys`
 
-[Source](../src/icescopy_sample_metadata.py#L423)
+[Source](../src/icescopy_sample_metadata.py#L413)
 
 ```python
 def dropped_sample_metadata_keys(old_schema, new_schema, rename_map=None):
@@ -81,7 +81,7 @@ def dropped_sample_metadata_keys(old_schema, new_schema, rename_map=None):
 
 ### `export_sample_metadata_field_keys`
 
-[Source](../src/icescopy_sample_metadata.py#L310)
+[Source](../src/icescopy_sample_metadata.py#L296)
 
 ```python
 def export_sample_metadata_field_keys(schema=None):
@@ -89,7 +89,7 @@ def export_sample_metadata_field_keys(schema=None):
 
 ### `same_for_all_sample_metadata_values`
 
-[Source](../src/icescopy_sample_metadata.py#L380)
+[Source](../src/icescopy_sample_metadata.py#L370)
 
 ```python
 def same_for_all_sample_metadata_values(catalog, schema=None):

@@ -64,10 +64,13 @@ def generate():
         raise ValueError("Packaged modules and curated API module inventory differ; update api_reference.json.")
     pages = {}
     class_locations = {}
+    trees = {module: ast.parse((ROOT / "src" / (module + ".py")).read_text(encoding="utf-8")) for module in modules}
+    class_names = [node.name for tree in trees.values() for node in tree.body if isinstance(node, ast.ClassDef)]
+    shared_names = {name for name in class_names if class_names.count(name) > 1}
     index = [NOTICE, "# API Reference", "", "Use this reference to locate code and check selected call signatures. These are application internals, not a promised stable third-party API. Start with the [Developer Guide](Developer-Guide.md) for setup and changes, or [Architecture Overview](Architecture-Overview.md) for data flow.", "", "The module inventory follows `pyproject.toml`. Explanations are curated; declarations and source links are read from the current source without importing Qt. Only selected methods are shown. Private attributes and inherited Qt methods are intentionally omitted.", "", "## Modules", "", "| Module | Responsibility |", "| --- | --- |"]
     for module in modules:
         spec = catalog["modules"][module]
-        tree = ast.parse((ROOT / "src" / (module + ".py")).read_text(encoding="utf-8"))
+        tree = trees[module]
         definitions = {node.name: node for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))}
         classes = {name: node for name, node in definitions.items() if isinstance(node, ast.ClassDef)}
         if set(classes) != set(spec.get("classes", {})):
@@ -77,11 +80,13 @@ def generate():
         if classes:
             body += ["## Classes", "", "| Class | Role |", "| --- | --- |"]
             for name, node in classes.items():
-                if name in class_locations:
-                    raise ValueError(f"Duplicate class page name: {name}")
-                class_locations[name] = module
+                # Names defined in more than one module get module-qualified pages; others keep their existing URLs.
+                page = class_page(f"{module}-{name}" if name in shared_names else name)
+                if page in pages:
+                    raise ValueError(f"Duplicate class page name: {page}")
+                class_locations.setdefault(name, module)
                 cls_spec = spec["classes"][name]
-                body += [f"| [`{name}`]({class_page(name)}) | {cls_spec['summary']} |"]
+                body += [f"| [`{name}`]({page}) | {cls_spec['summary']} |"]
                 cls_body = [NOTICE, f"# Class: `{name}`", "", cls_spec["summary"], "", f"[Module]({module_page(module)}) | [Source]({source_link(module, node)}) | [API index](API-Reference.md)", ""]
                 bases = ", ".join(ast.unparse(base) for base in node.bases) or "object"
                 cls_body += [f"**Bases:** `{bases}`.", ""]
@@ -97,7 +102,7 @@ def generate():
                 if selected:
                     cls_body += ["## Selected methods", "", "Declarations include `self` or `cls` as written in the source. Qt event handlers follow Qt's calling conventions.", ""]
                     cls_body += callable_sections(module, {item.name: item for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}, selected)
-                pages[class_page(name)] = "\n".join(cls_body).rstrip() + "\n"
+                pages[page] = "\n".join(cls_body).rstrip() + "\n"
             body += [""]
         if spec.get("functions"):
             body += ["## Selected functions", ""]
@@ -109,6 +114,8 @@ def generate():
         for target in replacement["targets"]:
             if target not in class_locations:
                 raise ValueError(f"Replacement class is missing: {target}")
+            if target in shared_names:
+                raise ValueError(f"Replacement class is ambiguous: {target}")
         links = ", ".join(f"[`{target}`]({class_page(target)})" for target in replacement["targets"])
         pages[class_page(name)] = f"{NOTICE}\n# Former class: `{name}`\n\n{replacement['summary']}\n\nCurrent code: {links}.\n\nThis page preserves the earlier documentation URL. The old class is not defined in the current source.\n"
     index += ["", "## Keeping this reference current", "", "Edit `tools/api_reference.json` when responsibilities or selected entry points change, then run:", "", "```sh", "python tools/update_api_reference.py", "python tools/update_api_reference.py --check", "python tools/wiki_docs.py check", "```", "", "The first command refreshes these API pages; `--check` reports drift without writing. Do not edit generated pages directly. Narrative architecture and developer pages are maintained separately. See [Documentation Guide](Documentation-Guide.md) for wiki publication."]

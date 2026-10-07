@@ -3,7 +3,7 @@
 
 Collects a Linksys32 IML file and PKU import options.
 
-[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L638) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-dialogs.md) | [Source](../src/icescopy_dialogs.py#L623) | [API index](API-Reference.md)
 
 **Bases:** `QDialog`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_dialogs.py#L639)
+[Source](../src/icescopy_dialogs.py#L624)
 
 ```python
 def __init__(self, main_window, initial_path, initial_reset_temperature=None, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, main_window, initial_path, initial_reset_temperature=None, pa
 
 ### `accept`
 
-[Source](../src/icescopy_dialogs.py#L742)
+[Source](../src/icescopy_dialogs.py#L689)
 
 ```python
 def accept(self):
@@ -29,7 +29,7 @@ def accept(self):
 
 ### `get_values`
 
-[Source](../src/icescopy_dialogs.py#L760)
+[Source](../src/icescopy_dialogs.py#L707)
 
 ```python
 def get_values(self):

@@ -3,7 +3,7 @@
 
 Interactive rectangle for the uniform-exposure reference area.
 
-[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L471) | [API index](API-Reference.md)
+[Module](API-Module-icescopy-image-edit.md) | [Source](../src/icescopy_image_edit.py#L473) | [API index](API-Reference.md)
 
 **Bases:** `QGraphicsObject`.
 
@@ -13,7 +13,7 @@ Declarations include `self` or `cls` as written in the source. Qt event handlers
 
 ### `__init__`
 
-[Source](../src/icescopy_image_edit.py#L478)
+[Source](../src/icescopy_image_edit.py#L480)
 
 ```python
 def __init__(self, parent=None):
@@ -21,7 +21,7 @@ def __init__(self, parent=None):
 
 ### `sync_from_rect`
 
-[Source](../src/icescopy_image_edit.py#L497)
+[Source](../src/icescopy_image_edit.py#L499)
 
 ```python
 def sync_from_rect(self, image_rect, rect_state):
@@ -29,7 +29,7 @@ def sync_from_rect(self, image_rect, rect_state):
 
 ### `area_state`
 
-[Source](../src/icescopy_image_edit.py#L515)
+[Source](../src/icescopy_image_edit.py#L517)
 
 ```python
 def area_state(self):
@@ -37,7 +37,7 @@ def area_state(self):
 
 ### `set_interactive`
 
-[Source](../src/icescopy_image_edit.py#L491)
+[Source](../src/icescopy_image_edit.py#L493)
 
 ```python
 def set_interactive(self, interactive):
