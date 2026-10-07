@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from Icescopy import IceScopy
+from icescopy_preferences import DEFAULT_PREFERENCE_VALUES
 from icescopy_paths import user_preferences_path, write_preferences_tree_atomic
 
 
@@ -30,6 +31,19 @@ class PreferenceLoadingTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
         return result
 
+    def test_boolean_preferences_remain_booleans(self):
+        self.assertIs(self.load('')['FreezeFinderDetectBrightening'], False)
+        self.assertIs(self.load('')['InptkLogConcentration'], True)
+        self.assertIs(self.load('<InptkLogConcentration>false</InptkLogConcentration>')
+                      ['InptkLogConcentration'], False)
+
+    def test_missing_freeze_preferences_use_bundled_values(self):
+        result = self.load('<FreezeFinderWidth>12</FreezeFinderWidth>')
+        self.assertEqual(result['FreezeFinderHeadExtendPoints'], 20)
+        self.assertEqual(result['FreezeFinderWidth'], 12)
+        self.assertEqual(self.load('<FreezeFinderHeadExtendPoints>0</FreezeFinderHeadExtendPoints>')
+                         ['FreezeFinderHeadExtendPoints'], 0)
+
     def test_invalid_number_does_not_discard_other_settings(self):
         result = self.load(
             "<MaximumZoom>17</MaximumZoom><PenWidth>invalid</PenWidth>"
@@ -37,7 +51,7 @@ class PreferenceLoadingTests(unittest.TestCase):
         )
         self.assertEqual(result["MaximumZoom"], 17)
         self.assertEqual(result["SampleNamePattern"], "Ice_#")
-        self.assertNotIn("PenWidth", result)
+        self.assertEqual(result["PenWidth"], DEFAULT_PREFERENCE_VALUES["PenWidth"])
         self.assertIn("PenWidth", result["_load_warnings"][0])
 
     def test_nonfinite_values_are_rejected_for_float_and_integer_controls(self):
@@ -45,7 +59,7 @@ class PreferenceLoadingTests(unittest.TestCase):
             for value in ("nan", "inf", "-inf", "1e999"):
                 with self.subTest(key=key, value=value):
                     result = self.load(f"<{key}>{value}</{key}>")
-                    self.assertNotIn(key, result)
+                    self.assertEqual(result[key], DEFAULT_PREFERENCE_VALUES[key])
                     self.assertEqual(len(result["_load_warnings"]), 1)
 
     def test_out_of_range_values_are_rejected(self):
@@ -58,7 +72,7 @@ class PreferenceLoadingTests(unittest.TestCase):
         ):
             with self.subTest(key=key, value=value):
                 result = self.load(f"<{key}>{value}</{key}>")
-                self.assertNotIn(key, result)
+                self.assertEqual(result[key], DEFAULT_PREFERENCE_VALUES[key])
                 self.assertIn(key, result["_load_warnings"][0])
 
     def test_integer_settings_accept_historical_float_text(self):
@@ -74,8 +88,8 @@ class PreferenceLoadingTests(unittest.TestCase):
             "<ConvolutionHalfWindowPoints>0</ConvolutionHalfWindowPoints>"
             "<GridRotationDegrees>-180</GridRotationDegrees>"
         )
-        self.assertNotIn("MaximumZoom", result)
-        self.assertNotIn("UndoLimit", result)
+        self.assertEqual(result["MaximumZoom"], DEFAULT_PREFERENCE_VALUES["MaximumZoom"])
+        self.assertEqual(result["UndoLimit"], DEFAULT_PREFERENCE_VALUES["UndoLimit"])
         self.assertEqual(result["ConvolutionHalfWindowPoints"], 0)
         self.assertEqual(result["GridRotationDegrees"], -180)
         self.assertNotIn("_load_warnings", result)

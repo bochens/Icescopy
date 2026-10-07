@@ -84,15 +84,8 @@ from icescopy_sample_metadata import (
     sample_metadata_schema_from_payload,
 )
 
-DEFAULT_VISUAL_COLORS = {
-    "CircleDefaultColor": "255,0,0,255",
-    "CircleHoverColor": "0,0,255,255",
-    "CircleSelectedColor": "64,156,255,255",
-    "CircleEditColor": "240,168,168,255",
-    "CirclePressedColor": "255,255,0,255",
-    "GridPreviewOutlineColor": "0,122,255,200",
-    "GridPreviewFillColor": "0,122,255,25",
-}
+from icescopy_preferences import DEFAULT_PREFERENCE_VALUES, DEFAULT_VISUAL_COLORS
+
 
 PLOT_PALETTE_LABELS = {
     "bright": "Bright",
@@ -106,60 +99,6 @@ GRID_CELL_ID_DIRECTION_LABELS = {
     "top_to_bottom": "Top to Bottom",
 }
 
-DEFAULT_PREFERENCE_VALUES = {
-    "InptkExecutablePath": "",
-    "InptkSampleLineWidth": 2.8,
-    "InptkCombinedLineWidth": 4.0,
-    "InptkMarkerSize": 6.0,
-    "InptkOutsideOpacity": 30.0,
-    "InptkLogConcentration": True,
-    "InptkUncertaintyOpacity": 14.0,
-    "InptkGridOpacity": 12.0,
-    "InptkLegendFontSize": 10.0,
-    "InptkSampleColumns": "dilution",
-    "InptkRangeColumns": "dilution",
-    "DropletModelPath": "",
-    "DefaultCircleRadius": 22.0,
-    "PenWidth": 1.0,
-    "MaximumZoom": 10.0,
-    "SliderMaxZoomPixelInterval": 10.0,
-    "SliderTickPixelInterval": 20.0,
-    "UndoLimit": 20,
-    "SampleNamePattern": "Sample_#",
-    "ViewerImageCount": 1,
-    "SortMode": "natural_filename",
-    "GridRows": 4,
-    "GridColumns": 4,
-    "GridHorizontalPitch": 60.0,
-    "GridVerticalPitch": 60.0,
-    "GridRotationDegrees": 0.0,
-    "GridCellIdDirection": "left_to_right",
-    "RadiusWheelStep": 1.0,
-    "GridPitchWheelStep": 1.0,
-    "GridTiltWheelStep": 1.0,
-    "FreezeFinderWidth": DEFAULT_FREEZE_FINDER_WIDTH,
-    "FreezeFinderProminence": DEFAULT_FREEZE_FINDER_PROMINENCE,
-    "FreezeFinderHeadExtendPoints": DEFAULT_FREEZE_FINDER_HEAD_EXTEND_POINTS,
-    "FreezeFinderTailExtendPoints": DEFAULT_FREEZE_FINDER_TAIL_EXTEND_POINTS,
-    "ConvolutionHalfWindowPoints": DEFAULT_CONVOLUTION_HALF_WINDOW_POINTS,
-    "ConvolutionRampPoints": DEFAULT_CONVOLUTION_RAMP_POINTS,
-    "FreezeFinderDetectBrightening": DEFAULT_FREEZE_FINDER_DETECT_BRIGHTENING,
-    "VideoGrayscaleMode": DEFAULT_VIDEO_GRAYSCALE_MODE,
-    "TemperatureCycleWarmupHysteresisC": 0.02,
-    "TimeseriesPalette": "bright",
-    "TimeseriesLineWidth": 2.0,
-    "TimeseriesConvolutionLineWidth": 1.0,
-    "TimeseriesFreezeLineColor": "220,20,60,180",
-    "TimeseriesFreezeLineWidth": 1.0,
-    "TimeseriesCurrentFrameColor": "255,204,0,170",
-    "TimeseriesCurrentFrameLineWidth": 1.5,
-    "PreviewHandleSize": 12.0,
-    "CircleLabelFontSize": 12.0,
-    "CircleLabelOffsetX": 6.0,
-    "CircleLabelOffsetY": 6.0,
-    "SampleMetadataSchema": default_sample_metadata_schema(),
-    **DEFAULT_VISUAL_COLORS,
-}
 
 module_dir = os.path.dirname(__file__)
 resources_dir = os.path.join(module_dir, 'resources')

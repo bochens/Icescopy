@@ -18,6 +18,8 @@ from icescopy_temperature_import import (
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
+    image_order_warnings,
+    epoch_file_time_warnings,
     build_cycle_ids_from_start_indexes as build_cycle_ids_from_temperature_starts,
     detect_cycle_start_indexes_from_temperatures as detect_temperature_cycle_start_indexes,
     normalize_sample_name,
@@ -653,9 +655,12 @@ class FreezeCountTimeseriesMixin:
                 output_row.append(str(int(frozen_count)))
             rows.append(output_row)
 
+        clock_warnings = epoch_file_time_warnings(
+            getattr(parsed_timeseries, 'timeseries_timestamp_texts', []), image_timestamp_source)
         if in_range_image_count <= 0:
             raise TemperatureImportError(
                 "No loaded frame timestamp falls inside the standard temperature CSV timeseries range."
+                + (' ' + ' '.join(clock_warnings) if clock_warnings else '')
             )
 
         timeseries_timestamp_texts = list(getattr(parsed_timeseries, "timeseries_timestamp_texts", []))
@@ -691,11 +696,14 @@ class FreezeCountTimeseriesMixin:
             "out_of_range_image_count": int(out_of_range_image_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
+                                              (self.frame_name(i) for i in range(self.frame_count()))),
             "image_timestamp_source": str(image_timestamp_source),
             "image_timestamp_style": str(image_timestamp_style),
             "temperature_timestamp_style": str(temperature_timestamp_style),
             "temperature_unit": str(temperature_unit),
         }
+        summary['warnings'].extend(clock_warnings)
         summary["refresh_context"] = make_temperature_refresh_context(
             self, "standard", parsed_timeseries, dict(
                 image_timestamp_source=image_timestamp_source,
@@ -1163,6 +1171,8 @@ class FreezeCountTimeseriesMixin:
             "out_of_range_image_count": int(out_of_range_image_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
+                                              (self.frame_name(i) for i in range(self.frame_count()))),
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
         }
@@ -1261,6 +1271,8 @@ class FreezeCountTimeseriesMixin:
             "tagged_temperature_count": int(tagged_temperature_count),
             "unparsed_image_count": int(len(timing_context["unparsed_images"])),
             "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
+                                              (self.frame_name(i) for i in range(self.frame_count()))),
         }
         summary["refresh_context"] = make_temperature_refresh_context(
             self, "pku", parsed_timeseries, dict(reset_temperature=reset_temperature),

@@ -361,6 +361,7 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertEqual(p.inputs.item(p.input_row(keys[2])-1, 0).text(), 'Water blanks')
         self.assertIsNone(p.input_rows[p.input_row(keys[2])-1])
         self.assertIn(keys[2], p.range_ids)
+        p.quantity.setCurrentText('Concentration')
         self.assertFalse(p.range_boundary_editable(keys[2], 0))
         self.assertEqual(p.settings['inputs'][keys[0]]['blanks'], [keys[2]])
         self.assertNotIn(keys[2], {k for c in p.settings['curves'] for k in c['inputs']})
@@ -469,6 +470,55 @@ class InpIntegrationTests(unittest.TestCase):
         self.assertIn('Export frozen fraction CSV…', actions)
         self.assertNotIn('Export frozen count CSV…', actions)
         self.assertFalse(any('JSON' in label or 'excluded' in label or 'Diagnostics' in label for label in actions))
+
+    def test_toolkit_export_matches_default_cli_csv_for_both_methods(self):
+        self.configure(); p = self.panel
+        p.change_option('grid_step', '0.5')
+        for method in ('average', 'mle'):
+            with self.subTest(method=method):
+                p.change_option('method', method)
+                self.calculate()
+                expected = self.fixture.root / f'{method}-cli.csv'
+                replies = []
+                p.client.request(['export-csv', p.result['reference'], '--out', str(expected)], replies.append)
+                self.wait(lambda: bool(replies) and not p.client.busy)
+                actual = self.fixture.root / f'{method}-client.csv'
+                actions = p.export.menu().actions()
+                self.assertTrue(actions[actions.index(p.toolkit_export_action)-1].isSeparator())
+                with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(actual), '')):
+                    p.toolkit_export_action.trigger()
+                    self.wait(lambda: not p.operation and not p.client.busy)
+                self.assertFalse(p.last_error, p.last_error)
+                self.assertEqual(actual.read_bytes(), expected.read_bytes())
+                self.assertIn('lower_error', actual.read_text().splitlines()[0])
+                self.assertIn('Exported INP-toolkit concentrations', p.status.text())
+                # An existing output must not be replaced.
+                actual.write_text('keep this output')
+                with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(actual), '')):
+                    p.export_csv('toolkit_cumulative')
+                self.assertEqual(actual.read_text(), 'keep this output')
+                self.assertIn('existing outputs are preserved', p.last_error)
+
+    def test_native_csv_restores_saved_result_without_counts_or_refitting(self):
+        self.configure(); self.calculate(); p = self.panel
+        expected = self.fixture.root / 'original.csv'
+        replies = []
+        p.client.request(['export-csv', p.result['reference'], '--out', str(expected)], replies.append)
+        self.wait(lambda: bool(replies) and not p.client.busy)
+        p.prepare_session_save(require_native=True)
+        saved = copy.deepcopy(p.session_state())
+        p.restore_session(saved)
+        self.window.freeze_count_timeseries_headers = []
+        self.window.freeze_count_timeseries_rows = []
+        target = self.fixture.root / 'restored-native.csv'
+        with patch.object(p.client, 'request', wraps=p.client.request) as requests:
+            with patch('icescopy_inptk_panel.QFileDialog.getSaveFileName', return_value=(str(target), '')):
+                p.export_csv('toolkit_cumulative')
+                self.wait(lambda: target.exists() and not p.operation and not p.client.busy)
+            self.assertFalse(any(call.args[0][0] == 'analyze' for call in requests.call_args_list))
+        self.assertFalse(p.last_error, p.last_error)
+        self.assertEqual(target.read_bytes(), expected.read_bytes())
+        self.assertEqual(list(Path(p.cache.name).iterdir()), [])
 
     def test_both_concentration_exports_use_the_default_grid_and_only_requested_columns(self):
         import csv
@@ -1827,13 +1877,50 @@ class InpIntegrationTests(unittest.TestCase):
         keys = self.configure(); p = self.panel
         original = p.preview['table']['rows']
         later = [dict(row, cycle_id='later', temperature_C=row['temperature_C']-10) for row in original]
-        p.preview = dict(p.preview, table=dict(p.preview['table'], rows=original+later))
+        measurements = [dict(row, cycle_ids=[*row['cycle_ids'], 'later']) for row in p.preview['measurements']]
+        p.preview = dict(p.preview, measurements=measurements, table=dict(p.preview['table'], rows=original+later))
         state = copy.deepcopy(p.settings)
         for key in keys[:2]: state['inputs'][key]['cycle']='later'
         p.commit(state, 'Use later sample cycle')
         rows = p.observation_rows()
         self.assertEqual({r['cycle_id'] for r in rows}, {'later'})
         self.assertEqual({r['measurement_id'] for r in rows}, set(keys))
+
+    def test_calibrated_sample_and_blank_temperatures_reach_real_toolkit(self):
+        keys = self.configure(); p, w = self.panel, self.window
+        w.freeze_count_timeseries_headers.extend(f'{key} corrected temperature_C' for key in keys)
+        raw_col = w.freeze_count_timeseries_headers.index('temperature_C')
+        offsets = (0.2, -0.3, 0.1)
+        # A measured blank freeze at -6.9 C should correct both samples at -7.5 C.
+        w.freeze_count_timeseries_rows[2][w.freeze_count_timeseries_headers.index(f'{keys[2]} number frozen')] = '1'
+        for row in w.freeze_count_timeseries_rows:
+            row.extend(float(row[raw_col]) + offset for offset in offsets)
+        p.source_changed(); p.refresh_preview()
+        self.wait(lambda: not p.operation and not p.client.busy)
+        expected = p.source_cache['counts']
+        references = []
+        p.ensure_input(p.settings, references.append, self.errors.append)
+        self.wait(lambda: bool(references) and not p.client.busy)
+        replies = []
+        p.client.request(['table', references[0], '--table', 'counts'], replies.append)
+        self.wait(lambda: bool(replies) and not p.client.busy)
+        rows = replies[0]['table']['rows']
+        for key, offset in zip(keys, offsets):
+            temperatures = [r['temperature_C'] for r in rows if r['measurement_id'] == key]
+            self.assertEqual(temperatures, [-5 + offset, -6 + offset, -7 + offset, -8 + offset])
+        for method in ('average', 'mle'):
+            state = copy.deepcopy(p.settings)
+            state.update(method=method, grid_step='0.5', grid_start='-5.5', grid_end='-7.5')
+            p.commit(state, 'Calculate calibrated observations')
+            self.calculate()
+            self.assertFalse(self.errors)
+            self.assertTrue(p.result['tables']['Combined']['cumulative']['rows'])
+            references = p.result['references']
+            for key, dilution in zip(keys[:2], (1, 10)):
+                table = references['tables'][references['by_input'][key]]['cumulative']['rows']
+                point = next(r for r in table if r['temperature_C'] == -7.5)
+                self.assertAlmostEqual(point['concentration'], dilution * (-math.log(.5) + math.log(.9)) / .05)
+        self.assertEqual(p.source_cache['counts'], expected)
 
     def test_memory_upload_reuse_release_and_no_calculation_files(self):
         keys = self.configure(); p = self.panel
@@ -2007,6 +2094,8 @@ class InpIntegrationTests(unittest.TestCase):
 
     def test_auto_range_validation_is_reported_without_stopping_the_client(self):
         keys = self.configure(); p = self.panel
+        # A multi-cycle recording permits an unselected cycle; a single cycle is chosen automatically.
+        p.preview['measurements'][0]['cycle_ids'].append('later')
         good = copy.deepcopy(p.settings)
         for field, invalid, message in (('cycle', '', 'Select a cycle'),
                                         ('grid_step', 'abc', 'Enter a valid number for Count step (°C).')):

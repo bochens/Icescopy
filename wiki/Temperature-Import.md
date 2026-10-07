@@ -150,6 +150,8 @@ The import summary reports total and included cell groups, matched `.dat` sample
 
 ## TAMU Linkam .xlsx
 
+INP Analysis uses the sample-specific corrected temperatures when calibration is supplied. When applying water-blank correction, check that the blank measurements cover the temperature range being analyzed.
+
 ### Workbook and image requirements
 
 Keep the Linkam export's metadata and table layout. An arbitrary workbook with temperature columns is not enough. The importer reads the first worksheet and expects:

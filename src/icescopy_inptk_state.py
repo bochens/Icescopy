@@ -3,8 +3,20 @@ import copy
 import hashlib
 import json
 import math
+import re
 
 from icescopy_sample_metadata import WATER_BLANK_SAMPLE_TYPE
+
+
+MIN_INPTK_VERSION = (0, 4, 4)
+
+
+def require_toolkit_version(value):
+    """Reject versions missing the temperature-range result contract."""
+    match = re.match(r'^(\d+)\.(\d+)\.(\d+)(?:[.\-+]|$)', str(value))
+    if match is None or tuple(map(int, match.groups())) < MIN_INPTK_VERSION:
+        raise ValueError(f'This Icescopy needs INP-toolkit 0.4.4 or newer (found {value}). '
+                         'Install the matching INP-toolkit release.')
 
 
 # External-toolkit options; the client enables them only when advertised.

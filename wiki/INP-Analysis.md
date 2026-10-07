@@ -8,6 +8,8 @@ In **Settings → INP toolkit client**, browse to the executable, choose **Test 
 
 After importing temperatures and reviewing freeze events, open **Analysis → INP Analysis…**. Icescopy connects and loads the counts automatically. Drag the title bar to move this resizable window. It has a normal window title bar, while editing in other Icescopy windows is blocked until analysis closes. Enter commits the field being edited without activating an unrelated button. Closing it retains your analysis choices and results.
 
+For TAMU imports with calibration, analysis uses each sample’s corrected temperature. Images without a usable temperature or cycle are omitted from INP analysis and reported in the console; they remain in Freeze Count Timeseries.
+
 ## Group samples and assign blanks
 
 A **sample group** contains the independent samples or dilutions you want to combine into one concentration curve. Start with the **Sample groups** list on the left. That same selection controls the settings and plot; there is no separate plot selector.
@@ -97,16 +99,18 @@ Save the `.icescopy` session to retain choices, suggestion summaries, and the la
 - **Export combined concentration CSV:** one temperature column and concentration, lower-bound, and upper-bound columns per calculated sample group. Individual dilution curves are excluded from this file.
 - **Export individual sample concentrations CSV:** one temperature column and concentration, lower-bound, and upper-bound columns per individual sample or dilution, using direct blank correction and propagated binomial uncertainty. This exports all individual samples together.
 
-Concentration headers state the saved units: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. Both concentration files contain only temperatures, concentrations, and lower and upper uncertainty bounds. Bounds use the uncertainty level selected for the calculation and are exported even when plot uncertainty is hidden. They are concentration limits, not error distances; an unbounded upper limit is written as `inf`. The `.inptk` session retains the full result, including uncertainty. Rows run from warm to cold on the calculation grid; empty cells mean there is no calculated value at that temperature. A zero is an actual toolkit estimate. When the grid is explicitly disabled, exports use native calculation temperatures; measured frozen fractions use a compact sample/cycle layout.
+Concentration headers state the saved units: **INP/mL suspension**, **INP/L air**, or **INP/g dry soil**. The combined and individual concentration files contain only temperatures, concentrations, and lower and upper uncertainty bounds. Bounds use the uncertainty level selected for the calculation and are exported even when plot uncertainty is hidden. They are concentration limits, not error distances; an unbounded upper limit is written as `inf`. The `.inptk` session retains the full result, including uncertainty. Rows run from warm to cold on the calculation grid; empty cells mean there is no calculated value at that temperature. A zero is an actual toolkit estimate. When the grid is explicitly disabled, exports use native calculation temperatures; measured frozen fractions use a compact sample/cycle layout.
 
-Calculate after changing analysis inputs or settings before exporting CSVs. A stored result remains exportable when the current count table is unavailable; the file chooser identifies it as a saved calculation. CSVs are written only when Export is chosen. Choose a new destination; existing files are preserved and an incomplete new output is removed if writing fails.
+Below the divider, **Export INP-toolkit concentration CSV** writes the toolkit’s default cumulative table unchanged. Each row identifies a curve and temperature, with the toolkit’s full metadata and uncertainty columns. Its `lower_error` and `upper_error` are distances from the concentration, rather than bound values. This file contains the curves stored in the toolkit calculation.
+
+Calculate after changing analysis inputs or settings before exporting CSVs. A stored result remains exportable when the current count table is unavailable; the file chooser identifies it as a saved calculation. CSVs are written only when Export is chosen. Choose a new destination; existing files are preserved and write failures are reported in the console.
 
 Selecting a group changes the plot, not the export scope. The **Export results** menu names the calculated groups; combined CSVs cover all of them, while individual CSVs cover their member samples. Calculate to export a different normalization.
 
 A **Stop** button appears only while the toolkit is working. Stopping or closing during a calculation retains the last successful result. Choosing Calculate again restarts the separate toolkit process automatically.
 
-Stopping the toolkit or a process failure discards its unsaved native results. Concentration CSVs remain available from Icescopy's retained calculation tables. Native session and frozen-fraction exports need a previously saved native result or a new calculation. The displayed plot and choices can still be saved in `.icescopy`.
+Stopping the toolkit or a process failure discards its unsaved native results. Concentration CSVs remain available from Icescopy's retained calculation tables. Native session, toolkit CSV, and frozen-fraction exports need a previously saved native result or a new calculation. The displayed plot and choices can still be saved in `.icescopy`.
 
 Edits to freeze events or sample metadata update Icescopy's tables in memory. CSV files inside a `.icescopy` archive are written when you save that session; separate CSV files are written when you choose Export. An earlier CSV export is never automatically rewritten.
 
-These calculation descriptions follow **INP-toolkit 0.4.3**.
+Use **INP-toolkit 0.4.5** with Icescopy 2.6.2.

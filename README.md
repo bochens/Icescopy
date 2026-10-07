@@ -2,7 +2,7 @@
 
 Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, compare neighboring frames, and match events to temperature records. Experimental droplet selection can find similar cells from a few marked examples.
 
-To calculate ice-nucleating particle (INP) concentrations with **Icescopy 2.6.1**, install the matching [**INP-toolkit 0.4.4**](https://github.com/bochens/inptk/releases/tag/v0.4.4) and select its executable in **Preferences → INP toolkit client**.
+To calculate ice-nucleating particle (INP) concentrations with **Icescopy 2.6.2**, install the matching [**INP-toolkit 0.4.5**](https://github.com/bochens/inptk/releases/tag/v0.4.5) and select its executable in **Preferences → INP toolkit client**.
 
 [Quick start](wiki/Quick-Start.md) | [User guide](wiki/Home.md) | [Releases](https://github.com/bochens/Icescopy/releases)
 
@@ -13,7 +13,7 @@ Download the version listed for your computer below. These downloads include Pyt
 | Platform | Download | Installation |
 | --- | --- | --- |
 | Windows 10 (1809 or later) / 11, x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-windows-installer.exe) — v2.6.1 | Run the installer. |
-| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.1/Icescopy-macos-arm64.zip) — v2.6.1 | Unzip, then move **Icescopy.app** to **Applications**. |
+| macOS, Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.2/Icescopy-macos-arm64.zip) — v2.6.2 | Unzip, then move **Icescopy.app** to **Applications**. |
 
 The app files are listed under **Assets**. See [installation help](wiki/Installation-and-Setup.md) for platform requirements and macOS opening instructions.
 
@@ -97,7 +97,7 @@ Compare freezing counts, frozen fractions, and concentrations in the interactive
 
 *Example of MLE analysis with the INP toolkit client.*
 
-Save the `.icescopy` session to retain the analysis. Export combined and individual concentrations as CSVs with uncertainty bounds, export frozen fractions, or save a native `.inptk` session. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and [INP-toolkit](https://github.com/bochens/inptk) for calculation methods.
+Save the `.icescopy` session to retain the analysis. Export combined and individual concentrations as CSVs with uncertainty bounds, export frozen fractions, or save a native `.inptk` session. The export menu also offers the toolkit’s full concentration CSV. See the [INP analysis guide](wiki/INP-Analysis.md) for grouping, blank correction, temperature limits, and exports, and [INP-toolkit](https://github.com/bochens/inptk) for calculation methods.
 
 ## Developer setup
 

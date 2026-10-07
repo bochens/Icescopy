@@ -417,6 +417,27 @@ def parse_year2_slash_datetime_text(text):
     return _parse_datetime_with_formats(normalized, YEAR2_SLASH_DATETIME_FORMATS)
 
 
+def image_order_warnings(elapsed_seconds, image_names):
+    """Report the first backwards timestamp without reordering observations."""
+    previous = None
+    for value, name in zip(elapsed_seconds, image_names):
+        if value is None:
+            continue
+        if previous is not None and value < previous:
+            return [f'Image timestamps go backwards at {name}. Check the image order before analysis.']
+        previous = value
+    return []
+
+
+def epoch_file_time_warnings(timestamp_texts, image_source):
+    if image_source not in (IMAGE_TIMESTAMP_SOURCE_CREATED, IMAGE_TIMESTAMP_SOURCE_MODIFIED):
+        return []
+    if any(parse_epoch_datetime_text(text) is not None for text in timestamp_texts):
+        return ['The temperature log uses UTC epoch timestamps, but image file times use local time. '
+                'Check that both refer to the same time zone before analysis.']
+    return []
+
+
 def parse_epoch_datetime_text(text, unit="auto"):
     normalized = str(text or "").strip().strip("\"'").strip()
     if not normalized:

@@ -29,7 +29,21 @@ def prepare_source(headers, rows, metadata):
     temperature = positions.get('temperature_C')
     if temperature is None: raise ValueError('Freeze counts need temperature_C.')
     cycle_col = positions.get('cycle')
-    cycles = [str(row[cycle_col]).strip() if cycle_col is not None else '' for row in rows]
+    picture_col = positions.get('picture', positions.get('image_name'))
+    def absent(value):
+        return value is None or (isinstance(value, str) and not value.strip()) or pd.isna(value)
+    has_cycles = cycle_col is not None and any(not absent(row[cycle_col]) for row in rows)
+    kept, skipped_images = [], []
+    for index, row in enumerate(rows):
+        if absent(row[temperature]) or (has_cycles and absent(row[cycle_col])):
+            name = row[picture_col] if picture_col is not None else None
+            skipped_images.append(str(name) if name else f'row {index + 1}')
+        else:
+            kept.append(row)
+    rows = kept
+    if not rows:
+        raise ValueError('No freeze-count rows have a usable temperature and cycle.')
+    cycles = [str(row[cycle_col]).strip() if has_cycles else '1' for row in rows]
     if any(cycles) and not all(cycles): raise ValueError('Some freezing cycle labels are missing.')
     if not any(cycles): cycles = ['1'] * len(rows)
     time_values = None
@@ -53,10 +67,14 @@ def prepare_source(headers, rows, metadata):
             record[destination] = parsed if parsed is None or math.isfinite(parsed) else None
         required_fields = ('droplet_volume_uL',) if record['sample_type'] == WATER_BLANK_SAMPLE_TYPE else ('dilution', 'droplet_volume_uL')
         required = [field for field in required_fields if record[field] is None]
+        corrected_col = positions.get(f'{key} corrected temperature_C')
         sample_rows, observation_number = [], defaultdict(int)
         for index, row in enumerate(rows):
             if row[total_col] in ('', None) or row[frozen_col] in ('', None): continue
-            total, frozen, temp = float(row[total_col]), float(row[frozen_col]), float(row[temperature])
+            temperature_value = row[temperature]
+            if corrected_col is not None and not absent(row[corrected_col]):
+                temperature_value = row[corrected_col]
+            total, frozen, temp = float(row[total_col]), float(row[frozen_col]), float(temperature_value)
             if not all(math.isfinite(v) for v in (total, frozen, temp)):
                 raise ValueError(f'{key}: counts and temperatures must be finite.')
             if total <= 0 or frozen < 0 or frozen > total or total % 1 or frozen % 1:
@@ -88,7 +106,7 @@ def prepare_source(headers, rows, metadata):
                'table': {'columns': list(preview_rows[0]), 'rows': preview_rows},
                'suspension_metadata': {'valid': not missing, 'error': error, 'missing_fields': missing},
                'analysis_performed': False}
-    return {'counts': columns, 'metadata': records, 'hash': digest, 'preview': preview}
+    return {'counts': columns, 'metadata': records, 'hash': digest, 'preview': preview, 'skipped_images': skipped_images}
 
 
 def upload_scope(settings, *, selected=None):

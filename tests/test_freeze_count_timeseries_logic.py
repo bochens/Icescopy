@@ -13,6 +13,8 @@ if str(SRC_DIR) not in sys.path:
 
 from icescopy_temperature_import import (  # noqa: E402
     IMAGE_TIMESTAMP_SOURCE_GENERATED,
+    image_order_warnings,
+    epoch_file_time_warnings,
     TEMPERATURE_UNIT_KELVIN,
     TIMESTAMP_STYLE_YEAR2_COMPACT,
     TIMESTAMP_STYLE_YEAR2_SLASH,
@@ -40,6 +42,19 @@ from icescopy_temperature_import import (  # noqa: E402
 
 
 class FreezeCountTimeseriesLogicTests(unittest.TestCase):
+    def test_image_order_warning_names_first_backwards_image(self):
+        self.assertEqual(image_order_warnings([0, None, 1, 1, 2], list('abcde')), [])
+        warnings = image_order_warnings([0, 2, None, 1, 0], list('abcde'))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('at d.', warnings[0])
+
+    def test_epoch_and_file_time_warning_only_for_mixed_clocks(self):
+        for source in ('creation_time', 'modified_time'):
+            self.assertIn('UTC', epoch_file_time_warnings(['1767225600'], source)[0])
+            self.assertTrue(epoch_file_time_warnings(['1767225600000'], source))
+            self.assertEqual(epoch_file_time_warnings(['2026-01-01 00:00:00'], source), [])
+        self.assertEqual(epoch_file_time_warnings(['1767225600'], 'filename'), [])
+
     def expected_epoch_utc_naive(self, seconds_value):
         return datetime.fromtimestamp(seconds_value, tz=timezone.utc).replace(tzinfo=None)
 

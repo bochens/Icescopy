@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import traceback
 from shiboken6 import isValid
+from icescopy_inptk_state import require_toolkit_version
 
 from PySide6.QtCore import QObject, QProcess, QThread, QTimer, Signal, Slot, Qt, QMetaObject, QEventLoop
 
@@ -21,20 +22,33 @@ class ToolkitTransport(QObject):
         self.epoch = 0
         self.buffer = bytearray()
         self.stopping = False
+        self.stderr_tail = bytearray()
 
     @Slot(int, str)
     def start(self, epoch, path):
         self.close()
         self.epoch = epoch
         self.stopping = False
+        self.stderr_tail = bytearray()
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.SeparateChannels)
         self.process.readyReadStandardOutput.connect(self.read)
         self.process.readyReadStandardError.connect(self.read_error)
         self.process.started.connect(lambda: self.started.emit(self.epoch))
-        self.process.errorOccurred.connect(lambda _code: self.fail(self.process.errorString()))
-        self.process.finished.connect(lambda code, _status: self.fail(f"Process exited (code {code})."))
+        self.process.errorOccurred.connect(self.process_error)
+        self.process.finished.connect(self.finished)
         self.process.start(path, ['serve'])
+
+    def process_error(self, code):
+        # Crashes also emit finished; report once, after draining stderr.
+        if code != QProcess.Crashed:
+            self.fail(self.process.errorString())
+
+    def finished(self, code, _status):
+        self.read_error()
+        detail = '\n'.join(self.stderr_tail.decode('utf-8', errors='replace').strip().splitlines()[-8:])
+        message = f'Process exited (code {code}).'
+        self.fail(message + ('\n' + detail if detail else ''))
 
     def fail(self, message):
         if not self.stopping:
@@ -65,7 +79,10 @@ class ToolkitTransport(QObject):
         self.feed(bytes(self.process.readAllStandardOutput()))
 
     def read_error(self):
-        text = bytes(self.process.readAllStandardError()).decode('utf-8', errors='replace').strip()
+        data = bytes(self.process.readAllStandardError())
+        self.stderr_tail.extend(data)
+        del self.stderr_tail[:-8000]
+        text = data.decode('utf-8', errors='replace').strip()
         if text: self.diagnostic.emit(self.epoch, text[-8000:])
 
     @Slot(int, int, object)
@@ -162,6 +179,10 @@ class InptkClient(QObject):
         if epoch == self.epoch: self.request(['capabilities'], self._connected)
 
     def _connected(self, reply):
+        try:
+            require_toolkit_version(reply.get('toolkit_version', 'unknown'))
+        except ValueError as exc:
+            self._fail(str(exc)); return
         self.timer.stop()
         required = {'analyze', 'table', 'suggest-ranges', 'export-csv', 'save'}
         mode = reply.get('client_mode', {})
