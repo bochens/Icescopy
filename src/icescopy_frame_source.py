@@ -136,9 +136,6 @@ class FrameSource:
     def frame_key(self, index: int) -> str:
         raise NotImplementedError
 
-    def frame_timestamp(self, index: int):
-        return None
-
     def frame_time_seconds(self, index: int) -> float | None:
         return None
 
@@ -527,9 +524,6 @@ class VideoFrameSource(FrameSource):
     def _preview_cache_path(self, index: int) -> str:
         metadata = self._metadata_at(index)
         return os.path.join(self._preview_cache_dir, f"frame_{metadata.index:08d}.jpg")
-
-    def preview_qimage_is_cached(self, index: int) -> bool:
-        return os.path.isfile(self._preview_cache_path(index))
 
     def get_preview_qimage(self, index: int) -> QImage:
         cache_path = self._preview_cache_path(index)

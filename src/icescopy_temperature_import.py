@@ -183,11 +183,6 @@ IMAGE_TIMESTAMP_SOURCE_CHOICES = (
     (IMAGE_TIMESTAMP_SOURCE_GENERATED, "Generated from first timestamp"),
 )
 
-TEMPERATURE_UNIT_CHOICES = (
-    (TEMPERATURE_UNIT_CELSIUS, "Celsius"),
-    (TEMPERATURE_UNIT_KELVIN, "Kelvin"),
-)
-
 
 class TemperatureImportError(ValueError):
     pass

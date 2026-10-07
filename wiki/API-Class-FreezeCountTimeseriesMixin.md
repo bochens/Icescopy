@@ -29,14 +29,6 @@ def freeze_review_cycle_ids(self):
 def build_freeze_count_timeseries_sample_groups(self, grouping_mode='samples'):
 ```
 
-### `build_freeze_count_timeseries_image_counts`
-
-[Source](../src/icescopy_freeze_count_timeseries.py#L121)
-
-```python
-def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode='cumulative'):
-```
-
 ### `build_standard_freeze_count_timeseries_results`
 
 [Source](../src/icescopy_freeze_count_timeseries.py#L554)

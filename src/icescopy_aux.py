@@ -154,11 +154,6 @@ class ColorPreferenceButton(QPushButton):
         color = self._color
         return f"{color.red()},{color.green()},{color.blue()},{color.alpha()}"
 
-def create_circular_mask(h, w, center, radius):
-    Y, X = np.ogrid[:h, :w]
-    mask = ((X - center[0]) ** 2 + (Y - center[1]) ** 2) <= (radius ** 2)
-    return mask
-
 class CustomGraphicsView(LinkedGraphicsView):
     def __init__(self, scene, main_window):
         super().__init__(scene)

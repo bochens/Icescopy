@@ -63,9 +63,7 @@
     "icescopy_aux": {
       "summary": "Viewer input handling, analysis worker, and preference dialogs.",
       "details": "`Image_analysis_thread` measures circular regions and runs freeze detection. It emits progress and retains completed results for the window to install after the thread finishes. `PreferencesDialog` also edits the default sample-field schema. These responsibilities share a file for historical reasons.",
-      "functions": [
-        "create_circular_mask"
-      ],
+      "functions": [],
       "classes": {
         "ColorPreferenceButton": {
           "summary": "Edits a color preference through a native color picker.",
@@ -433,7 +431,6 @@
           "methods": [
             "freeze_review_cycle_ids",
             "build_freeze_count_timeseries_sample_groups",
-            "build_freeze_count_timeseries_image_counts",
             "build_standard_freeze_count_timeseries_results",
             "build_csu_freeze_count_timeseries_results",
             "build_tamu_freeze_count_timeseries_results",

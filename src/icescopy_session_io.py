@@ -13,7 +13,6 @@ from icescopy_sample_metadata import (
     default_sample_metadata_schema,
     export_sample_metadata_field_keys,
     normalize_sample_catalog_record,
-    sample_metadata_field_keys,
     sample_metadata_schema_from_payload,
     sample_metadata_schema_to_payload,
 )
@@ -24,10 +23,6 @@ SESSION_STATE_FILENAME = "session.json"
 GRAYSCALE_CSV_FILENAME = "grayscale.csv"
 FREEZE_CSV_FILENAME = "freeze.csv"
 FREEZE_COUNT_TIMESERIES_CSV_FILENAME = "freeze_count_timeseries.csv"
-SAMPLE_CATALOG_FIELD_NAMES = sample_metadata_field_keys(default_sample_metadata_schema())
-FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES = export_sample_metadata_field_keys(
-    default_sample_metadata_schema()
-)
 FREEZE_COUNT_TIMESERIES_PREAMBLE_KEYS = (
     "format_name",
     "file_version",
@@ -37,10 +32,6 @@ FREEZE_COUNT_TIMESERIES_PREAMBLE_KEYS = (
     "analysis_date",
     "reset_temperature_C",
 )
-FREEZE_COUNT_TIMESERIES_METADATA_ROW_LABELS = (
-    "sample_id",
-    "cell_number",
-) + FREEZE_COUNT_TIMESERIES_SAMPLE_METADATA_FIELD_NAMES
 FREEZE_COUNT_TIMESERIES_FORMAT_NAME = "icescopy_freeze_count_timeseries"
 FREEZE_COUNT_TIMESERIES_FILE_VERSION = 1
 FREEZE_COUNT_TIMESERIES_MISSING_VALUE = "nan"

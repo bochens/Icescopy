@@ -267,10 +267,6 @@ class FreezeCountTimeseriesMixin:
         """Imported zero-based cycles in frame order, or empty when unavailable."""
         return cycle_ids_for_window(self)
 
-    def freeze_count_timeseries_sample_metadata_field_names(self):
-        schema = getattr(self, "sample_metadata_schema", None)
-        return export_sample_metadata_field_keys(schema)
-
     def build_freeze_count_timeseries_sample_groups(self, grouping_mode="samples"):
         metadata_field_names = export_sample_metadata_field_keys(
             getattr(self, "sample_metadata_schema", None)
@@ -351,64 +347,6 @@ class FreezeCountTimeseriesMixin:
                 "sort_index": max(unassigned_cell_ids) if unassigned_cell_ids else 0,
             }
         return groups
-
-    def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
-        count_mode = str(count_mode or "cumulative").strip().casefold()
-        image_counts_by_sample = {}
-        total_frame_count = self.frame_count()
-        for group_key, group in sample_groups.items():
-            if count_mode == "state":
-                state_counts = {}
-                per_cell_events = []
-                for cell_id in group["cell_ids"]:
-                    record = self.ensure_cell_record(cell_id)
-                    if record is None:
-                        continue
-                    resolved_frames = []
-                    for frame_value in getattr(record, "freeze_event_indices", []):
-                        try:
-                            frame_index = int(frame_value)
-                        except (TypeError, ValueError):
-                            continue
-                        if 0 <= frame_index < total_frame_count:
-                            resolved_frames.append(frame_index)
-                    per_cell_events.append(sorted(set(resolved_frames)))
-
-                event_pointers = [0] * len(per_cell_events)
-                cell_states = [0] * len(per_cell_events)
-                for image_index in range(total_frame_count):
-                    frozen_count = 0
-                    for cell_position, event_frames in enumerate(per_cell_events):
-                        while event_pointers[cell_position] < len(event_frames) and event_frames[event_pointers[cell_position]] <= image_index:
-                            cell_states[cell_position] = 1 - cell_states[cell_position]
-                            event_pointers[cell_position] += 1
-                        frozen_count += cell_states[cell_position]
-                    state_counts[image_index] = int(frozen_count)
-                image_counts_by_sample[group_key] = state_counts
-                continue
-
-            freeze_frames = []
-            for cell_id in group["cell_ids"]:
-                record = self.ensure_cell_record(cell_id)
-                if record is None:
-                    continue
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        resolved_frames.append(int(frame_value))
-                    except (TypeError, ValueError):
-                        continue
-                if resolved_frames:
-                    freeze_frames.append(min(resolved_frames))
-            freeze_frames.sort()
-            cumulative_counts = {}
-            freeze_pointer = 0
-            for image_index in range(total_frame_count):
-                while freeze_pointer < len(freeze_frames) and freeze_frames[freeze_pointer] <= image_index:
-                    freeze_pointer += 1
-                cumulative_counts[image_index] = int(freeze_pointer)
-            image_counts_by_sample[group_key] = cumulative_counts
-        return image_counts_by_sample
 
     def build_tamu_freeze_count_timeseries_sample_groups(self):
         sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="samples")

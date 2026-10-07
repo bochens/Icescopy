@@ -17,13 +17,3 @@ Viewer input handling, analysis worker, and preference dialogs.
 | [`AboutDialog`](API-Class-AboutDialog.md) | Displays application information. |
 | [`PreferencesDialog`](API-Class-PreferencesDialog.md) | Edits application preferences and the default sample metadata schema. |
 | [`SortImagesDialog`](API-Class-SortImagesDialog.md) | Presents supported frame or video-clip ordering choices and returns the selected sort mode. |
-
-## Selected functions
-
-### `create_circular_mask`
-
-[Source](../src/icescopy_aux.py#L206)
-
-```python
-def create_circular_mask(h, w, center, radius):
-```

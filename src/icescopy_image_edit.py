@@ -704,9 +704,6 @@ class ImageCropOverlayItem(QGraphicsObject):
         sin_theta = math.sin(angle_radians)
         return QPointF(cos_theta, sin_theta), QPointF(-sin_theta, cos_theta)
 
-    def _corner_points(self):
-        return self._corner_points_for_state(self._crop_state)
-
     def _edge_midpoints_for_state(self, state):
         corners = self._corner_points_for_state(state)
         return [

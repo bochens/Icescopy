@@ -23,21 +23,6 @@ FIXED_SAMPLE_METADATA_KEYS = (
     "sample_type",
 )
 
-LEGACY_SAMPLE_CATALOG_FIELD_NAMES = (
-    "sample_name",
-    "sample_long_name",
-    "sampling_site",
-    "collection_start",
-    "collection_end",
-    "sample_type",
-    "dilution",
-    "air_volume_L",
-    "filter_fraction_used",
-    "suspension_volume_mL",
-    "dry_mass_g",
-    "sample_note",
-)
-
 DEFAULT_SAMPLE_METADATA_SCHEMA = (
     {
         "key": "sample_name",
