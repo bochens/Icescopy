@@ -136,12 +136,7 @@ class GrayscalePlotWidget(QWidget):
         self._last_current_frame_widget_x = None
         self._data_signature = None
         self._render_signature = None
-        self._column_map_cache = None
-        self._file_name_column_index_cache = None
-        self._row_indexes_by_file_name_cache = None
-        self._freeze_map_cache = None
-        self._series_cache_by_cell = {}
-        self._convolution_cache = {}
+        self._invalidate_data_caches()
 
         self.message_label = QLabel(
             "Run analysis, then select one or more circles to plot grayscale timeseries."

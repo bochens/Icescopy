@@ -14,7 +14,6 @@ from icescopy_temperature_import import (
     CSU_COUNT_SOURCE_INSTRUMENT,
     IMAGE_TIMESTAMP_SOURCE_FILENAME,
     IMAGE_TIMESTAMP_SOURCE_GENERATED,
-    IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
@@ -31,14 +30,242 @@ from icescopy_temperature_import import (
 )
 
 
+def interpolate_frame_temperatures(image_elapsed_seconds, timeseries_seconds, temperature_values):
+    """Log temperature at each frame time; None without a time or outside the log."""
+    temperatures = []
+    in_range_count = 0
+    out_of_range_count = 0
+    for elapsed_seconds in image_elapsed_seconds:
+        if elapsed_seconds is None:
+            temperatures.append(None)
+            continue
+        temperature = np.interp(
+            elapsed_seconds,
+            timeseries_seconds,
+            temperature_values,
+            left=np.nan,
+            right=np.nan,
+        )
+        if np.isnan(temperature):
+            out_of_range_count += 1
+            temperatures.append(None)
+        else:
+            in_range_count += 1
+            temperatures.append(float(temperature))
+    return temperatures, in_range_count, out_of_range_count
+
+
+def cycle_start_seconds(timeseries_seconds, cycle_start_indexes):
+    """Log times of the cycle start rows; [0.0] when there are none."""
+    return [
+        float(timeseries_seconds[index])
+        for index in cycle_start_indexes
+        if 0 <= int(index) < len(timeseries_seconds)
+    ] or [0.0]
+
+
+def frame_elapsed_seconds_and_cycles(window, frame_timestamps, origin, cycle_starts):
+    """Seconds from the log origin and cycle for each frame; None without a time."""
+    image_elapsed_seconds = []
+    image_cycle_ids = []
+    for image_timestamp in frame_timestamps:
+        if image_timestamp is None or origin is None:
+            image_elapsed_seconds.append(None)
+            image_cycle_ids.append(None)
+            continue
+        elapsed_seconds = float((image_timestamp - origin).total_seconds())
+        image_elapsed_seconds.append(elapsed_seconds)
+        image_cycle_ids.append(window.cycle_index_for_position(elapsed_seconds, cycle_starts))
+    return image_elapsed_seconds, image_cycle_ids
+
+
+def count_table_headers(window, matched_samples, include_corrected_temperature=False):
+    """Frame columns, then corrected temperature (optional), total and frozen per sample."""
+    headers = ["timestamp", "temperature_C", "cycle", "image_name"]
+    sample_column_metadata = []
+    for sample in matched_samples:
+        sample_name = str(sample.get("sample_name", ""))
+        if include_corrected_temperature:
+            headers.append(f"{sample_name} corrected temperature_C")
+        headers.append(f"{sample_name} number total")
+        headers.append(f"{sample_name} number frozen")
+        sample_column_metadata.append(
+            window.build_freeze_count_timeseries_sample_column_metadata(sample)
+        )
+    return headers, sample_column_metadata
+
+
+def count_table_rows(
+    window,
+    frame_timestamps,
+    frame_temperatures,
+    image_cycle_ids,
+    matched_samples,
+    image_counts_by_sample,
+    calibration_by_well=None,
+):
+    """One row per frame, matching count_table_headers."""
+    rows = []
+    for image_index in range(window.frame_count()):
+        image_timestamp = frame_timestamps[image_index]
+        temperature = frame_temperatures[image_index]
+        cycle_id = image_cycle_ids[image_index]
+        output_row = [
+            image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
+            "" if temperature is None else f"{temperature:.3f}",
+            "" if cycle_id is None else str(int(cycle_id)),
+            os.path.basename(str(window.frame_name(image_index) or "")),
+        ]
+        for sample in matched_samples:
+            if calibration_by_well:
+                corrected_temperature = window.corrected_temperature_for_group(
+                    temperature,
+                    sample,
+                    calibration_by_well,
+                )
+                output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
+            frozen_count = image_counts_by_sample.get(sample["group_key"], {}).get(image_index, 0)
+            output_row.append(str(int(sample.get("total_cells", 0))))
+            output_row.append(str(int(frozen_count)))
+        rows.append(output_row)
+    return rows
+
+
+def count_summary_sample_fields(
+    window,
+    parsed_timeseries,
+    source_type,
+    matched_samples,
+    sample_column_metadata,
+    grouping_mode,
+):
+    """Summary fields that open every count import summary."""
+    return {
+        "source_path": str(getattr(parsed_timeseries, "file_path", "")),
+        "source_type": source_type,
+        "matched_samples": [sample["sample_name"] for sample in matched_samples],
+        "total_cell_count": len(window.cell_records_by_id),
+        "sample_total_cells": [
+            {
+                "sample_id": str(sample.get("sample_id", "") or ""),
+                "sample_name": str(sample.get("sample_name", "")),
+                "total_cells": int(sample.get("total_cells", 0)),
+                "role": "sample",
+            }
+            for sample in matched_samples
+        ],
+        "sample_column_metadata": sample_column_metadata,
+        "grouping_mode": str(grouping_mode),
+        "count_mode": "cycle_reset",
+    }
+
+
+def count_summary_cycle_fields(window, timing_context, reset_temperature):
+    """Cycle and frame count fields of a count import summary."""
+    return {
+        "cycle_count": int(len(timing_context["cycle_start_seconds"])),
+        "freeze_review_cycle_metadata": capture_cycle_metadata(
+            window,
+            timing_context["image_cycle_ids"],
+            reset_temperature,
+        ),
+        "reset_temperature": window.normalize_temperature_reset_threshold(reset_temperature),
+        "total_images": int(window.frame_count()),
+        "parsed_image_count": int(timing_context["parsed_image_count"]),
+    }
+
+
+def count_summary_unparsed_fields(window, timing_context):
+    """Frames without a timestamp, and frames whose times go backwards."""
+    return {
+        "unparsed_image_count": int(len(timing_context["unparsed_images"])),
+        "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
+        "warnings": image_order_warnings(
+            timing_context["image_elapsed_seconds"],
+            (window.frame_name(i) for i in range(window.frame_count())),
+        ),
+    }
+
+
+def output_samples(sample_groups, metadata_field_names):
+    """Sample groups as output columns: samples by name, unassigned cells last."""
+    matched_samples = []
+    for group_key, group in sample_groups.items():
+        group_key_text = str(group_key)
+        sample_id_text = str(group.get("sample_id", "") or "")
+        normalized_name = normalize_sample_name(group.get("sample_name", ""))
+        matched_samples.append(
+            {
+                "group_key": group_key_text,
+                "group_role": str(group.get("group_role", "sample") or "sample"),
+                "sample_id": sample_id_text,
+                "normalized_name": normalized_name,
+                "sample_name": str(group.get("sample_name", "")),
+                **{
+                    field_name: str(group.get(field_name, "") or "")
+                    for field_name in metadata_field_names
+                    if field_name != "sample_name"
+                },
+                "total_cells": int(group.get("total_cells", 0)),
+                "cell_ids": list(group.get("cell_ids", [])),
+                "sort_index": int(group.get("sort_index", 0) or 0),
+            }
+        )
+    matched_samples.sort(
+        key=lambda sample: (
+            1 if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"} else 0,
+            ""
+            if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
+            else str(sample["sample_name"]).casefold(),
+            int(sample.get("sort_index", 0) or 0)
+            if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
+            else 0,
+            str(sample.get("sample_id", "") or ""),
+            str(sample.get("group_key", "")),
+        )
+    )
+    return matched_samples
+
+
+def cycle_reset_counts(freeze_events_by_cell, image_cycle_ids, total_image_count):
+    """Frozen cells at each frame, counting each cell's first freeze in that frame's cycle.
+
+    freeze_events_by_cell holds (cell_id, freeze frame values) pairs.
+    """
+    first_freeze_frame_by_cell_cycle = {}
+    for cell_id, freeze_event_indices in freeze_events_by_cell:
+        cycle_first_frames = {}
+        resolved_frames = []
+        for frame_value in freeze_event_indices:
+            try:
+                frame_index = int(frame_value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= frame_index < total_image_count:
+                resolved_frames.append(frame_index)
+        for frame_index in sorted(set(resolved_frames)):
+            cycle_id = image_cycle_ids[frame_index] if frame_index < len(image_cycle_ids) else None
+            if cycle_id is None or cycle_id in cycle_first_frames:
+                continue
+            cycle_first_frames[cycle_id] = int(frame_index)
+        first_freeze_frame_by_cell_cycle[int(cell_id)] = cycle_first_frames
+
+    cycle_counts = {}
+    for image_index in range(total_image_count):
+        cycle_id = image_cycle_ids[image_index] if image_index < len(image_cycle_ids) else None
+        frozen_count = 0
+        for cycle_first_frames in first_freeze_frame_by_cell_cycle.values():
+            first_frame = cycle_first_frames.get(cycle_id)
+            if first_frame is not None and first_frame <= image_index:
+                frozen_count += 1
+        cycle_counts[image_index] = int(frozen_count)
+    return cycle_counts
+
+
 class FreezeCountTimeseriesMixin:
     def freeze_review_cycle_ids(self):
         """Imported zero-based cycles in frame order, or empty when unavailable."""
         return cycle_ids_for_window(self)
-
-    def freeze_count_timeseries_sample_metadata_field_names(self):
-        schema = getattr(self, "sample_metadata_schema", None)
-        return export_sample_metadata_field_keys(schema)
 
     def build_freeze_count_timeseries_sample_groups(self, grouping_mode="samples"):
         metadata_field_names = export_sample_metadata_field_keys(
@@ -121,64 +348,6 @@ class FreezeCountTimeseriesMixin:
             }
         return groups
 
-    def build_freeze_count_timeseries_image_counts(self, sample_groups, count_mode="cumulative"):
-        count_mode = str(count_mode or "cumulative").strip().casefold()
-        image_counts_by_sample = {}
-        total_frame_count = self.frame_count()
-        for group_key, group in sample_groups.items():
-            if count_mode == "state":
-                state_counts = {}
-                per_cell_events = []
-                for cell_id in group["cell_ids"]:
-                    record = self.ensure_cell_record(cell_id)
-                    if record is None:
-                        continue
-                    resolved_frames = []
-                    for frame_value in getattr(record, "freeze_event_indices", []):
-                        try:
-                            frame_index = int(frame_value)
-                        except (TypeError, ValueError):
-                            continue
-                        if 0 <= frame_index < total_frame_count:
-                            resolved_frames.append(frame_index)
-                    per_cell_events.append(sorted(set(resolved_frames)))
-
-                event_pointers = [0] * len(per_cell_events)
-                cell_states = [0] * len(per_cell_events)
-                for image_index in range(total_frame_count):
-                    frozen_count = 0
-                    for cell_position, event_frames in enumerate(per_cell_events):
-                        while event_pointers[cell_position] < len(event_frames) and event_frames[event_pointers[cell_position]] <= image_index:
-                            cell_states[cell_position] = 1 - cell_states[cell_position]
-                            event_pointers[cell_position] += 1
-                        frozen_count += cell_states[cell_position]
-                    state_counts[image_index] = int(frozen_count)
-                image_counts_by_sample[group_key] = state_counts
-                continue
-
-            freeze_frames = []
-            for cell_id in group["cell_ids"]:
-                record = self.ensure_cell_record(cell_id)
-                if record is None:
-                    continue
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        resolved_frames.append(int(frame_value))
-                    except (TypeError, ValueError):
-                        continue
-                if resolved_frames:
-                    freeze_frames.append(min(resolved_frames))
-            freeze_frames.sort()
-            cumulative_counts = {}
-            freeze_pointer = 0
-            for image_index in range(total_frame_count):
-                while freeze_pointer < len(freeze_frames) and freeze_frames[freeze_pointer] <= image_index:
-                    freeze_pointer += 1
-                cumulative_counts[image_index] = int(freeze_pointer)
-            image_counts_by_sample[group_key] = cumulative_counts
-        return image_counts_by_sample
-
     def build_tamu_freeze_count_timeseries_sample_groups(self):
         sample_groups = self.build_freeze_count_timeseries_sample_groups(grouping_mode="samples")
         if sample_groups:
@@ -192,42 +361,7 @@ class FreezeCountTimeseriesMixin:
         metadata_field_names = export_sample_metadata_field_keys(
             getattr(self, "sample_metadata_schema", None)
         )
-        matched_samples = []
-        for group_key, group in sample_groups.items():
-            group_key_text = str(group_key)
-            sample_id_text = str(group.get("sample_id", "") or "")
-            normalized_name = normalize_sample_name(group.get("sample_name", ""))
-            matched_samples.append(
-                {
-                    "group_key": group_key_text,
-                    "group_role": str(group.get("group_role", "sample") or "sample"),
-                    "sample_id": sample_id_text,
-                    "normalized_name": normalized_name,
-                    "sample_name": str(group.get("sample_name", "")),
-                    **{
-                        field_name: str(group.get(field_name, "") or "")
-                        for field_name in metadata_field_names
-                        if field_name != "sample_name"
-                    },
-                    "total_cells": int(group.get("total_cells", 0)),
-                    "cell_ids": list(group.get("cell_ids", [])),
-                    "sort_index": int(group.get("sort_index", 0) or 0),
-                }
-            )
-        matched_samples.sort(
-            key=lambda sample: (
-                1 if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"} else 0,
-                ""
-                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
-                else str(sample["sample_name"]).casefold(),
-                int(sample.get("sort_index", 0) or 0)
-                if str(sample.get("group_role", "")) in {"unassigned_cell", "unassigned_cells"}
-                else 0,
-                str(sample.get("sample_id", "") or ""),
-                str(sample.get("group_key", "")),
-            )
-        )
-        return matched_samples
+        return output_samples(sample_groups, metadata_field_names)
 
     def normalize_temperature_reset_threshold(self, reset_temperature):
         return normalize_temperature_reset_threshold_value(reset_temperature)
@@ -255,37 +389,30 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        parsed_image_count = 0
-        unparsed_images = []
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = parse_tamu_image_timestamp(basename)
-            if image_timestamp is None or start_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                if image_timestamp is None:
-                    unparsed_images.append(basename)
-                continue
-            parsed_image_count += 1
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
+        basenames = [
+            os.path.basename(str(self.frame_name(image_index) or ""))
+            for image_index in range(self.frame_count())
+        ]
+        parsed_image_timestamps = [parse_tamu_image_timestamp(basename) for basename in basenames]
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            getattr(parsed_timeseries, "start_timestamp", None),
+            cycle_starts,
+        )
         return {
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "cycle_start_indexes": cycle_start_indexes,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
-            "parsed_image_count": int(parsed_image_count),
-            "unparsed_images": list(unparsed_images),
+            "parsed_image_count": int(sum(value is not None for value in image_elapsed_seconds)),
+            "unparsed_images": [
+                basename
+                for basename, value in zip(basenames, parsed_image_timestamps)
+                if value is None
+            ],
+            "parsed_image_timestamps": parsed_image_timestamps,
         }
 
     def build_pku_linksys32_image_timing_context(self, parsed_timeseries, reset_temperature=None):
@@ -322,22 +449,15 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
 
         start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
         if start_timestamp is None:
             start_timestamp = timeseries_datetimes[0]
 
-        image_elapsed_seconds = []
-        image_cycle_ids = []
         parsed_image_timestamps = []
         image_record_temperatures = []
         for image_record in image_records:
-            image_timestamp = getattr(image_record, "timestamp", None)
             try:
                 image_temperature = float(getattr(image_record, "temperature_value", None))
             except (TypeError, ValueError):
@@ -348,20 +468,19 @@ class FreezeCountTimeseriesMixin:
                 raise TemperatureImportError(
                     f"PKU Linksys32 .iml image record {len(image_record_temperatures) + 1} has an invalid tagged temperature."
                 )
-            parsed_image_timestamps.append(image_timestamp)
+            parsed_image_timestamps.append(getattr(image_record, "timestamp", None))
             image_record_temperatures.append(image_temperature)
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - start_timestamp).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds))
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            start_timestamp,
+            cycle_starts,
+        )
 
         return {
             "timeseries_seconds": timeseries_seconds,
             "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(sum(1 for value in parsed_image_timestamps if value is not None)),
@@ -379,37 +498,17 @@ class FreezeCountTimeseriesMixin:
         image_counts_by_sample = {}
         total_image_count = self.frame_count()
         for group_key, group in sample_groups.items():
-            first_freeze_frame_by_cell_cycle = {}
+            freeze_events_by_cell = []
             for cell_id in group["cell_ids"]:
                 record = self.ensure_cell_record(cell_id)
                 if record is None:
                     continue
-                cycle_first_frames = {}
-                resolved_frames = []
-                for frame_value in getattr(record, "freeze_event_indices", []):
-                    try:
-                        frame_index = int(frame_value)
-                    except (TypeError, ValueError):
-                        continue
-                    if 0 <= frame_index < total_image_count:
-                        resolved_frames.append(frame_index)
-                for frame_index in sorted(set(resolved_frames)):
-                    cycle_id = image_cycle_ids[frame_index] if frame_index < len(image_cycle_ids) else None
-                    if cycle_id is None or cycle_id in cycle_first_frames:
-                        continue
-                    cycle_first_frames[cycle_id] = int(frame_index)
-                first_freeze_frame_by_cell_cycle[int(cell_id)] = cycle_first_frames
-
-            cycle_counts = {}
-            for image_index in range(total_image_count):
-                cycle_id = image_cycle_ids[image_index] if image_index < len(image_cycle_ids) else None
-                frozen_count = 0
-                for cycle_first_frames in first_freeze_frame_by_cell_cycle.values():
-                    first_frame = cycle_first_frames.get(cycle_id)
-                    if first_frame is not None and first_frame <= image_index:
-                        frozen_count += 1
-                cycle_counts[image_index] = int(frozen_count)
-            image_counts_by_sample[group_key] = cycle_counts
+                freeze_events_by_cell.append((cell_id, getattr(record, "freeze_event_indices", [])))
+            image_counts_by_sample[group_key] = cycle_reset_counts(
+                freeze_events_by_cell,
+                image_cycle_ids,
+                total_image_count,
+            )
         return image_counts_by_sample
 
     def reconcile_counts_by_cycle(self, raw_counts, anchor_counts, maximum_count, cycle_ids):
@@ -484,11 +583,7 @@ class FreezeCountTimeseriesMixin:
             temperature_values,
             reset_temperature,
         )
-        cycle_start_seconds = [
-            float(timeseries_seconds[index])
-            for index in cycle_start_indexes
-            if 0 <= int(index) < len(timeseries_seconds)
-        ] or [0.0]
+        cycle_starts = cycle_start_seconds(timeseries_seconds, cycle_start_indexes)
 
         if self.is_video_source():
             start_timestamp = parse_timestamp_text(generated_start_text, image_timestamp_style)
@@ -529,24 +624,18 @@ class FreezeCountTimeseriesMixin:
             parsed_image_timestamps = list(resolved_timestamps.image_timestamps)
             unparsed_images = list(resolved_timestamps.unparsed_images)
             parsed_count = int(resolved_timestamps.parsed_count)
-        image_elapsed_seconds = []
-        image_cycle_ids = []
-        for image_timestamp in parsed_image_timestamps:
-            if image_timestamp is None:
-                image_elapsed_seconds.append(None)
-                image_cycle_ids.append(None)
-                continue
-            elapsed_seconds = float((image_timestamp - timeseries_origin).total_seconds())
-            image_elapsed_seconds.append(elapsed_seconds)
-            image_cycle_ids.append(
-                self.cycle_index_for_position(elapsed_seconds, cycle_start_seconds)
-            )
+        image_elapsed_seconds, image_cycle_ids = frame_elapsed_seconds_and_cycles(
+            self,
+            parsed_image_timestamps,
+            timeseries_origin,
+            cycle_starts,
+        )
 
         return {
             "timeseries_origin": timeseries_origin,
             "timeseries_seconds": timeseries_seconds,
             "cycle_start_indexes": cycle_start_indexes,
-            "cycle_start_seconds": cycle_start_seconds,
+            "cycle_start_seconds": cycle_starts,
             "image_elapsed_seconds": image_elapsed_seconds,
             "image_cycle_ids": image_cycle_ids,
             "parsed_image_count": int(parsed_count),
@@ -581,79 +670,27 @@ class FreezeCountTimeseriesMixin:
                 "No loaded frames produced a parseable timestamp for standard freeze count timeseries."
             )
 
-        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(
             sample_groups,
             image_cycle_ids,
         )
-
-        timeseries_seconds = np.asarray(
-            list(timing_context["timeseries_seconds"]),
-            dtype=float,
-        )
-        temperature_values = np.asarray(
-            list(getattr(parsed_timeseries, "temperature_values", [])),
-            dtype=float,
-        )
-        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
-
-        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
-        sample_column_metadata = []
-        for sample in matched_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
+        frame_temperatures, in_range_image_count, out_of_range_image_count = (
+            interpolate_frame_temperatures(
+                timing_context["image_elapsed_seconds"],
+                np.asarray(list(timing_context["timeseries_seconds"]), dtype=float),
+                np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float),
             )
-
-        rows = []
-        in_range_image_count = 0
-        out_of_range_image_count = 0
-        for image_index in range(self.frame_count()):
-            basename = os.path.basename(str(self.frame_name(image_index) or ""))
-            image_timestamp = parsed_image_timestamps[image_index]
-            raw_temperature = None
-            elapsed_seconds = (
-                image_elapsed_seconds[image_index]
-                if image_index < len(image_elapsed_seconds)
-                else None
-            )
-            if image_timestamp is not None and elapsed_seconds is not None:
-                interpolated_temperature = np.interp(
-                    elapsed_seconds,
-                    timeseries_seconds,
-                    temperature_values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                if np.isnan(interpolated_temperature):
-                    out_of_range_image_count += 1
-                else:
-                    in_range_image_count += 1
-                    raw_temperature = float(interpolated_temperature)
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds")
-                if image_timestamp is not None
-                else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                ""
-                if image_cycle_ids[image_index] is None
-                else str(int(image_cycle_ids[image_index])),
-                basename,
-            ]
-            for sample in matched_samples:
-                group_key = sample["group_key"]
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(
-                    image_index,
-                    0,
-                )
-                output_row.append(str(total_cells))
-                output_row.append(str(int(frozen_count)))
-            rows.append(output_row)
+        )
+        headers, sample_column_metadata = count_table_headers(self, matched_samples)
+        rows = count_table_rows(
+            self,
+            timing_context["parsed_image_timestamps"],
+            frame_temperatures,
+            image_cycle_ids,
+            matched_samples,
+            image_counts_by_sample,
+        )
 
         clock_warnings = epoch_file_time_warnings(
             getattr(parsed_timeseries, 'timeseries_timestamp_texts', []), image_timestamp_source)
@@ -665,39 +702,20 @@ class FreezeCountTimeseriesMixin:
 
         timeseries_timestamp_texts = list(getattr(parsed_timeseries, "timeseries_timestamp_texts", []))
         summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "standard_csv",
-            "matched_samples": [sample["sample_name"] for sample in matched_samples],
-            "total_cell_count": len(self.cell_records_by_id),
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
+            **count_summary_sample_fields(
+                self, parsed_timeseries, "standard_csv", matched_samples, sample_column_metadata,
+                grouping_mode,
+            ),
             "timeseries_start_timestamp": (
                 timeseries_timestamp_texts[0]
                 if timeseries_timestamp_texts
                 else timing_context["timeseries_origin"].isoformat(timespec="milliseconds")
             ),
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
-            "cycle_count": int(len(timing_context["cycle_start_seconds"])),
-            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
+            **count_summary_cycle_fields(self, timing_context, reset_temperature),
             "in_range_image_count": int(in_range_image_count),
             "out_of_range_image_count": int(out_of_range_image_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
-                                              (self.frame_name(i) for i in range(self.frame_count()))),
+            **count_summary_unparsed_fields(self, timing_context),
             "image_timestamp_source": str(image_timestamp_source),
             "image_timestamp_style": str(image_timestamp_style),
             "temperature_timestamp_style": str(temperature_timestamp_style),
@@ -1064,15 +1082,15 @@ class FreezeCountTimeseriesMixin:
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_tamu_image_timing_context(parsed_timeseries, reset_temperature=reset_temperature)
-        cycle_start_seconds = timing_context["cycle_start_seconds"]
-        image_elapsed_seconds = timing_context["image_elapsed_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-
-        timeseries_seconds = np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float)
-        temperature_values = np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float)
-        start_timestamp = getattr(parsed_timeseries, "start_timestamp", None)
-        include_corrected_temperature = bool(calibration_by_well)
+        frame_temperatures, in_range_image_count, out_of_range_image_count = (
+            interpolate_frame_temperatures(
+                timing_context["image_elapsed_seconds"],
+                np.asarray(list(getattr(parsed_timeseries, "timeseries_seconds", [])), dtype=float),
+                np.asarray(list(getattr(parsed_timeseries, "temperature_values", [])), dtype=float),
+            )
+        )
 
         calibrated_cell_ids = set()
         if calibration_by_well:
@@ -1081,61 +1099,20 @@ class FreezeCountTimeseriesMixin:
                     if int(cell_id) in calibration_by_well:
                         calibrated_cell_ids.add(int(cell_id))
 
-        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
-        sample_column_metadata = []
-        for sample in matched_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            if include_corrected_temperature:
-                headers.append(f"{sample_name} corrected temperature_C")
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        in_range_image_count = 0
-        out_of_range_image_count = 0
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = parse_tamu_image_timestamp(basename)
-            raw_temperature = None
-            elapsed_seconds = image_elapsed_seconds[image_index] if image_index < len(image_elapsed_seconds) else None
-            if image_timestamp is not None and elapsed_seconds is not None:
-                interpolated_temperature = np.interp(
-                    elapsed_seconds,
-                    timeseries_seconds,
-                    temperature_values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                if np.isnan(interpolated_temperature):
-                    out_of_range_image_count += 1
-                else:
-                    in_range_image_count += 1
-                    raw_temperature = float(interpolated_temperature)
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
-                basename,
-            ]
-            for sample in matched_samples:
-                group_key = sample["group_key"]
-                if include_corrected_temperature:
-                    corrected_temperature = self.corrected_temperature_for_group(
-                        raw_temperature,
-                        sample,
-                        calibration_by_well,
-                    )
-                    output_row.append("" if corrected_temperature is None else f"{corrected_temperature:.3f}")
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                output_row.append(str(total_cells))
-                output_row.append(str(int(frozen_count)))
-            rows.append(output_row)
+        headers, sample_column_metadata = count_table_headers(
+            self,
+            matched_samples,
+            include_corrected_temperature=bool(calibration_by_well),
+        )
+        rows = count_table_rows(
+            self,
+            timing_context["parsed_image_timestamps"],
+            frame_temperatures,
+            image_cycle_ids,
+            matched_samples,
+            image_counts_by_sample,
+            calibration_by_well,
+        )
 
         if in_range_image_count <= 0:
             raise TemperatureImportError(
@@ -1143,36 +1120,17 @@ class FreezeCountTimeseriesMixin:
             )
 
         summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "tamu",
-            "matched_samples": [sample["sample_name"] for sample in matched_samples],
-            "total_cell_count": len(self.cell_records_by_id),
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
+            **count_summary_sample_fields(
+                self, parsed_timeseries, "tamu", matched_samples, sample_column_metadata,
+                grouping_mode,
+            ),
             "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
             "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
-            "cycle_count": int(len(cycle_start_seconds)),
-            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
+            **count_summary_cycle_fields(self, timing_context, reset_temperature),
             "in_range_image_count": int(in_range_image_count),
             "out_of_range_image_count": int(out_of_range_image_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
-                                              (self.frame_name(i) for i in range(self.frame_count()))),
+            **count_summary_unparsed_fields(self, timing_context),
             "calibration_path": "" if not calibration_by_well else str(getattr(self, "last_temperature_calibration_path", "") or ""),
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
         }
@@ -1192,87 +1150,35 @@ class FreezeCountTimeseriesMixin:
             parsed_timeseries,
             reset_temperature=reset_temperature,
         )
-        cycle_start_seconds = timing_context["cycle_start_seconds"]
         image_cycle_ids = timing_context["image_cycle_ids"]
-        parsed_image_timestamps = timing_context["parsed_image_timestamps"]
         image_record_temperatures = timing_context["image_record_temperatures"]
         image_counts_by_sample = self.build_tamu_cycle_reset_image_counts(sample_groups, image_cycle_ids)
-
-        headers = ["timestamp", "temperature_C", "cycle", "image_name"]
-        sample_column_metadata = []
-        for sample in matched_samples:
-            sample_name = str(sample.get("sample_name", ""))
-            headers.append(f"{sample_name} number total")
-            headers.append(f"{sample_name} number frozen")
-            sample_column_metadata.append(
-                self.build_freeze_count_timeseries_sample_column_metadata(sample)
-            )
-
-        rows = []
-        tagged_temperature_count = 0
-        for image_index in range(self.frame_count()):
-            image_name = self.frame_name(image_index)
-            basename = os.path.basename(str(image_name or ""))
-            image_timestamp = (
-                parsed_image_timestamps[image_index]
-                if image_index < len(parsed_image_timestamps)
-                else None
-            )
-            raw_temperature = (
-                image_record_temperatures[image_index]
-                if image_index < len(image_record_temperatures)
-                else None
-            )
-            if raw_temperature is not None:
-                tagged_temperature_count += 1
-
-            output_row = [
-                image_timestamp.isoformat(timespec="milliseconds") if image_timestamp is not None else "",
-                "" if raw_temperature is None else f"{raw_temperature:.3f}",
-                "" if image_cycle_ids[image_index] is None else str(int(image_cycle_ids[image_index])),
-                basename,
-            ]
-            for sample in matched_samples:
-                group_key = sample["group_key"]
-                total_cells = int(sample.get("total_cells", 0))
-                frozen_count = image_counts_by_sample.get(group_key, {}).get(image_index, 0)
-                output_row.append(str(total_cells))
-                output_row.append(str(int(frozen_count)))
-            rows.append(output_row)
+        headers, sample_column_metadata = count_table_headers(self, matched_samples)
+        rows = count_table_rows(
+            self,
+            timing_context["parsed_image_timestamps"],
+            image_record_temperatures,
+            image_cycle_ids,
+            matched_samples,
+            image_counts_by_sample,
+        )
 
         summary = {
-            "source_path": str(getattr(parsed_timeseries, "file_path", "")),
-            "source_type": "pku_linksys32_iml",
-            "matched_samples": [sample["sample_name"] for sample in matched_samples],
-            "total_cell_count": len(self.cell_records_by_id),
-            "sample_total_cells": [
-                {
-                    "sample_id": str(sample.get("sample_id", "") or ""),
-                    "sample_name": str(sample.get("sample_name", "")),
-                    "total_cells": int(sample.get("total_cells", 0)),
-                    "role": "sample",
-                }
-                for sample in matched_samples
-            ],
-            "sample_column_metadata": sample_column_metadata,
-            "grouping_mode": str(grouping_mode),
-            "count_mode": "cycle_reset",
+            **count_summary_sample_fields(
+                self, parsed_timeseries, "pku_linksys32_iml", matched_samples, sample_column_metadata,
+                grouping_mode,
+            ),
             "timeseries_start_timestamp": str(getattr(parsed_timeseries, "start_timestamp_text", "") or ""),
             "timeseries_row_count": int(getattr(parsed_timeseries, "timeseries_row_count", 0) or 0),
             "sample_period_seconds": getattr(parsed_timeseries, "sample_period_seconds", None),
             "image_record_count": int(timing_context.get("image_record_count", 0)),
             "linksys32_version": str(getattr(parsed_timeseries, "version", "") or ""),
-            "cycle_count": int(len(cycle_start_seconds)),
-            "freeze_review_cycle_metadata": capture_cycle_metadata(self, image_cycle_ids, reset_temperature),
-            "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
-            "total_images": int(self.frame_count()),
-            "parsed_image_count": int(timing_context["parsed_image_count"]),
+            **count_summary_cycle_fields(self, timing_context, reset_temperature),
             "temperature_source": "pku_linksys32_image_record",
-            "tagged_temperature_count": int(tagged_temperature_count),
-            "unparsed_image_count": int(len(timing_context["unparsed_images"])),
-            "unparsed_images_preview": list(timing_context["unparsed_images"][:5]),
-            "warnings": image_order_warnings(timing_context["image_elapsed_seconds"],
-                                              (self.frame_name(i) for i in range(self.frame_count()))),
+            "tagged_temperature_count": int(
+                sum(value is not None for value in image_record_temperatures)
+            ),
+            **count_summary_unparsed_fields(self, timing_context),
         }
         summary["refresh_context"] = make_temperature_refresh_context(
             self, "pku", parsed_timeseries, dict(reset_temperature=reset_temperature),

@@ -1,6 +1,5 @@
 """Display limits for INP plots; calculations remain in the external toolkit."""
 import math
-import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen

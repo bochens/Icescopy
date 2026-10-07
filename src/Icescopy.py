@@ -1,18 +1,17 @@
 from PySide6.QtWidgets import (QApplication, QMainWindow, QPushButton, QFileDialog, QVBoxLayout,
                                QWidget, QGraphicsScene, QLineEdit, QLabel,
-                               QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSplitter, QSlider,
+                               QTextEdit, QSizePolicy, QHBoxLayout, QGraphicsView, QSlider,
                                QStatusBar, QDialog, QDoubleSpinBox, QAbstractSpinBox,
-                               QListView, QGridLayout, QTreeWidget, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
+                               QListView, QTreeWidgetItem, QTableWidget, QHeaderView, QStackedWidget, QSpinBox, QComboBox,
                                QTableWidgetItem, QAbstractItemView, QMessageBox, QFrame, QDockWidget, QTabWidget, QStyle, QStyleOptionSlider, QStyleFactory,
                                QCheckBox)
-from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QCursor, QTransform, QFont, QAction, QActionGroup, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
+from PySide6.QtGui import QPixmap, QPen, QBrush, QColor, QPainter, Qt, QTransform, QFont, QAction, QActionGroup, QIcon, QGuiApplication, QUndoStack, QShortcut, QKeySequence, QPolygonF
 from PySide6.QtCore import QRectF, QSize, QTimer, QEvent, QModelIndex, QItemSelectionModel, QSignalBlocker, QPointF
 import xml.etree.ElementTree as ET
 import csv
 import os
 import sys
 import math
-import tempfile
 import traceback
 import darkdetect
 import platform
@@ -21,7 +20,6 @@ import time
 from functools import partial
 import copy
 from collections import OrderedDict
-from datetime import datetime, timedelta
 import numpy as np
 import shiboken6
 import re
@@ -67,7 +65,6 @@ from icescopy_image_edit import (
     ImageHistogramWidget,
     ImageRectOverlayItem,
     apply_affine_to_point,
-    apply_image_adjustments_to_uint8,
     apply_image_adjustments_to_qimage,
     build_rotated_crop_affine,
     compute_histogram_bins,
@@ -91,7 +88,6 @@ from icescopy_temperature_import import (
     TEMPERATURE_UNIT_CELSIUS,
     TIMESTAMP_STYLE_AUTO,
     TemperatureImportError,
-    normalize_sample_name,
     parse_ice_array_calibration_csv,
     parse_csu_is_dat,
     parse_linksys32_iml,
@@ -126,12 +122,10 @@ from icescopy_session_io import (
 )
 from icescopy_sample_metadata import (
     default_sample_metadata_schema,
-    dropped_sample_metadata_keys,
     export_sample_metadata_field_keys,
     migrate_sample_catalog_for_schema,
     same_for_all_sample_metadata_values,
     sample_metadata_schema_from_payload,
-    sample_metadata_schema_from_xml,
     sample_metadata_schema_to_payload,
     sample_metadata_field_is_relevant,
 )
@@ -139,11 +133,6 @@ from icescopy_tool_options import (
     TOOL_OPTIONS_BUTTON_SPACING,
     TOOL_OPTIONS_CONTENT_WIDTH,
     TOOL_OPTIONS_CONTROL_QSS,
-    TOOL_OPTIONS_FIELD_WIDTH,
-    TOOL_OPTIONS_LABEL_WIDTH,
-    TOOL_OPTIONS_PANEL_DEFAULT_WIDTH,
-    TOOL_OPTIONS_SHORTCUT_WIDTH,
-    TOOL_OPTIONS_SPINBOX_SLOT_HEIGHT,
     ToolOptionsFormPage,
     ToolOptionsInfoPage,
 )
@@ -661,12 +650,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def serialize_sample_metadata_schema(self):
         return sample_metadata_schema_to_payload(self.active_sample_metadata_schema())
 
-    def sample_metadata_field_names(self):
-        return tuple(field["key"] for field in self.active_sample_metadata_schema())
-
-    def freeze_count_timeseries_sample_metadata_field_names(self):
-        return export_sample_metadata_field_keys(self.active_sample_metadata_schema())
-
     def apply_sample_metadata_schema(self, new_schema, rename_map=None, *, record_history=True):
         old_schema = self.active_sample_metadata_schema()
         normalized_new_schema = sample_metadata_schema_from_payload(new_schema)
@@ -981,38 +964,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             )
         ]
 
-    def available_sample_names(self):
-        return [
-            str(sample_record.get("sample_name", "") or "")
-            for _, sample_record in self.ordered_sample_catalog_records()
-            if str(sample_record.get("sample_name", "") or "").strip()
-        ]
-
-    def available_sample_choices(self):
-        records = [
-            (sample_id, str(sample_record.get("sample_name", "") or "").strip())
-            for sample_id, sample_record in self.ordered_sample_catalog_records()
-            if str(sample_record.get("sample_name", "") or "").strip()
-        ]
-        name_counts = {}
-        for _sample_id, sample_name in records:
-            normalized_name = normalize_sample_name(sample_name)
-            name_counts[normalized_name] = name_counts.get(normalized_name, 0) + 1
-
-        choices = []
-        for sample_id, sample_name in records:
-            label = sample_name
-            if name_counts.get(normalize_sample_name(sample_name), 0) > 1:
-                label = f"{sample_name} (sample {int(sample_id)})"
-            choices.append(
-                {
-                    "sample_id": str(int(sample_id)),
-                    "sample_name": sample_name,
-                    "label": label,
-                }
-            )
-        return choices
-
     def invalidate_cursor_sample_combo_cache(self):
         self.cursor_sample_combo_catalog_signature = None
         self.cursor_sample_combo_has_mixed_item = False
@@ -1076,13 +1027,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             return f"{float(value):.{decimals}f}"
         except (TypeError, ValueError):
             return "-"
-
-    def set_cursor_display_field_locked(self, field, locked):
-        if field is None:
-            return
-        field.setEnabled(True)
-        field.setReadOnly(bool(locked))
-        field.setFocusPolicy(Qt.NoFocus if locked else Qt.StrongFocus)
 
     def format_integer_list_csv(self, values):
         normalized_values = []
@@ -1376,7 +1320,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             sample_id = str(getattr(record, "sample_id", ""))
             sample_name = self.sample_name_for_id(sample_id)
             freeze_frames = list(getattr(record, "freeze_event_indices", []))
-            freeze_rows = list(getattr(record, "freeze_rows", []))
             records.append({
                 "cell_id": int(cell_id),
                 "sample_id": sample_id,
@@ -3413,7 +3356,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         dialog.setText(f"Do you want to save this session before {next_action_label}?")
         dialog.setInformativeText("Undo/redo history will be cleared.")
         save_button = dialog.addButton("Save", QMessageBox.AcceptRole)
-        dont_save_button = dialog.addButton("Don't Save", QMessageBox.DestructiveRole)
+        dialog.addButton("Don't Save", QMessageBox.DestructiveRole)
         cancel_button = dialog.addButton(QMessageBox.Cancel)
         dialog.setDefaultButton(save_button)
         dialog.exec()
@@ -4996,22 +4939,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if self.cell_controller.uses_grid_preview():
             self.update_grid_preview()
 
-    def clear_grid_preview(self):
-        # Thin wrapper kept on the main window because the view/event code
-        # already calls this name in several places.
-        self.cell_controller.clear_preview()
-
-    def cancel_grid_preview(self):
-        self.cell_controller.cancel_preview()
-
     def float_grid_preview(self):
         self.cell_controller.float_preview()
 
     def update_grid_preview_from_scene_pos(self, scene_pos, pin=False):
         self.cell_controller.update_preview_from_scene_pos(scene_pos, pin)
-
-    def get_grid_preview_definitions(self):
-        return self.cell_controller.get_preview_definitions()
 
     def update_grid_preview(self):
         self.cell_controller.update_preview()
@@ -5197,9 +5129,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             del scene_blocker
         if sync_tool_panel:
             self.handle_scene_cell_selection_changed()
-
-    def apply_grid_preview(self):
-        self.cell_controller.apply_grid_add()
 
     def show_sample_catalog_manager(self):
         if not hasattr(self, "sample_catalog_dock") or self.sample_catalog_dock is None:
@@ -7516,47 +7445,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.ensure_slider_window_contains_index(index)
         self.image_slider.setValue(index)
 
-    def commit_slider_release_navigation(self):
-        if self.history_restoring or not self.has_frames():
-            return
-        before_index = max(
-            0,
-            min(int(getattr(self, "last_committed_image_index", self.image_index)), self.frame_count() - 1),
-        )
-        self.finalize_frame_update(self.image_index)
-        if self.analysis_progress_navigation_suppressed:
-            return
-        if before_index != self.image_index:
-            self.log(f"Change Frame: {before_index} -> {self.image_index}")
-            self.push_navigation_history("Change Frame", before_index, self.image_index)
-
-    def load_grayscale_results(self, file_path):
-        try:
-            with open(file_path, newline='') as csv_file:
-                rows = list(csv.reader(csv_file))
-        except OSError as err:
-            self.log(f"Unable to load grayscale results table: {err}")
-            return
-
-        if len(rows) < 2:
-            self.grayscale_results_headers = []
-            self.grayscale_results_rows = []
-        else:
-            self.grayscale_results_headers = rows[1]
-            self.grayscale_results_rows = rows[2:]
-
-        self.update_results_tables()
-
-    def set_freeze_results(self, headers, rows):
-        self.freeze_results_headers = headers
-        self.freeze_results_rows = rows
-        self.update_results_tables()
-        if self.freeze_results_headers:
-            if hasattr(self, "results_table_tabs"):
-                self.results_table_tabs.setCurrentIndex(1)
-            self.show_dock_widget(self.results_tables_dock)
-        self.invalidate_freeze_count_timeseries_results("freeze results changed", analysis_required=False)
-
     def import_standard_temperature_csv(self, checked=False):
         if not self.has_frames():
             QMessageBox.information(
@@ -8173,26 +8061,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.log(f"PKU grouping mode: {grouping_label}")
         if matched_samples:
             self.log("PKU output samples: " + ", ".join(matched_samples))
-
-    def export_grayscale_results_for_external_tool(self):
-        if not self.grayscale_results_headers or not self.grayscale_results_rows:
-            raise ValueError("No grayscale results available")
-
-        image_folder = self.active_frame_source().source_path() if self.has_frames() else ""
-        temp_file = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".csv",
-            prefix="icescopy_grayscale_",
-            delete=False,
-            newline="",
-        )
-        with temp_file as handle:
-            handle.write(image_folder)
-            handle.write("\n")
-            writer = csv.writer(handle)
-            writer.writerow(self.grayscale_results_headers)
-            writer.writerows(self.grayscale_results_rows)
-        return temp_file.name
 
     def write_csv_table(self, file_path, headers, rows):
         with open(file_path, "w", newline="", encoding="utf-8") as handle:
@@ -9872,7 +9740,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         removed_rows = set(rows_to_remove)
         old_image_index = self.image_index
         removed_before_current = sum(1 for row in rows_to_remove if row < old_image_index)
-        current_removed = old_image_index in removed_rows
 
         self.imagePaths = [path for index, path in enumerate(self.imagePaths) if index not in removed_rows]
         self.rebuild_image_sequence_frame_source()
@@ -10613,9 +10480,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.rendered_cell_items = []
             return
         self.cell_controller.redraw_interpolated_cells(index, preview=preview)
-
-    def anchor_cell_items_to_current_image(self, cell_items):
-        return self.cell_controller.anchor_to_current_image(cell_items)
 
     def updateRadiusTextbox(self):
         if self.circle_radius is not None:
@@ -11398,14 +11262,6 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
     def reset_cell_items_edit_chosen(self): # update items in the data list, called by the self.displayMarkedRegions()
         self.cell_controller.reset_edit_chosen()
         self.refresh_grayscale_plot()
-
-    def switch_light_dark_mode(self, theme=None):
-        self.reset_toolbar_stylesheet(theme)
-        self.reset_toolbar_icon(theme)
-        self.reset_slider_stylesheet(theme)
-        self.reset_button_icon(theme)
-        self.reset_status_bar_stylesheet(theme)
-        self.reset_button_stylesheet(theme)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)  # Call the base class resizeEvent

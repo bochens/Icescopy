@@ -1,7 +1,7 @@
 import numpy as np
 import shiboken6
 from PySide6.QtCore import QPointF, QRectF, Qt, QSignalBlocker
-from PySide6.QtGui import QColor, QBrush, QPen
+from PySide6.QtGui import QBrush, QPen
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsView
 
 from icescopy_cell_items import CellCircle
@@ -86,9 +86,6 @@ class CellEditController:
             return True
         return False
 
-    def uses_circle_panel(self):
-        return self.main_window.tool_mode in {"select", "edit-new"}
-
     def is_single_preview_mode(self):
         return self.main_window.tool_mode in {"select", "edit-new"}
 
@@ -164,40 +161,6 @@ class CellEditController:
             secondary_axis *= -1
 
         return centered, primary_axis, secondary_axis
-
-    def restore_scene_cell_ids(self, cell_ids, sync_tool_panel=True):
-        self.main_window.reselect_cell_ids(cell_ids, sync_tool_panel=sync_tool_panel)
-
-    def anchor_to_current_image(self, cell_items):
-        """Build fresh scene items anchored to the current image slot.
-
-        The persistent ROI data lives in image-pixel coordinates. Scene items are
-        disposable view objects that must be rebuilt whenever the current image
-        slot moves or the current frame changes.
-        """
-        if not hasattr(self.main_window, "pixmap_item"):
-            return cell_items
-
-        image_rect = self.main_window.pixmap_item.sceneBoundingRect()
-        anchored_items = []
-        for item in cell_items:
-            anchored_position = self.main_window.image_pixel_to_scene_coordinates(
-                item.circle_pixel_positions[0],
-                item.circle_pixel_positions[1],
-                image_rect,
-            )
-            anchored_item = CellCircle(
-                self.main_window,
-                anchored_position,
-                item.circle_sizes,
-                item.circle_pixel_positions,
-                item.cell_id,
-            )
-            anchored_item.edit_chosen = item.edit_chosen
-            anchored_item.hover = item.hover
-            anchored_item.pressed = item.pressed
-            anchored_items.append(anchored_item)
-        return anchored_items
 
     def _anchored_geometry(self, item):
         if hasattr(self.main_window, "pixmap_item"):
@@ -1040,9 +1003,6 @@ class CellEditController:
         if self.is_group_edit_mode():
             return len(self.group_ordered_cell_ids)
         return 0
-
-    def preview_capacity(self):
-        return self.main_window.grid_rows * self.main_window.grid_columns
 
     def get_preview_definitions(self):
         if self.main_window.grid_preview_origin_pixels is None or not hasattr(self.main_window, "pixmap_item"):

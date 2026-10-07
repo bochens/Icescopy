@@ -287,6 +287,44 @@ class FrameSlider(QSlider):
         flag_radius = metrics["flag_radius"]
         tick_radius = metrics["tick_radius"]
 
+        self._paint_markers(painter, visible_min, visible_max, marker_y, keyframe_half, flag_radius)
+
+        pen = QPen(QColor(178, 178, 178, 178))
+        brush = QBrush(QColor(178, 178, 178, 178))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        value_x = self.sliderPositionToX(self._current_slider_position())
+        for i in self.custom_ticks:
+            if i < visible_min or i > visible_max:
+                continue
+            x = self.sliderPositionToX(i)
+            if (x < (value_x) - 6) or (x > (value_x + 6)):
+                painter.drawEllipse(QPointF(float(x), tick_y), tick_radius, tick_radius)
+
+        self._paint_custom_handle(painter)
+
+    def _paint_default(self, painter):
+        visible_min = int(self.minimum())
+        visible_max = int(self.maximum())
+
+        self._paint_markers(painter, visible_min, visible_max, self.height() - 5.5, 5.0, 2.5)
+
+        pen = QPen(QColor(178, 178, 178, 178))
+        brush = QBrush(QColor(178, 178, 178, 178))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        value_x = self.sliderPositionToX(self.value())
+        for i in self.custom_ticks:
+            if i < visible_min or i > visible_max:
+                continue
+            x = self.sliderPositionToX(i)
+            if (x < (value_x) - 6) or (x > (value_x + 6)):
+                painter.drawEllipse(QPoint(x, self.height() - 18), 1, 1)
+
+    def _paint_markers(self, painter, visible_min, visible_max, marker_y, keyframe_half, flag_radius):
+        """Analysis start/end triangles, keyframe diamonds and flag dots on one row."""
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(QColor(52, 199, 89, 255)))
         for startframe in self.analysis_startframes:
@@ -343,96 +381,6 @@ class FrameSlider(QSlider):
                 continue
             x = self.sliderPositionToX(a_flag) * 1.0
             painter.drawEllipse(QPointF(x, marker_y), flag_radius, flag_radius)
-
-        pen = QPen(QColor(178, 178, 178, 178))
-        brush = QBrush(QColor(178, 178, 178, 178))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.setBrush(brush)
-        value_x = self.sliderPositionToX(self._current_slider_position())
-        for i in self.custom_ticks:
-            if i < visible_min or i > visible_max:
-                continue
-            x = self.sliderPositionToX(i)
-            if (x < (value_x) - 6) or (x > (value_x + 6)):
-                painter.drawEllipse(QPointF(float(x), tick_y), tick_radius, tick_radius)
-
-        self._paint_custom_handle(painter)
-
-    def _paint_default(self, painter):
-        visible_min = int(self.minimum())
-        visible_max = int(self.maximum())
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(QColor(52, 199, 89, 255)))
-        for startframe in self.analysis_startframes:
-            if startframe < visible_min or startframe > visible_max:
-                continue
-            x = self.sliderPositionToX(startframe)
-            y = self.height() - 5.5
-            painter.drawPolygon(QPolygonF([
-                QPointF(x - 5.0, y - 5.0),
-                QPointF(x - 5.0, y + 5.0),
-                QPointF(x + 5.0, y),
-            ]))
-
-        painter.setBrush(QBrush(QColor(255, 149, 0, 255)))
-        for endframe in self.analysis_endframes:
-            if endframe < visible_min or endframe > visible_max:
-                continue
-            x = self.sliderPositionToX(endframe)
-            y = self.height() - 5.5
-            painter.drawPolygon(QPolygonF([
-                QPointF(x + 5.0, y - 5.0),
-                QPointF(x + 5.0, y + 5.0),
-                QPointF(x - 5.0, y),
-            ]))
-
-        painter.setBrush(QBrush(QColor(10, 132, 255, 255)))
-        for keyframe in self.keyframes:
-            if keyframe < visible_min or keyframe > visible_max:
-                continue
-            x = self.sliderPositionToX(keyframe)
-            y = self.height() - 5.5
-            pointsF = [
-                QPointF(x * 1.0, y - 5.0),
-                QPointF(x * 1.0 + 5.0, y),
-                QPointF(x * 1.0, y + 5.0),
-                QPointF(x - 5.0, y * 1.0),
-            ]
-            polygonF = QPolygonF(pointsF)
-            points_list = [polygonF.at(i) for i in range(polygonF.count())]
-            path = QPainterPath()
-            path.moveTo(points_list[0])
-            for point in points_list[1:]:
-                path.lineTo(point)
-            path.lineTo(points_list[0])
-            painter.drawPath(path)
-
-        pen = QPen(QColor(255, 69, 58, 255))
-        pen.setWidth(1)
-        brush = QBrush(QColor(255, 69, 58, 255))
-        painter.setPen(pen)
-        painter.setBrush(brush)
-        for a_flag in self.flaggedframes:
-            if a_flag < visible_min or a_flag > visible_max:
-                continue
-            x = self.sliderPositionToX(a_flag) * 1.0
-            y = self.height() - 5.5
-            painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
-
-        pen = QPen(QColor(178, 178, 178, 178))
-        brush = QBrush(QColor(178, 178, 178, 178))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.setBrush(brush)
-        value_x = self.sliderPositionToX(self.value())
-        for i in self.custom_ticks:
-            if i < visible_min or i > visible_max:
-                continue
-            x = self.sliderPositionToX(i)
-            if (x < (value_x) - 6) or (x > (value_x + 6)):
-                painter.drawEllipse(QPoint(x, self.height() - 18), 1, 1)
 
     def _slider_style_option(self, position=None):
         option = QStyleOptionSlider()

@@ -183,11 +183,6 @@ IMAGE_TIMESTAMP_SOURCE_CHOICES = (
     (IMAGE_TIMESTAMP_SOURCE_GENERATED, "Generated from first timestamp"),
 )
 
-TEMPERATURE_UNIT_CHOICES = (
-    (TEMPERATURE_UNIT_CELSIUS, "Celsius"),
-    (TEMPERATURE_UNIT_KELVIN, "Kelvin"),
-)
-
 
 class TemperatureImportError(ValueError):
     pass
@@ -548,16 +543,12 @@ def _extract_filename_timestamp_candidates(stem):
             if candidate_text and candidate_text not in seen:
                 candidates.append(candidate_text)
                 seen.add(candidate_text)
-    for match in INLINE_EXIF_TIMESTAMP_RE.finditer(stem):
-        candidate_text = str(match.group(1)).strip()
-        if candidate_text and candidate_text not in seen:
-            candidates.append(candidate_text)
-            seen.add(candidate_text)
-    for match in EPOCH_TIMESTAMP_RE.finditer(stem):
-        candidate_text = str(match.group(1)).strip()
-        if candidate_text and candidate_text not in seen:
-            candidates.append(candidate_text)
-            seen.add(candidate_text)
+    for pattern in (INLINE_EXIF_TIMESTAMP_RE, EPOCH_TIMESTAMP_RE):
+        for match in pattern.finditer(stem):
+            candidate_text = str(match.group(1)).strip()
+            if candidate_text and candidate_text not in seen:
+                candidates.append(candidate_text)
+                seen.add(candidate_text)
     normalized_stem = stem.replace("__", " ").replace("_", " ").strip()
     if normalized_stem and normalized_stem not in seen:
         candidates.append(normalized_stem)
@@ -669,6 +660,26 @@ def resolve_image_timestamps(
     )
 
 
+def _sorted_temperature_timeseries(file_path, parsed_rows, file_label):
+    """Sort (time, text, temperature, row) rows by time; a repeated time is an error."""
+    parsed_rows.sort(key=lambda row: row[0])
+    previous_timestamp = None
+    for timestamp_value, _, _, row_number in parsed_rows:
+        if previous_timestamp is not None and timestamp_value == previous_timestamp:
+            raise TemperatureImportError(
+                f"{file_label} row {row_number} repeats a timestamp already present in the file."
+            )
+        previous_timestamp = timestamp_value
+
+    return StandardTemperatureTimeseries(
+        file_path=str(file_path),
+        timeseries_datetimes=[row[0] for row in parsed_rows],
+        timeseries_timestamp_texts=[row[1] for row in parsed_rows],
+        temperature_values=[row[2] for row in parsed_rows],
+        timeseries_row_count=len(parsed_rows),
+    )
+
+
 def parse_standard_temperature_csv(
     file_path,
     timestamp_style=TIMESTAMP_STYLE_AUTO,
@@ -715,22 +726,7 @@ def parse_standard_temperature_csv(
             "The selected temperature CSV does not contain enough valid data rows."
         )
 
-    parsed_rows.sort(key=lambda row: row[0])
-    previous_timestamp = None
-    for timestamp_value, _, _, row_number in parsed_rows:
-        if previous_timestamp is not None and timestamp_value == previous_timestamp:
-            raise TemperatureImportError(
-                f"Temperature CSV row {row_number} repeats a timestamp already present in the file."
-            )
-        previous_timestamp = timestamp_value
-
-    return StandardTemperatureTimeseries(
-        file_path=str(file_path),
-        timeseries_datetimes=[row[0] for row in parsed_rows],
-        timeseries_timestamp_texts=[row[1] for row in parsed_rows],
-        temperature_values=[row[2] for row in parsed_rows],
-        timeseries_row_count=len(parsed_rows),
-    )
+    return _sorted_temperature_timeseries(file_path, parsed_rows, "Temperature CSV")
 
 
 def parse_utk_time_text(timestamp_text):
@@ -747,19 +743,7 @@ def parse_utk_time_text(timestamp_text):
 
 def parse_utk_video_start_timestamp(video_path):
     match = UTK_VIDEO_FILENAME_TIMESTAMP_RE.search(os.path.basename(str(video_path or "")))
-    if not match:
-        return None
-    try:
-        return datetime(
-            int(match.group("year")),
-            int(match.group("month")),
-            int(match.group("day")),
-            int(match.group("hour")),
-            int(match.group("minute")),
-            int(match.group("second")),
-        )
-    except ValueError:
-        return None
+    return _datetime_from_filename_match(match)
 
 
 def parse_utk_temperature_csv(file_path):
@@ -803,22 +787,7 @@ def parse_utk_temperature_csv(file_path):
             "The selected UTK CSV does not contain enough valid temperature rows."
         )
 
-    parsed_rows.sort(key=lambda row: row[0])
-    previous_timestamp = None
-    for timestamp_value, _, _, row_number in parsed_rows:
-        if previous_timestamp is not None and timestamp_value == previous_timestamp:
-            raise TemperatureImportError(
-                f"UTK CSV row {row_number} repeats a timestamp already present in the file."
-            )
-        previous_timestamp = timestamp_value
-
-    return StandardTemperatureTimeseries(
-        file_path=str(file_path),
-        timeseries_datetimes=[row[0] for row in parsed_rows],
-        timeseries_timestamp_texts=[row[1] for row in parsed_rows],
-        temperature_values=[row[2] for row in parsed_rows],
-        timeseries_row_count=len(parsed_rows),
-    )
+    return _sorted_temperature_timeseries(file_path, parsed_rows, "UTK CSV")
 
 
 def parse_linksys32_iml(file_path):

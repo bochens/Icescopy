@@ -601,13 +601,6 @@ class SampleCatalogPanelMixin:
         except (TypeError, ValueError):
             return None
 
-    def sample_catalog_field_is_relevant(self, field_name, sample_record):
-        return sample_metadata_field_is_relevant(
-            self.active_sample_metadata_schema(),
-            field_name,
-            sample_record,
-        )
-
     def sample_catalog_top_index_by_id(self, sample_id):
         if not hasattr(self, "sample_catalog_tree_model"):
             return QModelIndex()

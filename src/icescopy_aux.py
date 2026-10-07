@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QFormLayout,
-    QGroupBox,
     QListWidget,
     QListWidgetItem,
     QStackedWidget,
@@ -30,11 +29,10 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 from PySide6.QtGui import QPainter, Qt, QTransform, QFont, QImage, QPixmap, QColor
-from PySide6.QtCore import QRectF, QThread, Signal, QTimer
-from xml.etree.ElementTree import Element, SubElement, ElementTree, ParseError, parse
+from PySide6.QtCore import QThread, Signal, QTimer
+from xml.etree.ElementTree import Element, SubElement, ElementTree, ParseError
 import numpy as np
 import cv2
-import darkdetect
 import multiprocessing
 import os
 from pathlib import Path
@@ -155,11 +153,6 @@ class ColorPreferenceButton(QPushButton):
     def color_value(self):
         color = self._color
         return f"{color.red()},{color.green()},{color.blue()},{color.alpha()}"
-
-def create_circular_mask(h, w, center, radius):
-    Y, X = np.ogrid[:h, :w]
-    mask = ((X - center[0]) ** 2 + (Y - center[1]) ** 2) <= (radius ** 2)
-    return mask
 
 class CustomGraphicsView(LinkedGraphicsView):
     def __init__(self, scene, main_window):
