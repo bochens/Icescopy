@@ -89,7 +89,7 @@ See [saving and exporting](wiki/Sessions-Export-and-Preferences.md) for session 
 
 Choose the INP-toolkit executable in **Preferences → INP toolkit client**, test the connection, and save. Open **Analysis → INP Analysis…** to use the current Freeze Count Timeseries.
 
-Group samples and dilutions, mark water controls as **water blank** in the Sample Catalog, and enable blank correction. Choose **maximum likelihood estimation (MLE)** or **Average** to combine dilutions. Calculate concentrations in suspension, sampled air, or dry soil using the sample metadata.
+Group samples and dilutions, mark water controls as **water blank** in the Sample Catalog, and enable blank correction. Choose **maximum likelihood estimation (MLE)** ([technical note with derivations](https://github.com/bochens/inptk/blob/main/docs/mle_technical_note.md)) or **Average** to combine dilutions. Calculate concentrations in suspension, sampled air, or dry soil using the sample metadata.
 
 Compare freezing counts, frozen fractions, and concentrations in the interactive plot. The combined concentration is black; individual blank-corrected dilutions use their sample colors. Shading shows uncertainty. Adjust each dilution's temperature limits using the plot or table, then choose **Calculate**. **Auto range** can suggest limits for Average.
 
