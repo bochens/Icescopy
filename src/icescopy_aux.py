@@ -106,6 +106,19 @@ if not os.path.isdir(resources_dir):
     resources_dir = os.path.join(os.path.dirname(module_dir), 'resources')
 
 
+def app_icon_path():
+    """Return the app icon that matches the system appearance (dark or light)."""
+    try:
+        import darkdetect
+        is_dark = bool(darkdetect.isDark())
+    except Exception:
+        is_dark = False
+    dark_icon = os.path.join(resources_dir, "app_icons", "IcescopyApp-dark.png")
+    if is_dark and os.path.isfile(dark_icon):
+        return dark_icon
+    return os.path.join(resources_dir, "app_icons", "IcescopyApp.png")
+
+
 class ColorPreferenceButton(QPushButton):
     def __init__(self, color_value, parent=None):
         super().__init__(parent)
@@ -782,7 +795,7 @@ class AboutDialog(QDialog):
         layout.setSpacing(6)
 
         logo_label = QLabel()
-        logo_image = QImage(os.path.join(resources_dir, "app_icons", "IcescopyApp.png"))
+        logo_image = QImage(app_icon_path())
         logo_label.setPixmap(QPixmap.fromImage(logo_image).scaledToWidth(132, Qt.SmoothTransformation))
         logo_label.setAlignment(Qt.AlignCenter)
         logo_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
