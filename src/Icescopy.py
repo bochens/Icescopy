@@ -26,7 +26,7 @@ import re
 from PIL import Image
 
 # Custom Python Files
-from icescopy_aux import CustomGraphicsView, AboutDialog, Image_analysis_thread, PreferencesDialog, SortImagesDialog
+from icescopy_aux import CustomGraphicsView, AboutDialog, app_icon_path, Image_analysis_thread, PreferencesDialog, SortImagesDialog
 import icescopy_stylesheet
 from icescopy_cell import CellStateManager
 from icescopy_cell_items import CellCircle, CellSnapshot
@@ -11324,7 +11324,7 @@ def main(argv=None):
     app.setApplicationVersion(__version__)
     if platform.system() == "Windows" and "Fusion" in QStyleFactory.keys():
         app.setStyle(QStyleFactory.create("Fusion"))
-    app.setWindowIcon(QIcon(os.path.join(resources_dir, "app_icons", "IcescopyApp.png")))
+    app.setWindowIcon(QIcon(app_icon_path()))
     window = IceScopy()
     app.set_main_window(window)
     window.show()
