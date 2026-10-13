@@ -1,5 +1,10 @@
 # Icescopy
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="resources/app_icons/IcescopyApp-dark.png">
+  <img src="resources/app_icons/IcescopyApp.png" alt="Icescopy" width="150" align="right">
+</picture>
+
 Icescopy is a desktop app for analyzing images and videos of freezing experiments. Mark droplets or wells, find when they freeze, compare neighboring frames, and match events to temperature records. Experimental droplet selection can find similar cells from a few marked examples.
 
 To calculate ice-nucleating particle (INP) concentrations with **Icescopy 2.6.3**, install the matching [**INP-toolkit 0.4.6**](https://github.com/bochens/inptk/releases/tag/v0.4.6) and select its executable in **Preferences → INP toolkit client**.
