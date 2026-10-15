@@ -9,7 +9,7 @@ Use the release for your platform. All releases and their notes are on [GitHub R
 | Computer | Download | Version |
 | --- | --- | --- |
 | Windows 10 version 1809 or later, or Windows 11; 64-bit x64 | [Icescopy-windows-installer.exe](https://github.com/bochens/Icescopy/releases/download/v2.6.3/Icescopy-windows-installer.exe) | 2.6.3 |
-| Mac with Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.3/Icescopy-macos-arm64.zip) | 2.6.3 |
+| Mac with Apple Silicon (M-series) | [Icescopy-macos-arm64.zip](https://github.com/bochens/Icescopy/releases/download/v2.6.4/Icescopy-macos-arm64.zip) | 2.6.4 |
 
 These releases do not include an Intel Mac or Linux app. Windows x64 means 64-bit Intel/AMD Windows. The Mac arm64 download targets Apple Silicon. GitHub's **Source code** ZIP/TAR downloads contain program source, not an installer.
 
@@ -35,7 +35,7 @@ For the installation layout and maintainer build steps, see [Windows packaging](
 
 The Mac build is signed locally for bundle integrity. It does not have an Apple Developer ID signature or Apple notarization. macOS may therefore require extra approval on first launch. If you trust the downloaded copy, try opening it, then use **System Settings → Privacy & Security → Open Anyway** when offered. Follow [Apple's downloaded-app instructions](https://support.apple.com/en-us/102445).
 
-Do not use the Apple Silicon app on an Intel Mac. See [macOS release notes](https://github.com/bochens/Icescopy/releases/tag/v2.6.3) and [packaging details](../packaging/macos/README.md).
+Do not use the Apple Silicon app on an Intel Mac. See [macOS release notes](https://github.com/bochens/Icescopy/releases/tag/v2.6.4) and [packaging details](../packaging/macos/README.md).
 
 ## Upgrade without losing earlier analyses
 
