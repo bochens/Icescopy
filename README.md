@@ -34,17 +34,19 @@ A **cell** is the circle whose brightness Icescopy measures. Draw cells with **A
 
 *Colorado State University (CSU), Ice Spectrometer setup. Red circles are placed cells; the blue grid previews the next group.*
 
-**Experimental droplet detection** uses a neural network built on **MobileNetV3-Small, pretrained on ImageNet**, then trained to find droplets using marked examples. Mark and select a few representative droplets, then click the **star tool** beside **Edit Cell**. **Detect Droplets (Current Frame)** finds similar droplets in the current image or video frame and adds new cells without duplicating existing ones. Review the circles, edit any mistakes, or undo the batch.
+**Optional droplet detection.** An experimental neural network can place cells for you. It only finds droplets so you don't have to draw each circle. It does **not** detect freezing: freeze frames always come from the brightness analysis in step 3.
+
+Mark and select a few representative droplets, click the **star tool** beside **Edit Cell**, then choose **Detect Droplets (Current Frame)**. Icescopy adds a cell for each similar droplet in the current frame and skips droplets that already have one. Review the new circles, fix any mistakes, or undo the whole batch.
 
 ![Two selected examples guide droplet detection; the app adds fourteen cells with normal red outlines and reports the model version and counts](resources/readme/2026-10-01-workflow/droplet-selection.png)
 
-*Texas A&M University (TAMU), droplet stage. Blue circles are guidance examples; red circles are detected droplets. Automatic and manual cells use the same red outlines.*
+*Texas A&M University (TAMU), droplet stage. Blue circles are the selected examples; red circles are the cells the app added.*
 
-The app includes **General droplets 1.0.0**, which runs on the CPU without a GPU or training software. In **Preferences → ML**, choose the bundled model or use **Browse…** to load compatible custom weights packaged as a `.icescopy-model` file.
+The bundled model, **General droplets 1.0.0**, is built on MobileNetV3-Small (pretrained on ImageNet) and runs on the CPU, with no GPU or extra software. To use another model, choose **Preferences → ML → Browse…** and load a `.icescopy-model` file.
 
 <img src="resources/readme/2026-10-01/ml-model.png" alt="ML preferences with a single model chooser, Browse button, and model name and version" width="680">
 
-To improve automatic selection for your instrument and lighting, you can **continue training the supplied model or train your own compatible model**. The [training notebook](auto_cell_ml/train_and_evaluate.ipynb) covers training, evaluation, and exporting weights for the app; the [machine learning module](auto_cell_ml/README.md) includes labeled examples, synthetic scenes, and trainable weights. Load the new model without updating Icescopy, and check its results before running freezing analysis.
+To fit the model to your instrument and lighting, keep training it or train your own with the [training notebook](auto_cell_ml/train_and_evaluate.ipynb) and the [machine learning module](auto_cell_ml/README.md).
 
 If droplets or the image shift during a recording, cell circles may no longer line up with the droplets in later frames. Add **keyframes** at those frames and correct the cell positions; Icescopy adjusts the cells between keyframes. See [drawing and editing cells](wiki/Annotation-Workflow.md) and [droplet detection](wiki/Droplet-Detection.md).
 
