@@ -62,7 +62,8 @@ timestamp,temperature_C
 3. Set the temperature **Timestamp style**. Clear **Use image style for temperature timestamps** if the frame and temperature formats differ.
 4. Select **Celsius** or **Kelvin**. Kelvin values are converted by subtracting 273.15; output temperatures are in °C.
 5. Set **Reset After Warmed To (°C)**, or leave it **Off** for a single cycle.
-6. Import and check the summary: parsed frames, frames within the temperature range, unmatched frames, samples, and cycle count.
+6. Keep or clear the two **Rows** settings described in [Last image and warming](#last-image-and-warming).
+7. Import and check the summary: parsed frames, frames within the temperature range, unmatched frames, samples, and cycle count.
 
 Temperature at a frame is found by linear interpolation between neighboring temperature readings. In the example above, a frame at 12:00:01 has temperature −5.1 °C. The app does not extrapolate beyond the first or last reading. At least one frame must fall inside the temperature record; otherwise the import fails.
 
@@ -247,6 +248,17 @@ For Standard, UTK, TAMU, PKU, and CSU image counts, each cell contributes at mos
 
 Cycles come from the temperature record. They are independent of the analysis intervals that control automatic freeze finding. Changing the reset threshold or warm-up hysteresis requires temperature reimport, not a new brightness measurement.
 
+## Last image and warming
+
+Every importer has two **Rows** settings. Both are on by default. Their defaults are in **Preferences → Analysis → Freeze Finding**, and the choice made for an import is kept when its counts are rebuilt later.
+
+- **Stop at the last loaded image** leaves out CSU .dat records logged after the last record that matches a loaded image, such as a picture taken after the stage warmed back up. Standard, UTK, TAMU, and PKU tables have one row per loaded frame, so the box is shown checked and cannot be changed.
+- **Leave out warming** works within each cycle, after cycles are found. Once the cycle has gone below 0 °C, a row is left out when its temperature is more than the **Warming Tolerance (°C)** (default **0.2 °C**) above the coldest reading so far in that cycle. Readings before the cycle goes below 0 °C are kept, and the tolerance keeps sensor jitter during cooling. Frozen counts are cumulative, so a freeze event on a left-out row appears in the next kept row. A warning names any sample whose events fall after a cycle's last kept row.
+
+The import summary and log report how many rows each setting left out, per cycle. Without a reset threshold, a second cooling after a warm-up is left out until it becomes colder than the first; set **Reset After Warmed To (°C)** for repeated cycles.
+
+Rows recorded after warming join the coldest point to the warm end at the final count in the **Number frozen** plot, and can make maximum likelihood (MLE) concentrations empty or infinite. Reimport temperatures in sessions created before Icescopy 2.6.4 to apply these settings.
+
 ## Review and export
 
 Before using the result, check:
@@ -259,6 +271,6 @@ Before using the result, check:
 
 Choose **File → Output Results**, then **Freeze Count Timeseries CSV**. Save to a new location when preserving an earlier export, and save the session to retain the imported table and remembered import choices. Record **Cycle Warm-Up Hysteresis** separately: the session does not save that global preference.
 
-The count table is not restricted to detected freeze frames or analysis intervals. Standard, UTK, TAMU, and PKU produce one row per loaded frame; CSU produces one row per instrument record. Missing temperatures are empty CSV fields, while `nan` denotes missing metadata. See [Output Reference](Output-Reference.md) before loading the table into other software.
+The count table is not restricted to detected freeze frames or analysis intervals. Standard, UTK, TAMU, and PKU produce one row per loaded frame; CSU produces one row per instrument record. The **Rows** settings above can leave out some of these rows. Missing temperatures are empty CSV fields, while `nan` denotes missing metadata. See [Output Reference](Output-Reference.md) before loading the table into other software.
 
 Fraction frozen can be calculated as number frozen divided by a valid, nonzero number total. The app does not provide uncertainty estimates or calculate ice-nucleating-particle concentrations, and successful timestamp matching does not establish the accuracy of a freeze detection or temperature calibration.
