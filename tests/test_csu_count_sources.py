@@ -132,6 +132,25 @@ class CSUCountSourceTests(unittest.TestCase):
         self.assertEqual(rows[2][0], "2026-01-01 12:00:02.860")
         self.assertEqual(rows[2][1], "-3.000")
 
+    def test_records_after_the_last_loaded_image_are_left_out_in_all_modes(self):
+        window = CountWindow(["Image_0.png", "Image_1.png"], [("Sample_0", [[1], [1]])])
+        data = make_data([5, -10, -20, -28, 14, 14, 14],
+                         {1: "Image_0.png", 3: "Image_1.png", 4: "Image_2.png"},
+                         {"Sample_0": [0, 0, 1, 2, 2, 2, 2]})
+        for source in (CSU_COUNT_SOURCE_COMBINED, CSU_COUNT_SOURCE_IMAGES, CSU_COUNT_SOURCE_INSTRUMENT):
+            with self.subTest(source=source):
+                headers, rows, summary = window.build_csu_freeze_count_timeseries_results(
+                    data, count_source=source
+                )
+                self.assertEqual([row[1] for row in rows], ["5.000", "-10.000", "-20.000", "-28.000"])
+                self.assertEqual(rows[-1][3], "Image_1.png")
+                self.assertEqual(values(headers, rows, "Sample_0 number frozen")[-1], 2)
+                self.assertEqual(summary["trailing_rows_omitted"], 3)
+                self.assertIn(
+                    "Left out 3 .dat record(s) after the last loaded image (Picture Image_1.png).",
+                    summary["warnings"],
+                )
+
     def test_each_count_source_has_its_own_event_timing_and_default_stays_combined(self):
         window = CountWindow(["a.png", "b.png"], [("Sample_0", [[1], [1], []])])
         data = make_data([-1, -2, -3, -4, -5], {0: "a.png", 4: "b.png"},

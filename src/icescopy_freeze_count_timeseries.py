@@ -884,6 +884,16 @@ class FreezeCountTimeseriesMixin:
                 "The loaded images are out of order relative to the CSU Picture records. "
                 "Reload them in acquisition order (use natural filename order for numbered images)."
             )
+        # Records after the last loaded image (often a warm-up Picture) would
+        # join the coldest point to room temperature at the final count.
+        last_row_index = matched_frame_rows[-1]
+        trailing_row_count = len(parsed_rows) - (last_row_index + 1)
+        if trailing_row_count:
+            warnings.append(
+                f"Left out {trailing_row_count} .dat record(s) after the last loaded image "
+                f"(Picture {parsed_rows[last_row_index].picture_name})."
+            )
+            parsed_rows = parsed_rows[:last_row_index + 1]
         unmatched_image_indexes = {
             index for name, index in image_index_by_name.items() if name not in picture_row_by_name
         }
@@ -1062,6 +1072,7 @@ class FreezeCountTimeseriesMixin:
             "matched_picture_rows": int(picture_rows_matched),
             "matched_sample_count": int(len(matched_samples)),
             "total_picture_rows": int(sum(1 for row in parsed_rows if getattr(row, "picture_name", ""))),
+            "trailing_rows_omitted": int(trailing_row_count),
             "cycle_count": int(max(row_cycle_ids) + 1) if row_cycle_ids else 1,
             "freeze_review_cycle_metadata": capture_cycle_metadata(
                 self, image_cycle_ids, reset_temperature, require_unique_names=True,
