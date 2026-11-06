@@ -154,7 +154,8 @@ class TemperatureRefreshTests(unittest.TestCase):
                                 (window.build_tamu_freeze_count_timeseries_results, tamu),
                                 (window.build_pku_linksys32_freeze_count_timeseries_results, pku)):
             with self.subTest(builder=builder.__name__):
-                headers, rows, summary = builder(parsed)
+                # Out-of-order images are not warming; keep every row to check the warning.
+                headers, rows, summary = builder(parsed, leave_out_warming=False)
                 self.assertEqual(len(rows), 3)
                 self.assertEqual(len(summary['warnings']), 1)
                 self.assertIn(names[2], summary['warnings'][0])

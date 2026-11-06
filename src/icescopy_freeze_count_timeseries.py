@@ -262,6 +262,106 @@ def cycle_reset_counts(freeze_events_by_cell, image_cycle_ids, total_image_count
     return cycle_counts
 
 
+DEFAULT_WARMING_TOLERANCE_C = 0.2
+
+
+def warming_row_flags(headers, rows, tolerance_c=DEFAULT_WARMING_TOLERANCE_C):
+    """True for rows warmer than their cycle's coldest reading so far plus tolerance.
+
+    Only after the cycle has gone below 0 °C: drift before cooling cannot freeze
+    droplets, and the tolerance absorbs sensor jitter during cooling.
+    """
+    temperature_column = headers.index("temperature_C")
+    cycle_column = headers.index("cycle") if "cycle" in headers else None
+    coldest_by_cycle = {}
+    flags = []
+    for row in rows:
+        try:
+            temperature = float(row[temperature_column])
+        except (TypeError, ValueError):
+            temperature = float("nan")
+        cycle = row[cycle_column] if cycle_column is not None else ""
+        coldest = coldest_by_cycle.get(cycle)
+        if not np.isfinite(temperature):
+            flags.append(False)
+        elif coldest is not None and coldest < 0.0 and temperature > coldest + tolerance_c:
+            flags.append(True)
+        else:
+            coldest_by_cycle[cycle] = temperature if coldest is None else min(coldest, temperature)
+            flags.append(False)
+    return flags
+
+
+def leave_out_warming_rows(headers, rows, tolerance_c=DEFAULT_WARMING_TOLERANCE_C):
+    """Kept rows, rows left out per cycle, and warnings for events after a cycle's last kept row.
+
+    Frozen counts are cumulative within a cycle, so a kept row already includes
+    events from the warming rows before it.
+    """
+    flags = warming_row_flags(headers, rows, tolerance_c)
+    cycle_column = headers.index("cycle") if "cycle" in headers else None
+    frozen_columns = [
+        (index, header[:-len(" number frozen")])
+        for index, header in enumerate(headers) if header.endswith(" number frozen")
+    ]
+    omitted_by_cycle = {}
+    last_kept_by_cycle = {}
+    for row, left_out in zip(rows, flags):
+        cycle = str(row[cycle_column]) if cycle_column is not None else ""
+        if left_out:
+            omitted_by_cycle[cycle] = omitted_by_cycle.get(cycle, 0) + 1
+        else:
+            last_kept_by_cycle[cycle] = row
+    warnings = []
+    for cycle in omitted_by_cycle:
+        last_kept = last_kept_by_cycle.get(cycle)
+        for column, sample_name in frozen_columns:
+            def count(row):
+                try:
+                    return int(float(row[column]))
+                except (TypeError, ValueError):
+                    return 0
+            kept_count = count(last_kept) if last_kept is not None else 0
+            later_counts = [
+                count(row) for row, left_out in zip(rows, flags)
+                if left_out and (str(row[cycle_column]) if cycle_column is not None else "") == cycle
+            ]
+            if later_counts and max(later_counts) > kept_count:
+                warnings.append(
+                    f"{sample_name}: {max(later_counts) - kept_count} freeze event(s) in cycle {cycle} "
+                    "fall on warming rows after its last kept row and are not counted."
+                )
+    kept_rows = [row for row, left_out in zip(rows, flags) if not left_out]
+    return kept_rows, omitted_by_cycle, warnings
+
+
+def resolve_warming_tolerance_c(window, warming_tolerance_c):
+    """The given tolerance, else the window's preference, never negative."""
+    if warming_tolerance_c is None:
+        warming_tolerance_c = getattr(window, "temperature_warming_tolerance_c", DEFAULT_WARMING_TOLERANCE_C)
+    return max(0.0, float(warming_tolerance_c))
+
+
+def apply_count_row_settings(
+    headers, rows, summary, *, stop_at_last_image, leave_out_warming,
+    warming_tolerance_c, trailing_rows_omitted=0,
+):
+    """Record both row settings in the summary and leave out warming rows."""
+    summary["stop_at_last_image"] = bool(stop_at_last_image)
+    summary["leave_out_warming"] = bool(leave_out_warming)
+    summary["warming_tolerance_c"] = float(warming_tolerance_c)
+    summary["trailing_rows_omitted"] = int(trailing_rows_omitted)
+    omitted_by_cycle = {}
+    if leave_out_warming:
+        rows, omitted_by_cycle, event_warnings = leave_out_warming_rows(
+            headers, rows, float(warming_tolerance_c),
+        )
+        summary.setdefault("warnings", []).extend(event_warnings)
+    summary["warming_rows_omitted"] = int(sum(omitted_by_cycle.values()))
+    summary["warming_rows_omitted_by_cycle"] = omitted_by_cycle
+    return rows
+
+
 class FreezeCountTimeseriesMixin:
     def freeze_review_cycle_ids(self):
         """Imported zero-based cycles in frame order, or empty when unavailable."""
@@ -654,7 +754,11 @@ class FreezeCountTimeseriesMixin:
         temperature_unit=TEMPERATURE_UNIT_CELSIUS,
         reset_temperature=None,
         timing_context=None,
+        stop_at_last_image=True,
+        leave_out_warming=True,
+        warming_tolerance_c=None,
     ):
+        warming_tolerance_c = resolve_warming_tolerance_c(self, warming_tolerance_c)
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = timing_context or self.build_standard_image_timing_context(
@@ -730,15 +834,24 @@ class FreezeCountTimeseriesMixin:
                 frame_interval_seconds=frame_interval_seconds,
                 temperature_timestamp_style=temperature_timestamp_style,
                 temperature_unit=temperature_unit, reset_temperature=reset_temperature,
-                timing_context=timing_context,
+                timing_context=timing_context, stop_at_last_image=stop_at_last_image,
+                leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
             ),
+        )
+        rows = apply_count_row_settings(
+            headers, rows, summary, stop_at_last_image=stop_at_last_image,
+            leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
         )
         return headers, rows, summary
 
     def build_csu_freeze_count_timeseries_results(
         self, parsed_data, reset_temperature=None,
         count_source=CSU_COUNT_SOURCE_COMBINED,
+        stop_at_last_image=True,
+        leave_out_warming=True,
+        warming_tolerance_c=None,
     ):
+        warming_tolerance_c = resolve_warming_tolerance_c(self, warming_tolerance_c)
         count_source_labels = {
             CSU_COUNT_SOURCE_IMAGES: "Icescopy only",
             CSU_COUNT_SOURCE_INSTRUMENT: "CSU recorded counts",
@@ -887,12 +1000,8 @@ class FreezeCountTimeseriesMixin:
         # Records after the last loaded image (often a warm-up Picture) would
         # join the coldest point to room temperature at the final count.
         last_row_index = matched_frame_rows[-1]
-        trailing_row_count = len(parsed_rows) - (last_row_index + 1)
+        trailing_row_count = len(parsed_rows) - (last_row_index + 1) if stop_at_last_image else 0
         if trailing_row_count:
-            warnings.append(
-                f"Left out {trailing_row_count} .dat record(s) after the last loaded image "
-                f"(Picture {parsed_rows[last_row_index].picture_name})."
-            )
             parsed_rows = parsed_rows[:last_row_index + 1]
         unmatched_image_indexes = {
             index for name, index in image_index_by_name.items() if name not in picture_row_by_name
@@ -1072,7 +1181,6 @@ class FreezeCountTimeseriesMixin:
             "matched_picture_rows": int(picture_rows_matched),
             "matched_sample_count": int(len(matched_samples)),
             "total_picture_rows": int(sum(1 for row in parsed_rows if getattr(row, "picture_name", ""))),
-            "trailing_rows_omitted": int(trailing_row_count),
             "cycle_count": int(max(row_cycle_ids) + 1) if row_cycle_ids else 1,
             "freeze_review_cycle_metadata": capture_cycle_metadata(
                 self, image_cycle_ids, reset_temperature, require_unique_names=True,
@@ -1080,7 +1188,16 @@ class FreezeCountTimeseriesMixin:
             "reset_temperature": self.normalize_temperature_reset_threshold(reset_temperature),
         }
         summary["refresh_context"] = make_temperature_refresh_context(
-            self, "csu", parsed_data, dict(reset_temperature=reset_temperature, count_source=count_source),
+            self, "csu", parsed_data, dict(
+                reset_temperature=reset_temperature, count_source=count_source,
+                stop_at_last_image=stop_at_last_image, leave_out_warming=leave_out_warming,
+                warming_tolerance_c=warming_tolerance_c,
+            ),
+        )
+        rows = apply_count_row_settings(
+            headers, rows, summary, stop_at_last_image=stop_at_last_image,
+            leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
+            trailing_rows_omitted=trailing_row_count,
         )
         return headers, rows, summary
 
@@ -1089,7 +1206,11 @@ class FreezeCountTimeseriesMixin:
         parsed_timeseries,
         calibration_by_well=None,
         reset_temperature=None,
+        stop_at_last_image=True,
+        leave_out_warming=True,
+        warming_tolerance_c=None,
     ):
+        warming_tolerance_c = resolve_warming_tolerance_c(self, warming_tolerance_c)
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_tamu_image_timing_context(parsed_timeseries, reset_temperature=reset_temperature)
@@ -1146,7 +1267,15 @@ class FreezeCountTimeseriesMixin:
             "calibrated_cell_count": int(len(calibrated_cell_ids)),
         }
         summary["refresh_context"] = make_temperature_refresh_context(
-            self, "tamu", parsed_timeseries, dict(reset_temperature=reset_temperature, calibration_by_well=calibration_by_well),
+            self, "tamu", parsed_timeseries, dict(
+                reset_temperature=reset_temperature, calibration_by_well=calibration_by_well,
+                stop_at_last_image=stop_at_last_image, leave_out_warming=leave_out_warming,
+                warming_tolerance_c=warming_tolerance_c,
+            ),
+        )
+        rows = apply_count_row_settings(
+            headers, rows, summary, stop_at_last_image=stop_at_last_image,
+            leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
         )
         return headers, rows, summary
 
@@ -1154,7 +1283,11 @@ class FreezeCountTimeseriesMixin:
         self,
         parsed_timeseries,
         reset_temperature=None,
+        stop_at_last_image=True,
+        leave_out_warming=True,
+        warming_tolerance_c=None,
     ):
+        warming_tolerance_c = resolve_warming_tolerance_c(self, warming_tolerance_c)
         sample_groups, grouping_mode = self.build_tamu_freeze_count_timeseries_sample_groups()
         matched_samples = self.build_freeze_count_timeseries_output_samples(sample_groups)
         timing_context = self.build_pku_linksys32_image_timing_context(
@@ -1192,6 +1325,13 @@ class FreezeCountTimeseriesMixin:
             **count_summary_unparsed_fields(self, timing_context),
         }
         summary["refresh_context"] = make_temperature_refresh_context(
-            self, "pku", parsed_timeseries, dict(reset_temperature=reset_temperature),
+            self, "pku", parsed_timeseries, dict(
+                reset_temperature=reset_temperature, stop_at_last_image=stop_at_last_image,
+                leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
+            ),
+        )
+        rows = apply_count_row_settings(
+            headers, rows, summary, stop_at_last_image=stop_at_last_image,
+            leave_out_warming=leave_out_warming, warming_tolerance_c=warming_tolerance_c,
         )
         return headers, rows, summary

@@ -216,7 +216,8 @@ class CycleMetadataLifecycleTests(unittest.TestCase):
         self.window.freeze_results_headers = []
         self.window.freeze_results_rows = []
         self.window.set_freeze_count_timeseries_results(
-            *self.window.build_standard_freeze_count_timeseries_results(self.parsed_temperature()))
+            *self.window.build_standard_freeze_count_timeseries_results(
+                self.parsed_temperature(), leave_out_warming=False))
         self.assertTrue(self.window.freeze_count_timeseries_summary["analysis_required"])
         for item in self.window.scene.items():
             if getattr(item, "cell_id", None) == self.cell_id:
@@ -230,7 +231,8 @@ class CycleMetadataLifecycleTests(unittest.TestCase):
 
     def test_completed_analysis_refreshes_from_new_events_not_previous_records(self):
         self.window.set_freeze_count_timeseries_results(
-            *self.window.build_standard_freeze_count_timeseries_results(self.parsed_temperature()))
+            *self.window.build_standard_freeze_count_timeseries_results(
+                self.parsed_temperature(), leave_out_warming=False))
         self.window.pending_analysis_before_state = None
         self.window.worker = SimpleNamespace(
             freeze_result_headers=["cell", "image_index", "image_name"],

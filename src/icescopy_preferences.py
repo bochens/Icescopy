@@ -50,6 +50,7 @@ def read_preference_values(path):
         "ConvolutionHalfWindowPoints": (int, 0, 100000),
         "ConvolutionRampPoints": (int, 0, 1000),
         "TemperatureCycleWarmupHysteresisC": (float, 0.0, 10.0),
+        "TemperatureWarmingToleranceC": (float, 0.0, 10.0),
         "TimeseriesLineWidth": (float, 0.1, 20.0),
         "TimeseriesConvolutionLineWidth": (float, 0.1, 20.0),
         "TimeseriesFreezeLineWidth": (float, 0.1, 20.0),
@@ -102,7 +103,10 @@ def read_preference_values(path):
         preferences["SampleMetadataSchema"] = default_sample_metadata_schema()
         warnings.append(f"SampleMetadataSchema: {err}; using the default fields.")
 
-    for key in ("FreezeFinderDetectBrightening", "InptkLogConcentration"):
+    for key in (
+        "FreezeFinderDetectBrightening", "InptkLogConcentration",
+        "TemperatureImportStopAtLastImage", "TemperatureImportLeaveOutWarming",
+    ):
         element = root.find(key)
         if element is not None and element.text is not None:
             preferences[key] = element.text.strip().lower() in {"1", "true", "yes", "on"}

@@ -105,12 +105,16 @@ class CSUImportDialogTests(unittest.TestCase):
             show_detailed_information_dialog=Mock(),
             log=Mock(),
         )
+        window.temperature_import_row_options = (
+            lambda values: icescopy_module.IceScopy.temperature_import_row_options(window, values))
         dialog = Mock()
         dialog.exec.return_value = QDialog.Accepted
         dialog.get_values.return_value = {
             "file_path": "/synthetic/cold-stage.dat",
             "reset_temperature": None,
             "count_source": CSU_COUNT_SOURCE_COMBINED,
+            "stop_at_last_image": True,
+            "leave_out_warming": False,
         }
         with patch.object(icescopy_module, "CSUTemperatureImportDialog", return_value=dialog), \
                 patch.object(icescopy_module, "parse_csu_is_dat", return_value=parsed):
@@ -119,7 +123,10 @@ class CSUImportDialogTests(unittest.TestCase):
         builder.assert_called_once_with(
             parsed, reset_temperature=None,
             count_source=CSU_COUNT_SOURCE_COMBINED,
+            stop_at_last_image=True, leave_out_warming=False, warming_tolerance_c=None,
         )
+        self.assertEqual(window.temperature_import_row_settings,
+                         {"stop_at_last_image": True, "leave_out_warming": False})
         details = window.show_detailed_information_dialog.call_args.args[2]
         self.assertIn("Count source: Icescopy + .dat", details)
         self.assertIn("Cell groups: 1 total; 1 included.", details)

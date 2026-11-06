@@ -991,6 +991,19 @@ class PreferencesDialog(QDialog):
             2,
         )
         self.temperature_cycle_warmup_hysteresis_c_field.setSingleStep(0.01)
+        self.temperature_import_stop_at_last_image_field = QCheckBox("Stop at the last loaded image")
+        self.temperature_import_stop_at_last_image_field.setChecked(
+            bool(self.pref_value("TemperatureImportStopAtLastImage")))
+        self.temperature_import_leave_out_warming_field = QCheckBox("Leave out warming")
+        self.temperature_import_leave_out_warming_field.setChecked(
+            bool(self.pref_value("TemperatureImportLeaveOutWarming")))
+        self.temperature_warming_tolerance_c_field = self.make_double_spinbox(
+            0.0,
+            10.0,
+            self.pref_value("TemperatureWarmingToleranceC"),
+            2,
+        )
+        self.temperature_warming_tolerance_c_field.setSingleStep(0.05)
         self.timeseries_palette_field = QComboBox()
         for value, label in PLOT_PALETTE_LABELS.items():
             self.timeseries_palette_field.addItem(label, value)
@@ -1042,6 +1055,9 @@ class PreferencesDialog(QDialog):
             self.freeze_finder_detect_brightening_field,
             self.video_grayscale_mode_field,
             self.temperature_cycle_warmup_hysteresis_c_field,
+            self.temperature_import_stop_at_last_image_field,
+            self.temperature_import_leave_out_warming_field,
+            self.temperature_warming_tolerance_c_field,
             self.timeseries_palette_field,
             self.timeseries_line_width_field,
             self.timeseries_convolution_line_width_field,
@@ -1676,6 +1692,27 @@ class PreferencesDialog(QDialog):
                             "Extra warm-up required above the reset threshold before a new temperature cycle is created. Use this to ignore tiny threshold jitter such as 4.999 to 5.002 C.",
                         ),
                     ),
+                    (
+                        "Temperature Import Rows",
+                        self.build_field_with_help(
+                            self.temperature_import_stop_at_last_image_field,
+                            "Default for temperature imports: leave out records logged after the last loaded image, such as a picture taken after the stage warmed up.",
+                        ),
+                    ),
+                    (
+                        "",
+                        self.build_field_with_help(
+                            self.temperature_import_leave_out_warming_field,
+                            "Default for temperature imports: once a cycle is below 0 C, leave out readings warmer than its coldest reading so far plus the warming tolerance.",
+                        ),
+                    ),
+                    (
+                        "Warming Tolerance (°C)",
+                        self.build_field_with_help(
+                            self.temperature_warming_tolerance_c_field,
+                            "How far a reading may rise above the cycle's coldest reading before it counts as warming. Sensor jitter in CSU records stays below about 0.06 C.",
+                        ),
+                    ),
                 ],
             ),
         )
@@ -2074,6 +2111,15 @@ class PreferencesDialog(QDialog):
         )
         SubElement(root, "TemperatureCycleWarmupHysteresisC").text = str(
             self.temperature_cycle_warmup_hysteresis_c_field.value()
+        )
+        SubElement(root, "TemperatureImportStopAtLastImage").text = (
+            "true" if self.temperature_import_stop_at_last_image_field.isChecked() else "false"
+        )
+        SubElement(root, "TemperatureImportLeaveOutWarming").text = (
+            "true" if self.temperature_import_leave_out_warming_field.isChecked() else "false"
+        )
+        SubElement(root, "TemperatureWarmingToleranceC").text = str(
+            self.temperature_warming_tolerance_c_field.value()
         )
         SubElement(root, "TimeseriesPalette").text = self.timeseries_palette_field.currentData()
         SubElement(root, "TimeseriesLineWidth").text = str(self.timeseries_line_width_field.value())

@@ -42,6 +42,22 @@ from icescopy_temperature_import import (
 )
 
 
+def row_settings_notes(summary):
+    """Rows the import left out under its row settings, in plain sentences."""
+    notes = []
+    trailing = int(summary.get("trailing_rows_omitted", 0) or 0)
+    if trailing:
+        notes.append(f"Left out {trailing} record(s) after the last loaded image.")
+    by_cycle = summary.get("warming_rows_omitted_by_cycle") or {}
+    if by_cycle:
+        detail = ", ".join(f"cycle {cycle}: {count}" for cycle, count in by_cycle.items())
+        notes.append(
+            f"Left out {sum(by_cycle.values())} warming row(s) ({detail}; "
+            f"tolerance {float(summary.get('warming_tolerance_c', 0.0)):g} °C)."
+        )
+    return notes
+
+
 def temperature_import_summary_text(summary, row_count, *, video_mode=False):
     """Describe output coverage without treating included cells as sample matches."""
     groups = summary.get("matched_samples", [])
@@ -93,6 +109,7 @@ def temperature_import_summary_text(summary, row_count, *, video_mode=False):
             notices.append("Rows without temperatures are kept in the table with blank temperature fields.")
 
     lines.append(f"Output rows: {row_count}. Cooling cycles: {summary.get('cycle_count', 1)}.")
+    lines.extend(row_settings_notes(summary))
     if summary.get("warnings"):
         notices.append(f"Review {len(summary['warnings'])} warning(s) in Show Details before exporting.")
     if notices:
@@ -151,6 +168,45 @@ def reset_temperature_value(spinbox):
     if reset_temperature <= -999.0:
         reset_temperature = None
     return reset_temperature
+
+
+ROW_SETTINGS_LABEL = "Rows"
+ROW_SETTINGS_DESCRIPTION = (
+    "Leave out warming drops readings warmer than the coldest reading so far in their "
+    "cycle (beyond the warming tolerance in Preferences) once the cycle is below 0 °C."
+)
+
+
+def row_settings_row(dialog, initial_row_settings=None, *, rows_are_images=False):
+    """Stop-at-last-image and leave-out-warming checkboxes, as one form row."""
+    settings = {"stop_at_last_image": True, "leave_out_warming": True, **(initial_row_settings or {})}
+    stop_checkbox = QCheckBox("Stop at the last loaded image", dialog)
+    stop_checkbox.setChecked(bool(settings["stop_at_last_image"]))
+    if rows_are_images:
+        # Each row is a loaded image, so no row can follow the last image.
+        stop_checkbox.setChecked(True)
+        stop_checkbox.setEnabled(False)
+        stop_checkbox.setToolTip("Each row is a loaded image, so no rows follow the last image.")
+    else:
+        stop_checkbox.setToolTip("Leave out temperature records logged after the last loaded image.")
+    warming_checkbox = QCheckBox("Leave out warming", dialog)
+    warming_checkbox.setChecked(bool(settings["leave_out_warming"]))
+    warming_checkbox.setToolTip(ROW_SETTINGS_DESCRIPTION)
+    column = QVBoxLayout()
+    column.setContentsMargins(0, 0, 0, 0)
+    column.setSpacing(6)
+    column.addWidget(stop_checkbox)
+    column.addWidget(warming_checkbox)
+    row_widget = QWidget(dialog)
+    row_widget.setLayout(column)
+    return stop_checkbox, warming_checkbox, row_widget
+
+
+def row_settings_values(stop_checkbox, warming_checkbox):
+    return {
+        "stop_at_last_image": bool(stop_checkbox.isChecked()),
+        "leave_out_warming": bool(warming_checkbox.isChecked()),
+    }
 
 
 def start_dir(dialog, path_edit, use_frame_source=False):
@@ -288,6 +344,7 @@ class CSUTemperatureImportDialog(QDialog):
         parent=None,
         *,
         initial_count_source=CSU_COUNT_SOURCE_COMBINED,
+        initial_row_settings=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
@@ -338,13 +395,16 @@ class CSUTemperatureImportDialog(QDialog):
         self.reset_temperature_spinbox, reset_row_widget = reset_temperature_row(
             self, initial_reset_temperature)
         form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
+        self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox, row_settings_widget = (
+            row_settings_row(self, initial_row_settings))
+        form.addRow(ROW_SETTINGS_LABEL, row_settings_widget)
 
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
             "For repeated cooling cycles, set a "
             "reset temperature; warming to this value marks a new cycle. "
-            "Otherwise leave reset Off.",
+            f"Otherwise leave reset Off. {ROW_SETTINGS_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -402,6 +462,7 @@ class CSUTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
+            **row_settings_values(self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox),
             "count_source": self.count_source_combo.currentData(),
         }
 
@@ -414,6 +475,7 @@ class UTKTemperatureImportDialog(QDialog):
         initial_reset_temperature=None,
         video_mode=False,
         parent=None,
+        initial_row_settings=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
@@ -451,11 +513,14 @@ class UTKTemperatureImportDialog(QDialog):
         self.reset_temperature_spinbox, reset_row_widget = reset_temperature_row(
             self, initial_reset_temperature)
         form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
+        self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox, row_settings_widget = (
+            row_settings_row(self, initial_row_settings, rows_are_images=True))
+        form.addRow(ROW_SETTINGS_LABEL, row_settings_widget)
 
         scroll_layout.addLayout(form, 1)
 
         hint_label = QLabel(
-            TEMPERATURE_RESET_DESCRIPTION,
+            f"{TEMPERATURE_RESET_DESCRIPTION} {ROW_SETTINGS_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -496,6 +561,7 @@ class UTKTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
+            **row_settings_values(self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox),
         }
 
 
@@ -507,6 +573,7 @@ class TAMUTemperatureImportDialog(QDialog):
         initial_calibration_path="",
         initial_reset_temperature=None,
         parent=None,
+        initial_row_settings=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
@@ -548,12 +615,15 @@ class TAMUTemperatureImportDialog(QDialog):
         self.reset_temperature_spinbox, reset_row_widget = reset_temperature_row(
             self, initial_reset_temperature)
         form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
+        self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox, row_settings_widget = (
+            row_settings_row(self, initial_row_settings, rows_are_images=True))
+        form.addRow(ROW_SETTINGS_LABEL, row_settings_widget)
 
         scroll_layout.addLayout(form)
 
         hint_label = QLabel(
             "Calibration is applied by cell ID. If no sample setup exists, all cells are treated as one output group. "
-            f"{TEMPERATURE_RESET_DESCRIPTION}",
+            f"{TEMPERATURE_RESET_DESCRIPTION} {ROW_SETTINGS_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -617,6 +687,7 @@ class TAMUTemperatureImportDialog(QDialog):
             "file_path": self.file_path_edit.text().strip(),
             "calibration_path": self.calibration_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
+            **row_settings_values(self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox),
         }
 
 
@@ -627,6 +698,7 @@ class PKUTemperatureImportDialog(QDialog):
         initial_path,
         initial_reset_temperature=None,
         parent=None,
+        initial_row_settings=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
@@ -662,12 +734,15 @@ class PKUTemperatureImportDialog(QDialog):
         self.reset_temperature_spinbox, reset_row_widget = reset_temperature_row(
             self, initial_reset_temperature)
         form.addRow(TEMPERATURE_RESET_LABEL, reset_row_widget)
+        self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox, row_settings_widget = (
+            row_settings_row(self, initial_row_settings, rows_are_images=True))
+        form.addRow(ROW_SETTINGS_LABEL, row_settings_widget)
 
         scroll_layout.addLayout(form)
 
         hint_label = QLabel(
             "The .iml image record count must match the loaded image count so image order can be used without guessing. "
-            f"{TEMPERATURE_RESET_DESCRIPTION}",
+            f"{TEMPERATURE_RESET_DESCRIPTION} {ROW_SETTINGS_DESCRIPTION}",
             self,
         )
         hint_label.setWordWrap(True)
@@ -709,6 +784,7 @@ class PKUTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
+            **row_settings_values(self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox),
         }
 
 
@@ -727,6 +803,7 @@ class StandardTemperatureImportDialog(QDialog):
         initial_temperature_unit=TEMPERATURE_UNIT_CELSIUS,
         video_mode=False,
         parent=None,
+        initial_row_settings=None,
     ):
         super().__init__(parent)
         self.main_window = main_window
@@ -912,6 +989,9 @@ class StandardTemperatureImportDialog(QDialog):
         self.reset_temperature_spinbox, reset_row_widget = reset_temperature_row(
             self, initial_reset_temperature)
         self.temperature_form.addRow(make_form_label(TEMPERATURE_RESET_LABEL), reset_row_widget)
+        self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox, row_settings_widget = (
+            row_settings_row(self, initial_row_settings, rows_are_images=True))
+        self.temperature_form.addRow(make_form_label(ROW_SETTINGS_LABEL), row_settings_widget)
 
         self.scroll_contents_layout.addLayout(self.temperature_form)
 
@@ -922,6 +1002,7 @@ class StandardTemperatureImportDialog(QDialog):
             "YY/MM/DD HH:MM:SS, and EXIF text YYYY:MM:DD HH:MM:SS.</li>"
             "<li>Use the explicit Unix epoch options for 10-digit seconds or 13-digit milliseconds since 1970-01-01 00:00:00 UTC.</li>"
             f"<li>{TEMPERATURE_RESET_DESCRIPTION}</li>"
+            f"<li>{ROW_SETTINGS_DESCRIPTION}</li>"
             "</ul>",
             self,
         )
@@ -1103,6 +1184,7 @@ class StandardTemperatureImportDialog(QDialog):
         return {
             "file_path": self.file_path_edit.text().strip(),
             "reset_temperature": reset_temperature,
+            **row_settings_values(self.stop_at_last_image_checkbox, self.leave_out_warming_checkbox),
             "image_timestamp_source": self.selected_image_timestamp_source(),
             "image_timestamp_style": self.selected_image_timestamp_style(),
             "temperature_timestamp_style": self.selected_temperature_timestamp_style(),

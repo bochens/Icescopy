@@ -146,10 +146,12 @@ class CSUCountSourceTests(unittest.TestCase):
                 self.assertEqual(rows[-1][3], "Image_1.png")
                 self.assertEqual(values(headers, rows, "Sample_0 number frozen")[-1], 2)
                 self.assertEqual(summary["trailing_rows_omitted"], 3)
-                self.assertIn(
-                    "Left out 3 .dat record(s) after the last loaded image (Picture Image_1.png).",
-                    summary["warnings"],
+                self.assertTrue(summary["stop_at_last_image"])
+                headers, rows, summary = window.build_csu_freeze_count_timeseries_results(
+                    data, count_source=source, stop_at_last_image=False, leave_out_warming=False,
                 )
+                self.assertEqual(len(rows), 7)
+                self.assertEqual(summary["trailing_rows_omitted"], 0)
 
     def test_each_count_source_has_its_own_event_timing_and_default_stays_combined(self):
         window = CountWindow(["a.png", "b.png"], [("Sample_0", [[1], [1], []])])

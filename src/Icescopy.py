@@ -32,6 +32,7 @@ from icescopy_cell import CellStateManager
 from icescopy_cell_items import CellCircle, CellSnapshot
 from icescopy_dialogs import (
     CSUTemperatureImportDialog,
+    row_settings_notes,
     temperature_import_summary_text,
     NewSessionMetadataDialog,
     OutputResultsDialog,
@@ -261,6 +262,11 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         self.freeze_finder_detect_brightening = DEFAULT_PREFERENCE_VALUES["FreezeFinderDetectBrightening"]
         self.video_grayscale_mode = DEFAULT_VIDEO_GRAYSCALE_MODE
         self.temperature_cycle_warmup_hysteresis_c = 0.02
+        self.temperature_warming_tolerance_c = DEFAULT_PREFERENCE_VALUES["TemperatureWarmingToleranceC"]
+        self.temperature_import_row_settings = {
+            "stop_at_last_image": DEFAULT_PREFERENCE_VALUES["TemperatureImportStopAtLastImage"],
+            "leave_out_warming": DEFAULT_PREFERENCE_VALUES["TemperatureImportLeaveOutWarming"],
+        }
         self.timeseries_palette = "bright"
         self.timeseries_line_width = 2.0
         self.inptk_sample_line_width = 2.8
@@ -423,6 +429,15 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 self.temperature_cycle_warmup_hysteresis_c,
             )
         )
+        self.temperature_warming_tolerance_c = float(
+            preferences.get('TemperatureWarmingToleranceC', self.temperature_warming_tolerance_c)
+        )
+        self.temperature_import_row_settings = {
+            "stop_at_last_image": bool(preferences.get(
+                'TemperatureImportStopAtLastImage', self.temperature_import_row_settings["stop_at_last_image"])),
+            "leave_out_warming": bool(preferences.get(
+                'TemperatureImportLeaveOutWarming', self.temperature_import_row_settings["leave_out_warming"])),
+        }
         self.timeseries_palette = preferences.get('TimeseriesPalette', self.timeseries_palette)
         self.timeseries_line_width = float(
             preferences.get('TimeseriesLineWidth', self.timeseries_line_width)
@@ -5501,6 +5516,9 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             "sample_metadata_schema",
             self.serialize_sample_metadata_schema(),
         )
+        if not automatic:
+            for note in row_settings_notes(self.freeze_count_timeseries_summary):
+                self.log(f"Temperature import: {note}")
         if automatic:
             self.update_temperature_table_after_edit(previous_headers, previous_rows)
         else:
@@ -7473,6 +7491,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             getattr(self, "last_standard_temperature_temperature_unit", TEMPERATURE_UNIT_CELSIUS),
             video_mode,
             self,
+            initial_row_settings=getattr(self, "temperature_import_row_settings", None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7502,6 +7521,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 temperature_timestamp_style=temperature_timestamp_style,
                 temperature_unit=temperature_unit,
                 reset_temperature=reset_temperature,
+                **self.temperature_import_row_options(dialog_values),
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()
@@ -7619,6 +7639,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             getattr(self, "last_temperature_reset_temperature", None),
             video_mode,
             self,
+            initial_row_settings=getattr(self, "temperature_import_row_settings", None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7652,6 +7673,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 temperature_timestamp_style="UTK Time column",
                 temperature_unit=TEMPERATURE_UNIT_CELSIUS,
                 reset_temperature=reset_temperature,
+                **self.temperature_import_row_options(dialog_values),
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()
@@ -7733,6 +7755,16 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
         if matched_samples:
             self.log("UTK output samples: " + ", ".join(matched_samples))
 
+    def temperature_import_row_options(self, dialog_values):
+        """Builder options for the dialog's row settings; they become the next dialog's defaults."""
+        self.temperature_import_row_settings = {
+            key: bool(dialog_values.get(key, True)) for key in ("stop_at_last_image", "leave_out_warming")
+        }
+        return dict(
+            self.temperature_import_row_settings,
+            warming_tolerance_c=getattr(self, "temperature_warming_tolerance_c", None),
+        )
+
     def import_csu_is_dat(self, checked=False):
         if not self.has_frames():
             QMessageBox.information(self, "CSU .dat import", "Load images before importing a CSU .dat file.")
@@ -7746,6 +7778,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             self.last_temperature_import_path,
             getattr(self, "last_temperature_reset_temperature", None),
             self,
+            initial_row_settings=getattr(self, "temperature_import_row_settings", None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7760,6 +7793,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 parsed_data,
                 reset_temperature=reset_temperature,
                 count_source=count_source,
+                **self.temperature_import_row_options(dialog_values),
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()
@@ -7866,6 +7900,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             getattr(self, "last_temperature_calibration_path", ""),
             getattr(self, "last_temperature_reset_temperature", None),
             self,
+            initial_row_settings=getattr(self, "temperature_import_row_settings", None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7885,6 +7920,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
                 parsed_timeseries,
                 calibration_by_well=calibration_by_well,
                 reset_temperature=reset_temperature,
+                **self.temperature_import_row_options(dialog_values),
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()
@@ -7978,6 +8014,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             initial_path=self.last_temperature_import_path,
             initial_reset_temperature=getattr(self, "last_temperature_reset_temperature", None),
             parent=self,
+            initial_row_settings=getattr(self, "temperature_import_row_settings", None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -7990,6 +8027,7 @@ class IceScopy(QMainWindow, FreezeCountTimeseriesMixin, SampleCatalogPanelMixin)
             headers, rows, summary = self.build_pku_linksys32_freeze_count_timeseries_results(
                 parsed_timeseries,
                 reset_temperature=reset_temperature,
+                **self.temperature_import_row_options(dialog_values),
             )
         except (OSError, TemperatureImportError) as err:
             detail_text = traceback.format_exc()

@@ -37,6 +37,16 @@ class PreferenceLoadingTests(unittest.TestCase):
         self.assertIs(self.load('<InptkLogConcentration>false</InptkLogConcentration>')
                       ['InptkLogConcentration'], False)
 
+    def test_temperature_import_row_preferences_default_on_and_load(self):
+        result = self.load('')
+        self.assertIs(result['TemperatureImportStopAtLastImage'], True)
+        self.assertIs(result['TemperatureImportLeaveOutWarming'], True)
+        self.assertEqual(result['TemperatureWarmingToleranceC'], 0.2)
+        result = self.load('<TemperatureImportLeaveOutWarming>false</TemperatureImportLeaveOutWarming>'
+                           '<TemperatureWarmingToleranceC>0.5</TemperatureWarmingToleranceC>')
+        self.assertIs(result['TemperatureImportLeaveOutWarming'], False)
+        self.assertEqual(result['TemperatureWarmingToleranceC'], 0.5)
+
     def test_missing_freeze_preferences_use_bundled_values(self):
         result = self.load('<FreezeFinderWidth>12</FreezeFinderWidth>')
         self.assertEqual(result['FreezeFinderHeadExtendPoints'], 20)

@@ -106,44 +106,45 @@ TAMU_NAMES = [tamu_name(seconds) for seconds in FRAME_SECONDS]
 TAMU_NAMES[5] = "notes.png"
 
 
-def case_standard_filenames():
+def case_standard_filenames(**row_settings):
     window = SyntheticWindow(TAMU_NAMES)
-    return window.build_standard_freeze_count_timeseries_results(standard_log(), reset_temperature=0)
+    return window.build_standard_freeze_count_timeseries_results(
+        standard_log(), reset_temperature=0, **row_settings)
 
 
-def case_standard_video_pts():
+def case_standard_video_pts(**row_settings):
     seconds = [None if index == 3 else 1.5 + 9.5 * index for index in range(10)]
     window = SyntheticWindow([f"frame {index:04d}" for index in range(10)], video_frame_seconds=seconds)
     return window.build_standard_freeze_count_timeseries_results(
         standard_log(), image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_VIDEO_PTS,
-        generated_start_text=START.isoformat(sep=" "), reset_temperature=-0.5)
+        generated_start_text=START.isoformat(sep=" "), reset_temperature=-0.5, **row_settings)
 
 
-def case_standard_video_generated_no_reset():
+def case_standard_video_generated_no_reset(**row_settings):
     window = SyntheticWindow([f"frame {index:04d}" for index in range(10)], video_frame_seconds=[0.0] * 10)
     return window.build_standard_freeze_count_timeseries_results(
         standard_log(), image_timestamp_source=IMAGE_TIMESTAMP_SOURCE_GENERATED,
         generated_start_text=(START + timedelta(seconds=3)).isoformat(sep=" "),
-        frame_interval_seconds="9.25")
+        frame_interval_seconds="9.25", **row_settings)
 
 
-def case_tamu_calibrated():
+def case_tamu_calibrated(**row_settings):
     window = SyntheticWindow(TAMU_NAMES)
     calibration = {0: (1.02, 0.4), 1: (0.97, -0.15), 4: (0, 1.0), 7: (1.1, 0.0), 12: (1.0, 0.25)}
     return window.build_tamu_freeze_count_timeseries_results(
-        tamu_log(), calibration_by_well=calibration, reset_temperature=0)
+        tamu_log(), calibration_by_well=calibration, reset_temperature=0, **row_settings)
 
 
-def case_tamu_all_cells():
+def case_tamu_all_cells(**row_settings):
     window = SyntheticWindow(TAMU_NAMES, samples=[("", [[2], [4, 9], [7]])], unassigned=[])
-    return window.build_tamu_freeze_count_timeseries_results(tamu_log())
+    return window.build_tamu_freeze_count_timeseries_results(tamu_log(), **row_settings)
 
 
-def case_pku():
+def case_pku(**row_settings):
     image_seconds = [None if index == 6 else 3.0 + 9.0 * index for index in range(10)]
     window = SyntheticWindow([f"img{index}.bmp" for index in range(10)])
     return window.build_pku_linksys32_freeze_count_timeseries_results(
-        pku_log(image_seconds), reset_temperature=0)
+        pku_log(image_seconds), reset_temperature=0, **row_settings)
 
 
 CASES = {
@@ -166,10 +167,31 @@ def prepared_source(headers, rows):
     return source
 
 
+# The pinned outputs predate the row settings. With both off, the output must
+# match them once the settings' own summary and refresh-option keys are removed.
+ROW_SETTINGS_OFF = {"stop_at_last_image": False, "leave_out_warming": False}
+ROW_SETTING_SUMMARY_KEYS = (
+    "stop_at_last_image", "leave_out_warming", "warming_tolerance_c",
+    "trailing_rows_omitted", "warming_rows_omitted", "warming_rows_omitted_by_cycle",
+)
+ROW_SETTING_OPTION_KEYS = ("stop_at_last_image", "leave_out_warming", "warming_tolerance_c")
+
+
+def without_row_settings(summary):
+    summary = {key: value for key, value in summary.items() if key not in ROW_SETTING_SUMMARY_KEYS}
+    context = dict(summary["refresh_context"])
+    context["options"] = {
+        key: value for key, value in context["options"].items() if key not in ROW_SETTING_OPTION_KEYS
+    }
+    summary["refresh_context"] = context
+    return summary
+
+
 def current_outputs():
     outputs = {}
     for name, build in CASES.items():
-        headers, rows, summary = build()
+        headers, rows, summary = build(**ROW_SETTINGS_OFF)
+        summary = without_row_settings(summary)
         outputs[name] = json.loads(json.dumps(encode_temperature_input({
             "headers": headers,
             "rows": rows,
