@@ -17,4 +17,4 @@ Reimport the temperature file and save the session to apply these changes to an 
 
 **[macOS, Apple Silicon](https://github.com/bochens/Icescopy/releases/download/v2.6.4/Icescopy-macos-arm64.zip):** save your work and close Icescopy, unzip the download, then replace **Icescopy.app** in Applications. See [installation help](https://github.com/bochens/Icescopy/blob/main/wiki/Installation-and-Setup.md) if macOS blocks opening it.
 
-**Windows, x64:** a 2.6.4 installer is not available yet. The [2.6.3 installer](https://github.com/bochens/Icescopy/releases/download/v2.6.3/Icescopy-windows-installer.exe) still works but does not have these changes.
+**[Windows, x64](https://github.com/bochens/Icescopy/releases/download/v2.6.4/Icescopy-windows-installer.exe):** save your work and close Icescopy, then run the installer.
